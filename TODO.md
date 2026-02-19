@@ -19,3 +19,20 @@
 - [ ] **Peer discovery** — Currently manual peer registration. Add mDNS or DHT-based discovery.
 - [ ] **Connection pooling** — Transport creates fresh connections; add pool for controller reuse.
 - [ ] **Error recovery tests** — Handshake timeouts, protocol version mismatch, allowlist rejection, connection drop/reconnect.
+
+---
+
+## Linux Homelab Assignment (Virgil, 19 Feb 2026)
+
+This package is assigned to the Linux homelab agent alongside go-rocm. Linux is the natural platform for socket-level networking work — real network interfaces, iptables for testing, no macOS sandbox restrictions.
+
+### Linux-Specific Tasks
+
+- [ ] **Real network integration tests** — Test WebSocket handshake over actual network interfaces (loopback + LAN). macOS sandbox can interfere with raw socket operations.
+- [ ] **Concurrent connection stress test** — Spawn 100+ peers on localhost, verify connection pooling, deduplication, and rate limiting under load. Linux handles high fd counts better.
+- [ ] **Firewall interaction** — Test UEPS packet routing through iptables rules. Verify threat circuit breaker works with real packet drops.
+
+### Platform
+
+- **OS**: Ubuntu 24.04 (linux/amd64)
+- **Co-located with**: go-rocm (AMD GPU inference), go-rag (Qdrant + Ollama)
