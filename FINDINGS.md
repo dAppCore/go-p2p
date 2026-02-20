@@ -2,7 +2,7 @@
 
 ## Code Quality
 
-- **90 tests in node/, all pass** — 72.1% statement coverage (up from 63.5%)
+- **100 tests in node/, all pass** — 71.9% statement coverage (dispatcher adds 10 test funcs / 17 subtests)
 - **logging/ fully tested** (12 tests, 100% coverage)
 - **UEPS 88.5% coverage** — wire protocol tests added in Phase 1
 - **`go vet` clean** — no static analysis warnings
@@ -18,6 +18,7 @@
 - Per-peer rate limiting (100 burst, 50 msg/sec)
 - Tarball extraction: Zip Slip defence, 100 MB per-file limit, symlink/hardlink rejection
 - Peer auth modes: open or public-key allowlist
+- UEPS threat circuit breaker: packets with ThreatScore > 50,000 dropped before intent routing
 
 ## Architecture Strengths
 
@@ -26,6 +27,7 @@
 - Debounced persistence (5s coalesce window for peer registry)
 - Buffer pool for JSON encoding (reduces GC pressure)
 - Decoupled MinerManager/ProfileManager interfaces
+- UEPS dispatcher: functional IntentHandler type, RWMutex-protected handler map, sentinel errors
 
 ## Critical Test Gaps
 
@@ -39,17 +41,25 @@
 | protocol.go | 88 | 5 tests | Good |
 | transport.go | 934 | 11 tests | Good (Phase 2) |
 | controller.go | 327 | 14 tests | Good (Phase 3) |
-| **dispatcher.go** | **39** | **stub** | **N/A** |
+| dispatcher.go | 120 | 10 tests (17 subtests) | 100% (Phase 4) |
 | ueps/packet.go | 124 | 9 tests | Good (Phase 1) |
 | ueps/reader.go | 138 | 9 tests | Good (Phase 1) |
 
 ## Known Issues
 
-1. **dispatcher.go is a stub** — Contains commented-out UEPS routing code. Threat circuit breaker and intent routing not implemented.
+1. ~~**dispatcher.go is a stub**~~ — Fully implemented (Phase 4). Threat circuit breaker and intent routing operational.
 2. **UEPS 0xFF payload length ambiguous** — Relies on external TCP framing, not self-delimiting. Comments note this but no solution implemented.
 3. **~~Potential race in controller.go~~** — ~~`transport.OnMessage(c.handleResponse)` called during init~~ — Not a real issue. The pending map is initialised in `NewController` before `OnMessage` is called, and `handleResponse` uses a mutex. No panic possible.
 4. **No resource cleanup on some error paths** — transport.handleWSUpgrade doesn't clean up on handshake timeout; transport.Connect doesn't clean up temp connection on error.
-5. **Threat score semantics undefined** — Referenced in dispatcher stub and UEPS header but no scoring/routing logic exists.
+5. ~~**Threat score semantics undefined**~~ — ThreatScoreThreshold (50,000) defined in dispatcher. Packets above threshold dropped and logged. Intent routing implemented for 0x01/0x20/0x30/0xFF.
+
+## Phase 4 Design Decisions
+
+1. **IntentHandler as func type, not interface** — Matches the codebase's `MessageHandler` pattern in transport.go. Lighter weight than an interface for a single-method contract.
+2. **Sentinel errors over silent drops** — The stub comments suggested silent drops, but returning typed errors (`ErrThreatScoreExceeded`, `ErrUnknownIntent`, `ErrNilPacket`) gives callers the option to inspect outcomes. The dispatcher still logs at WARN level regardless.
+3. **Threat check before intent routing** — A high-threat packet with an unknown intent returns `ErrThreatScoreExceeded`, not `ErrUnknownIntent`. The circuit breaker is the first line of defence; no packet metadata is inspected beyond ThreatScore before the drop.
+4. **Threshold at 50,000 (not configurable)** — Kept as a constant to match the original stub. Can be made configurable via functional options if needed later.
+5. **RWMutex for handler map** — Read-heavy workload (dispatches far outnumber registrations), so RWMutex is appropriate. Registration takes a write lock, dispatch takes a read lock.
 
 ## Bugs Fixed
 

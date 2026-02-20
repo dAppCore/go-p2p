@@ -47,14 +47,14 @@ Also fixed pre-existing data race in GracefulClose (P2P-RACE-1).
 - [x] **Concurrent requests** — Multiple requests in flight to different peers, correct correlation.
 - [x] **Dead peer cleanup** — Response channel cleaned up after timeout (no goroutine/memory leak).
 
-## Phase 4: Dispatcher Implementation
+## Phase 4: Dispatcher Implementation — COMPLETE (dispatcher 100% coverage)
 
-Currently a commented-out stub in `node/dispatcher.go`. Implement once Phases 1-3 are solid.
+UEPS packet dispatcher with threat circuit breaker and intent routing. Commit `a60dfdf`.
 
-- [ ] **Uncomment and implement DispatchUEPS** — Wire up to Transport for incoming UEPS packets.
-- [ ] **Threat circuit breaker** — Drop packets with ThreatScore > 50000. Log as threat event.
-- [ ] **Intent router** — Route by IntentID: 0x01 handshake, 0x20 compute, 0x30 rehab, 0xFF custom.
-- [ ] **Dispatcher tests** — Unit tests for each intent route and threat rejection.
+- [x] **Uncomment and implement DispatchUEPS** — Dispatcher struct with RegisterHandler/Dispatch, IntentHandler func type, sentinel errors.
+- [x] **Threat circuit breaker** — Drop packets with ThreatScore > 50000. Logged at WARN level with threat_score, threshold, intent_id, version fields.
+- [x] **Intent router** — Route by IntentID: 0x01 handshake, 0x20 compute, 0x30 rehab, 0xFF custom. Unknown intents logged and dropped.
+- [x] **Dispatcher tests** — 10 test functions, 17 subtests: register/dispatch, threat boundary (at/above/max/zero), unknown intent, multi-handler routing, nil/empty payload, concurrent dispatch, concurrent register+dispatch, handler replacement, threat-before-routing ordering, intent constant verification.
 
 ## Phase 5: Integration & Benchmarks
 
@@ -69,7 +69,7 @@ Currently a commented-out stub in `node/dispatcher.go`. Implement once Phases 1-
 1. **UEPS 0xFF payload has no length prefix** — Relies on external TCP framing (io.ReadAll reads to EOF). Not self-delimiting.
 2. **Potential race in controller.go** — `transport.OnMessage(c.handleResponse)` called during init; message arriving before pending map is ready could theoretically panic.
 3. **Resource cleanup gaps** — transport.handleWSUpgrade doesn't clean up on handshake timeout; transport.Connect doesn't clean up temp connection on error.
-4. **Threat score semantics undefined** — Referenced in dispatcher stub and UEPS header but no scoring/routing logic exists.
+4. ~~**Threat score semantics undefined**~~ — Dispatcher now defines ThreatScoreThreshold (50,000) and drops packets exceeding it. Routing by IntentID implemented.
 
 ## Wiki Inconsistencies Found (Charon, 19 Feb 2026)
 
