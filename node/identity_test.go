@@ -351,3 +351,41 @@ func TestChallengeResponse(t *testing.T) {
 		}
 	})
 }
+
+func TestNodeManager_DeriveSharedSecret_NoIdentity(t *testing.T) {
+	nm, cleanup := setupTestNodeManager(t)
+	defer cleanup()
+
+	// No identity generated
+	_, err := nm.DeriveSharedSecret("some-key")
+	if err == nil {
+		t.Error("expected error when identity not initialized")
+	}
+}
+
+func TestNodeManager_GetIdentity_NilWhenNoIdentity(t *testing.T) {
+	nm, cleanup := setupTestNodeManager(t)
+	defer cleanup()
+
+	identity := nm.GetIdentity()
+	if identity != nil {
+		t.Error("expected nil identity before generation")
+	}
+}
+
+func TestNodeManager_Delete_NoFiles(t *testing.T) {
+	tmpDir := t.TempDir()
+	nm, err := NewNodeManagerWithPaths(
+		filepath.Join(tmpDir, "nonexistent.key"),
+		filepath.Join(tmpDir, "nonexistent.json"),
+	)
+	if err != nil {
+		t.Fatalf("failed to create node manager: %v", err)
+	}
+
+	// Delete when no files exist should succeed
+	err = nm.Delete()
+	if err != nil {
+		t.Errorf("Delete should not error when files don't exist: %v", err)
+	}
+}

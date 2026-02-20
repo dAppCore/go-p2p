@@ -1,6 +1,9 @@
 package node
 
 import (
+	"encoding/base64"
+	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -510,4 +513,847 @@ func (m *mockProfileManager) GetProfile(id string) (interface{}, error) {
 
 func (m *mockProfileManager) SaveProfile(profile interface{}) error {
 	return nil
+}
+
+// --- Enhanced worker handler tests for full code path coverage ---
+
+// mockMinerManagerFailing always returns errors from StartMiner.
+type mockMinerManagerFailing struct {
+	mockMinerManager
+}
+
+func (m *mockMinerManagerFailing) StartMiner(minerType string, config interface{}) (MinerInstance, error) {
+	return nil, fmt.Errorf("mining hardware not available")
+}
+
+func (m *mockMinerManagerFailing) StopMiner(name string) error {
+	return fmt.Errorf("miner %s not found", name)
+}
+
+func (m *mockMinerManagerFailing) GetMiner(name string) (MinerInstance, error) {
+	return nil, fmt.Errorf("miner %s not found", name)
+}
+
+// mockProfileManagerFull implements ProfileManager that returns real data.
+type mockProfileManagerFull struct {
+	profiles map[string]interface{}
+}
+
+func (m *mockProfileManagerFull) GetProfile(id string) (interface{}, error) {
+	p, ok := m.profiles[id]
+	if !ok {
+		return nil, fmt.Errorf("profile %s not found", id)
+	}
+	return p, nil
+}
+
+func (m *mockProfileManagerFull) SaveProfile(profile interface{}) error {
+	return nil
+}
+
+// mockProfileManagerFailing always returns errors.
+type mockProfileManagerFailing struct{}
+
+func (m *mockProfileManagerFailing) GetProfile(id string) (interface{}, error) {
+	return nil, fmt.Errorf("profile %s not found", id)
+}
+
+func (m *mockProfileManagerFailing) SaveProfile(profile interface{}) error {
+	return fmt.Errorf("save failed")
+}
+
+func TestWorker_HandleStartMiner_WithManager(t *testing.T) {
+	cleanup := setupTestEnv(t)
+	defer cleanup()
+
+	nm, err := NewNodeManager()
+	if err != nil {
+		t.Fatalf("failed to create node manager: %v", err)
+	}
+	if err := nm.GenerateIdentity("test-worker", RoleWorker); err != nil {
+		t.Fatalf("failed to generate identity: %v", err)
+	}
+
+	pr, err := NewPeerRegistryWithPath(t.TempDir() + "/peers.json")
+	if err != nil {
+		t.Fatalf("failed to create peer registry: %v", err)
+	}
+
+	transport := NewTransport(nm, pr, DefaultTransportConfig())
+	worker := NewWorker(nm, transport)
+
+	mm := &mockMinerManager{
+		miners: []MinerInstance{},
+	}
+	// Override StartMiner to return a real instance
+	mmFull := &mockMinerManagerWithStart{}
+	worker.SetMinerManager(mmFull)
+
+	identity := nm.GetIdentity()
+
+	t.Run("WithConfigOverride", func(t *testing.T) {
+		payload := StartMinerPayload{
+			MinerType: "xmrig",
+			Config:    json.RawMessage(`{"pool":"test:3333"}`),
+		}
+		msg, err := NewMessage(MsgStartMiner, "sender-id", identity.ID, payload)
+		if err != nil {
+			t.Fatalf("failed to create message: %v", err)
+		}
+
+		response, err := worker.handleStartMiner(msg)
+		if err != nil {
+			t.Fatalf("handleStartMiner returned error: %v", err)
+		}
+
+		if response.Type != MsgMinerAck {
+			t.Errorf("expected type %s, got %s", MsgMinerAck, response.Type)
+		}
+
+		var ack MinerAckPayload
+		if err := response.ParsePayload(&ack); err != nil {
+			t.Fatalf("failed to parse ack: %v", err)
+		}
+		if !ack.Success {
+			t.Errorf("expected success, got error: %s", ack.Error)
+		}
+		if ack.MinerName == "" {
+			t.Error("expected miner name in ack")
+		}
+	})
+
+	t.Run("EmptyMinerType", func(t *testing.T) {
+		payload := StartMinerPayload{
+			MinerType: "",
+			Config:    json.RawMessage(`{}`),
+		}
+		msg, err := NewMessage(MsgStartMiner, "sender-id", identity.ID, payload)
+		if err != nil {
+			t.Fatalf("failed to create message: %v", err)
+		}
+
+		_, err = worker.handleStartMiner(msg)
+		if err == nil {
+			t.Error("expected error for empty miner type")
+		}
+	})
+
+	t.Run("WithProfileManager", func(t *testing.T) {
+		pm := &mockProfileManagerFull{
+			profiles: map[string]interface{}{
+				"test-profile": map[string]interface{}{"pool": "pool.test:3333"},
+			},
+		}
+		worker.SetProfileManager(pm)
+
+		payload := StartMinerPayload{
+			MinerType: "xmrig",
+			ProfileID: "test-profile",
+		}
+		msg, err := NewMessage(MsgStartMiner, "sender-id", identity.ID, payload)
+		if err != nil {
+			t.Fatalf("failed to create message: %v", err)
+		}
+
+		response, err := worker.handleStartMiner(msg)
+		if err != nil {
+			t.Fatalf("handleStartMiner returned error: %v", err)
+		}
+
+		var ack MinerAckPayload
+		response.ParsePayload(&ack)
+		if !ack.Success {
+			t.Errorf("expected success, got error: %s", ack.Error)
+		}
+	})
+
+	t.Run("ProfileNotFound", func(t *testing.T) {
+		pm := &mockProfileManagerFailing{}
+		worker.SetProfileManager(pm)
+
+		payload := StartMinerPayload{
+			MinerType: "xmrig",
+			ProfileID: "missing-profile",
+		}
+		msg, err := NewMessage(MsgStartMiner, "sender-id", identity.ID, payload)
+		if err != nil {
+			t.Fatalf("failed to create message: %v", err)
+		}
+
+		_, err = worker.handleStartMiner(msg)
+		if err == nil {
+			t.Error("expected error for missing profile")
+		}
+	})
+
+	t.Run("StartFailsReturnsAck", func(t *testing.T) {
+		worker.SetMinerManager(&mockMinerManagerFailing{})
+		worker.SetProfileManager(nil)
+
+		payload := StartMinerPayload{
+			MinerType: "xmrig",
+			Config:    json.RawMessage(`{}`),
+		}
+		msg, err := NewMessage(MsgStartMiner, "sender-id", identity.ID, payload)
+		if err != nil {
+			t.Fatalf("failed to create message: %v", err)
+		}
+
+		response, err := worker.handleStartMiner(msg)
+		if err != nil {
+			t.Fatalf("handleStartMiner should not return error when start fails: %v", err)
+		}
+
+		var ack MinerAckPayload
+		response.ParsePayload(&ack)
+		if ack.Success {
+			t.Error("expected failure ack")
+		}
+		if ack.Error == "" {
+			t.Error("expected error message in ack")
+		}
+	})
+
+	_ = mm // suppress lint
+}
+
+// mockMinerManagerWithStart returns real instances from StartMiner.
+type mockMinerManagerWithStart struct {
+	mockMinerManager
+	counter int
+}
+
+func (m *mockMinerManagerWithStart) StartMiner(minerType string, config interface{}) (MinerInstance, error) {
+	m.counter++
+	name := fmt.Sprintf("%s-%d", minerType, m.counter)
+	return &mockMinerInstance{name: name, minerType: minerType}, nil
+}
+
+func TestWorker_HandleStopMiner_WithManager(t *testing.T) {
+	cleanup := setupTestEnv(t)
+	defer cleanup()
+
+	nm, err := NewNodeManager()
+	if err != nil {
+		t.Fatalf("failed to create node manager: %v", err)
+	}
+	if err := nm.GenerateIdentity("test-worker", RoleWorker); err != nil {
+		t.Fatalf("failed to generate identity: %v", err)
+	}
+	pr, err := NewPeerRegistryWithPath(t.TempDir() + "/peers.json")
+	if err != nil {
+		t.Fatalf("failed to create peer registry: %v", err)
+	}
+	transport := NewTransport(nm, pr, DefaultTransportConfig())
+	worker := NewWorker(nm, transport)
+	identity := nm.GetIdentity()
+
+	t.Run("Success", func(t *testing.T) {
+		worker.SetMinerManager(&mockMinerManager{})
+
+		payload := StopMinerPayload{MinerName: "test-miner"}
+		msg, _ := NewMessage(MsgStopMiner, "sender-id", identity.ID, payload)
+
+		response, err := worker.handleStopMiner(msg)
+		if err != nil {
+			t.Fatalf("handleStopMiner returned error: %v", err)
+		}
+
+		var ack MinerAckPayload
+		response.ParsePayload(&ack)
+		if !ack.Success {
+			t.Errorf("expected success, got error: %s", ack.Error)
+		}
+		if ack.MinerName != "test-miner" {
+			t.Errorf("expected miner name 'test-miner', got '%s'", ack.MinerName)
+		}
+	})
+
+	t.Run("StopFails", func(t *testing.T) {
+		worker.SetMinerManager(&mockMinerManagerFailing{})
+
+		payload := StopMinerPayload{MinerName: "missing-miner"}
+		msg, _ := NewMessage(MsgStopMiner, "sender-id", identity.ID, payload)
+
+		response, err := worker.handleStopMiner(msg)
+		if err != nil {
+			t.Fatalf("handleStopMiner should not return error: %v", err)
+		}
+
+		var ack MinerAckPayload
+		response.ParsePayload(&ack)
+		if ack.Success {
+			t.Error("expected failure ack")
+		}
+		if ack.Error == "" {
+			t.Error("expected error message in ack")
+		}
+	})
+}
+
+func TestWorker_HandleGetLogs_WithManager(t *testing.T) {
+	cleanup := setupTestEnv(t)
+	defer cleanup()
+
+	nm, err := NewNodeManager()
+	if err != nil {
+		t.Fatalf("failed to create node manager: %v", err)
+	}
+	if err := nm.GenerateIdentity("test-worker", RoleWorker); err != nil {
+		t.Fatalf("failed to generate identity: %v", err)
+	}
+	pr, err := NewPeerRegistryWithPath(t.TempDir() + "/peers.json")
+	if err != nil {
+		t.Fatalf("failed to create peer registry: %v", err)
+	}
+	transport := NewTransport(nm, pr, DefaultTransportConfig())
+	worker := NewWorker(nm, transport)
+	identity := nm.GetIdentity()
+
+	t.Run("Success", func(t *testing.T) {
+		mm := &mockMinerManager{
+			miners: []MinerInstance{
+				&mockMinerInstance{
+					name:      "test-miner",
+					minerType: "xmrig",
+				},
+			},
+		}
+		worker.SetMinerManager(mm)
+
+		payload := GetLogsPayload{MinerName: "test-miner", Lines: 100}
+		msg, _ := NewMessage(MsgGetLogs, "sender-id", identity.ID, payload)
+
+		response, err := worker.handleGetLogs(msg)
+		if err != nil {
+			t.Fatalf("handleGetLogs returned error: %v", err)
+		}
+
+		if response.Type != MsgLogs {
+			t.Errorf("expected type %s, got %s", MsgLogs, response.Type)
+		}
+
+		var logs LogsPayload
+		response.ParsePayload(&logs)
+		if logs.MinerName != "test-miner" {
+			t.Errorf("expected miner name 'test-miner', got '%s'", logs.MinerName)
+		}
+	})
+
+	t.Run("MinerNotFound", func(t *testing.T) {
+		// Use a manager that returns error for GetMiner
+		mm := &mockMinerManagerFailing{}
+		worker.SetMinerManager(mm)
+
+
+
+
+		payload := GetLogsPayload{MinerName: "non-existent", Lines: 50}
+		msg, _ := NewMessage(MsgGetLogs, "sender-id", identity.ID, payload)
+
+		_, err := worker.handleGetLogs(msg)
+		if err == nil {
+			t.Error("expected error for non-existent miner")
+		}
+	})
+
+	t.Run("NegativeLines", func(t *testing.T) {
+		mm := &mockMinerManager{
+			miners: []MinerInstance{
+				&mockMinerInstance{name: "test-miner", minerType: "xmrig"},
+			},
+		}
+		worker.SetMinerManager(mm)
+
+		payload := GetLogsPayload{MinerName: "test-miner", Lines: -1}
+		msg, _ := NewMessage(MsgGetLogs, "sender-id", identity.ID, payload)
+
+		response, err := worker.handleGetLogs(msg)
+		if err != nil {
+			t.Fatalf("handleGetLogs returned error: %v", err)
+		}
+		// Lines <= 0 should be clamped to maxLogLines
+		if response.Type != MsgLogs {
+			t.Errorf("expected %s, got %s", MsgLogs, response.Type)
+		}
+	})
+
+	t.Run("ExcessiveLines", func(t *testing.T) {
+		mm := &mockMinerManager{
+			miners: []MinerInstance{
+				&mockMinerInstance{name: "test-miner", minerType: "xmrig"},
+			},
+		}
+		worker.SetMinerManager(mm)
+
+		payload := GetLogsPayload{MinerName: "test-miner", Lines: 999999}
+		msg, _ := NewMessage(MsgGetLogs, "sender-id", identity.ID, payload)
+
+		response, err := worker.handleGetLogs(msg)
+		if err != nil {
+			t.Fatalf("handleGetLogs returned error: %v", err)
+		}
+		if response.Type != MsgLogs {
+			t.Errorf("expected %s, got %s", MsgLogs, response.Type)
+		}
+	})
+}
+
+func TestWorker_HandleGetStats_WithMinerManager(t *testing.T) {
+	cleanup := setupTestEnv(t)
+	defer cleanup()
+
+	nm, err := NewNodeManager()
+	if err != nil {
+		t.Fatalf("failed to create node manager: %v", err)
+	}
+	if err := nm.GenerateIdentity("test-worker", RoleWorker); err != nil {
+		t.Fatalf("failed to generate identity: %v", err)
+	}
+	pr, err := NewPeerRegistryWithPath(t.TempDir() + "/peers.json")
+	if err != nil {
+		t.Fatalf("failed to create peer registry: %v", err)
+	}
+	transport := NewTransport(nm, pr, DefaultTransportConfig())
+	worker := NewWorker(nm, transport)
+	identity := nm.GetIdentity()
+
+	// Set miner manager with miners that have real stats
+	mm := &mockMinerManager{
+		miners: []MinerInstance{
+			&mockMinerInstance{
+				name:      "miner-1",
+				minerType: "xmrig",
+				stats: map[string]interface{}{
+					"hashrate":  500.0,
+					"shares":    25,
+					"rejected":  1,
+					"uptime":    3600,
+					"pool":      "pool.test:3333",
+					"algorithm": "rx/0",
+				},
+			},
+			&mockMinerInstance{
+				name:      "miner-2",
+				minerType: "tt-miner",
+				stats: map[string]interface{}{
+					"hashrate": 1200.0,
+				},
+			},
+		},
+	}
+	worker.SetMinerManager(mm)
+
+	msg, _ := NewMessage(MsgGetStats, "sender-id", identity.ID, nil)
+	response, err := worker.handleGetStats(msg)
+	if err != nil {
+		t.Fatalf("handleGetStats returned error: %v", err)
+	}
+
+	var stats StatsPayload
+	response.ParsePayload(&stats)
+
+	if len(stats.Miners) != 2 {
+		t.Errorf("expected 2 miners in stats, got %d", len(stats.Miners))
+	}
+}
+
+func TestWorker_HandleMessage_UnknownType(t *testing.T) {
+	cleanup := setupTestEnv(t)
+	defer cleanup()
+
+	nm, err := NewNodeManager()
+	if err != nil {
+		t.Fatalf("failed to create node manager: %v", err)
+	}
+	if err := nm.GenerateIdentity("test-worker", RoleWorker); err != nil {
+		t.Fatalf("failed to generate identity: %v", err)
+	}
+	pr, err := NewPeerRegistryWithPath(t.TempDir() + "/peers.json")
+	if err != nil {
+		t.Fatalf("failed to create peer registry: %v", err)
+	}
+	transport := NewTransport(nm, pr, DefaultTransportConfig())
+	worker := NewWorker(nm, transport)
+
+	identity := nm.GetIdentity()
+	msg, _ := NewMessage("unknown_type", "sender-id", identity.ID, nil)
+
+	// HandleMessage with unknown type should return silently (no panic)
+	worker.HandleMessage(nil, msg)
+}
+
+
+func TestWorker_HandleDeploy_ProfileWithManager(t *testing.T) {
+	cleanup := setupTestEnv(t)
+	defer cleanup()
+
+	nm, err := NewNodeManager()
+	if err != nil {
+		t.Fatalf("failed to create node manager: %v", err)
+	}
+	if err := nm.GenerateIdentity("test-worker", RoleWorker); err != nil {
+		t.Fatalf("failed to generate identity: %v", err)
+	}
+	pr, err := NewPeerRegistryWithPath(t.TempDir() + "/peers.json")
+	if err != nil {
+		t.Fatalf("failed to create peer registry: %v", err)
+	}
+	transport := NewTransport(nm, pr, DefaultTransportConfig())
+	worker := NewWorker(nm, transport)
+
+	pm := &mockProfileManagerFull{profiles: make(map[string]interface{})}
+	worker.SetProfileManager(pm)
+
+	identity := nm.GetIdentity()
+
+	// Create an unencrypted profile bundle for deploy
+	profileJSON := []byte(`{"id": "deploy-test", "name": "Test Profile"}`)
+	bundle, err := CreateProfileBundleUnencrypted(profileJSON, "deploy-test")
+	if err != nil {
+		t.Fatalf("failed to create bundle: %v", err)
+	}
+
+	payload := DeployPayload{
+		BundleType: string(BundleProfile),
+		Data:       bundle.Data,
+		Checksum:   bundle.Checksum,
+		Name:       "deploy-test",
+	}
+	msg, _ := NewMessage(MsgDeploy, "sender-id", identity.ID, payload)
+
+	response, err := worker.handleDeploy(nil, msg)
+	if err != nil {
+		t.Fatalf("handleDeploy returned error: %v", err)
+	}
+
+	var ack DeployAckPayload
+	response.ParsePayload(&ack)
+	if !ack.Success {
+		t.Errorf("expected success, got error: %s", ack.Error)
+	}
+	if ack.Name != "deploy-test" {
+		t.Errorf("expected name 'deploy-test', got '%s'", ack.Name)
+	}
+}
+
+func TestWorker_HandleDeploy_ProfileSaveFails(t *testing.T) {
+	cleanup := setupTestEnv(t)
+	defer cleanup()
+
+	nm, err := NewNodeManager()
+	if err != nil {
+		t.Fatalf("failed to create node manager: %v", err)
+	}
+	if err := nm.GenerateIdentity("test-worker", RoleWorker); err != nil {
+		t.Fatalf("failed to generate identity: %v", err)
+	}
+	pr, err := NewPeerRegistryWithPath(t.TempDir() + "/peers.json")
+	if err != nil {
+		t.Fatalf("failed to create peer registry: %v", err)
+	}
+	transport := NewTransport(nm, pr, DefaultTransportConfig())
+	worker := NewWorker(nm, transport)
+	worker.SetProfileManager(&mockProfileManagerFailing{})
+
+	identity := nm.GetIdentity()
+
+	profileJSON := []byte(`{"id": "fail-test"}`)
+	bundle, _ := CreateProfileBundleUnencrypted(profileJSON, "fail-test")
+
+	payload := DeployPayload{
+		BundleType: string(BundleProfile),
+		Data:       bundle.Data,
+		Checksum:   bundle.Checksum,
+		Name:       "fail-test",
+	}
+	msg, _ := NewMessage(MsgDeploy, "sender-id", identity.ID, payload)
+
+	response, err := worker.handleDeploy(nil, msg)
+	if err != nil {
+		t.Fatalf("handleDeploy should return ack with error, not error: %v", err)
+	}
+
+	var ack DeployAckPayload
+	response.ParsePayload(&ack)
+	if ack.Success {
+		t.Error("expected failure ack when save fails")
+	}
+}
+
+func TestWorker_HandleDeploy_MinerBundle(t *testing.T) {
+	cleanup := setupTestEnv(t)
+	defer cleanup()
+
+	nm, err := NewNodeManager()
+	if err != nil {
+		t.Fatalf("failed to create node manager: %v", err)
+	}
+	if err := nm.GenerateIdentity("test-worker", RoleWorker); err != nil {
+		t.Fatalf("failed to generate identity: %v", err)
+	}
+	pr, err := NewPeerRegistryWithPath(t.TempDir() + "/peers.json")
+	if err != nil {
+		t.Fatalf("failed to create peer registry: %v", err)
+	}
+	transport := NewTransport(nm, pr, DefaultTransportConfig())
+	worker := NewWorker(nm, transport)
+	pm := &mockProfileManagerFull{profiles: make(map[string]interface{})}
+	worker.SetProfileManager(pm)
+
+	identity := nm.GetIdentity()
+
+	tmpDir := t.TempDir()
+	minerPath := filepath.Join(tmpDir, "test-miner")
+	os.WriteFile(minerPath, []byte("fake miner binary"), 0755)
+
+	profileJSON := []byte(`{"pool":"test:3333"}`)
+
+	// The handler extracts password as base64(conn.SharedSecret).
+	// Create bundle with matching password.
+	sharedSecret := []byte("shared-secret-32")
+	bundlePassword := base64.StdEncoding.EncodeToString(sharedSecret)
+
+	bundle, err := CreateMinerBundle(minerPath, profileJSON, "deploy-miner", bundlePassword)
+	if err != nil {
+		t.Fatalf("failed to create miner bundle: %v", err)
+	}
+
+	payload := DeployPayload{
+		BundleType: string(BundleMiner),
+		Data:       bundle.Data,
+		Checksum:   bundle.Checksum,
+		Name:       "deploy-miner",
+	}
+	msg, _ := NewMessage(MsgDeploy, "sender-id", identity.ID, payload)
+
+	conn := &PeerConnection{
+		SharedSecret: sharedSecret,
+	}
+
+	response, err := worker.handleDeploy(conn, msg)
+	if err != nil {
+		t.Fatalf("handleDeploy returned error: %v", err)
+	}
+
+	var ack DeployAckPayload
+	response.ParsePayload(&ack)
+	if !ack.Success {
+		t.Errorf("expected success, got error: %s", ack.Error)
+	}
+}
+
+func TestWorker_HandleDeploy_FullBundle(t *testing.T) {
+	cleanup := setupTestEnv(t)
+	defer cleanup()
+
+	nm, err := NewNodeManager()
+	if err != nil {
+		t.Fatalf("failed to create node manager: %v", err)
+	}
+	if err := nm.GenerateIdentity("test-worker", RoleWorker); err != nil {
+		t.Fatalf("failed to generate identity: %v", err)
+	}
+	pr, err := NewPeerRegistryWithPath(t.TempDir() + "/peers.json")
+	if err != nil {
+		t.Fatalf("failed to create peer registry: %v", err)
+	}
+	transport := NewTransport(nm, pr, DefaultTransportConfig())
+	worker := NewWorker(nm, transport)
+
+	identity := nm.GetIdentity()
+
+	tmpDir := t.TempDir()
+	minerPath := filepath.Join(tmpDir, "test-miner")
+	os.WriteFile(minerPath, []byte("miner binary"), 0755)
+
+	sharedSecret := []byte("full-secret-key!")
+	bundlePassword := base64.StdEncoding.EncodeToString(sharedSecret)
+
+	bundle, err := CreateMinerBundle(minerPath, nil, "full-deploy", bundlePassword)
+	if err != nil {
+		t.Fatalf("failed to create miner bundle: %v", err)
+	}
+
+	payload := DeployPayload{
+		BundleType: string(BundleFull),
+		Data:       bundle.Data,
+		Checksum:   bundle.Checksum,
+		Name:       "full-deploy",
+	}
+	msg, _ := NewMessage(MsgDeploy, "sender-id", identity.ID, payload)
+
+	conn := &PeerConnection{SharedSecret: sharedSecret}
+
+	response, err := worker.handleDeploy(conn, msg)
+	if err != nil {
+		t.Fatalf("handleDeploy for full bundle returned error: %v", err)
+	}
+
+	var ack DeployAckPayload
+	response.ParsePayload(&ack)
+	if !ack.Success {
+		t.Errorf("expected success, got error: %s", ack.Error)
+	}
+}
+
+func TestWorker_HandleDeploy_MinerBundle_WithProfileManager(t *testing.T) {
+	cleanup := setupTestEnv(t)
+	defer cleanup()
+
+	nm, err := NewNodeManager()
+	if err != nil {
+		t.Fatalf("failed to create node manager: %v", err)
+	}
+	if err := nm.GenerateIdentity("test-worker", RoleWorker); err != nil {
+		t.Fatalf("failed to generate identity: %v", err)
+	}
+	pr, err := NewPeerRegistryWithPath(t.TempDir() + "/peers.json")
+	if err != nil {
+		t.Fatalf("failed to create peer registry: %v", err)
+	}
+	transport := NewTransport(nm, pr, DefaultTransportConfig())
+	worker := NewWorker(nm, transport)
+
+	// Set a failing profile manager to exercise the warn-and-continue path
+	worker.SetProfileManager(&mockProfileManagerFailing{})
+
+	identity := nm.GetIdentity()
+
+	tmpDir := t.TempDir()
+	minerPath := filepath.Join(tmpDir, "test-miner")
+	os.WriteFile(minerPath, []byte("miner binary"), 0755)
+
+	profileJSON := []byte(`{"pool":"test:3333"}`)
+	sharedSecret := []byte("profile-secret!!")
+	bundlePassword := base64.StdEncoding.EncodeToString(sharedSecret)
+
+	bundle, err := CreateMinerBundle(minerPath, profileJSON, "deploy-with-profile", bundlePassword)
+	if err != nil {
+		t.Fatalf("failed to create miner bundle: %v", err)
+	}
+
+	payload := DeployPayload{
+		BundleType: string(BundleMiner),
+		Data:       bundle.Data,
+		Checksum:   bundle.Checksum,
+		Name:       "deploy-with-profile",
+	}
+	msg, _ := NewMessage(MsgDeploy, "sender-id", identity.ID, payload)
+
+	conn := &PeerConnection{SharedSecret: sharedSecret}
+
+	response, err := worker.handleDeploy(conn, msg)
+	if err != nil {
+		t.Fatalf("handleDeploy returned error: %v", err)
+	}
+
+	var ack DeployAckPayload
+	response.ParsePayload(&ack)
+	// Deploy should still succeed even if profile save fails
+	if !ack.Success {
+		t.Errorf("expected success despite profile save failure, got: %s", ack.Error)
+	}
+}
+
+func TestWorker_HandleDeploy_InvalidPayload(t *testing.T) {
+	cleanup := setupTestEnv(t)
+	defer cleanup()
+
+	nm, _ := NewNodeManager()
+	nm.GenerateIdentity("test", RoleWorker)
+	pr, _ := NewPeerRegistryWithPath(t.TempDir() + "/peers.json")
+	transport := NewTransport(nm, pr, DefaultTransportConfig())
+	worker := NewWorker(nm, transport)
+	identity := nm.GetIdentity()
+
+	// Create a message with invalid payload
+	msg, _ := NewMessage(MsgDeploy, "sender-id", identity.ID, "invalid-payload-not-struct")
+
+	_, err := worker.handleDeploy(nil, msg)
+	if err == nil {
+		t.Error("expected error for invalid deploy payload")
+	}
+}
+
+func TestWorker_HandleGetStats_NoIdentity(t *testing.T) {
+	cleanup := setupTestEnv(t)
+	defer cleanup()
+
+	nm, _ := NewNodeManagerWithPaths(
+		filepath.Join(t.TempDir(), "priv.key"),
+		filepath.Join(t.TempDir(), "node.json"),
+	)
+	// Don't generate identity
+	pr, _ := NewPeerRegistryWithPath(t.TempDir() + "/peers.json")
+	transport := NewTransport(nm, pr, DefaultTransportConfig())
+	worker := NewWorker(nm, transport)
+
+	msg, _ := NewMessage(MsgGetStats, "sender-id", "target-id", nil)
+	_, err := worker.handleGetStats(msg)
+	if err == nil {
+		t.Error("expected error when identity is not initialized")
+	}
+}
+
+func TestWorker_HandleMessage_IntegrationViaWebSocket(t *testing.T) {
+	// Test HandleMessage through real WebSocket -- exercises error response sending path
+	tp := setupTestTransportPair(t)
+
+	worker := NewWorker(tp.ServerNode, tp.Server)
+	// No miner manager set -- start_miner will fail and send error response
+	worker.RegisterWithTransport()
+
+	controller := NewController(tp.ClientNode, tp.ClientReg, tp.Client)
+	tp.connectClient(t)
+	time.Sleep(50 * time.Millisecond)
+
+	serverID := tp.ServerNode.GetIdentity().ID
+
+	// Send start_miner which will fail because no manager is set.
+	// The worker should send an error response via the connection.
+	err := controller.StartRemoteMiner(serverID, "xmrig", "", json.RawMessage(`{}`))
+	// Should get an error back (either protocol error or operation failed)
+	if err == nil {
+		t.Error("expected error when worker has no miner manager")
+	}
+}
+
+func TestWorker_HandleMessage_GetStats_IntegrationViaWebSocket(t *testing.T) {
+	// HandleMessage dispatch for get_stats through real WebSocket
+	tp := setupTestTransportPair(t)
+
+	worker := NewWorker(tp.ServerNode, tp.Server)
+	mm := &mockMinerManager{
+		miners: []MinerInstance{
+			&mockMinerInstance{
+				name:      "test-miner",
+				minerType: "xmrig",
+				stats: map[string]interface{}{
+					"hashrate":  500.0,
+					"shares":    25,
+					"rejected":  1,
+					"uptime":    3600,
+					"pool":      "pool.test:3333",
+					"algorithm": "rx/0",
+				},
+			},
+		},
+	}
+	worker.SetMinerManager(mm)
+	worker.RegisterWithTransport()
+
+	controller := NewController(tp.ClientNode, tp.ClientReg, tp.Client)
+	tp.connectClient(t)
+	time.Sleep(50 * time.Millisecond)
+
+	serverID := tp.ServerNode.GetIdentity().ID
+
+	stats, err := controller.GetRemoteStats(serverID)
+	if err != nil {
+		t.Fatalf("GetRemoteStats failed: %v", err)
+	}
+	if len(stats.Miners) != 1 {
+		t.Errorf("expected 1 miner, got %d", len(stats.Miners))
+	}
 }

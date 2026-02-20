@@ -1,6 +1,7 @@
 package node
 
 import (
+	"archive/tar"
 	"bytes"
 	"os"
 	"path/filepath"
@@ -347,6 +348,281 @@ func TestCreateMinerBundle(t *testing.T) {
 
 		if string(minerData) != "fake miner binary content" {
 			t.Error("miner content mismatch")
+		}
+	}
+}
+
+// --- Additional coverage tests for bundle.go ---
+
+func TestExtractTarball_PathTraversal(t *testing.T) {
+	t.Run("AbsolutePath", func(t *testing.T) {
+		// Create a tarball with an absolute path entry
+		tarData, err := createTarballWithCustomName("/etc/passwd", []byte("malicious"))
+		if err != nil {
+			t.Fatalf("failed to create tarball: %v", err)
+		}
+
+		tmpDir := t.TempDir()
+		_, err = extractTarball(tarData, tmpDir)
+		if err == nil {
+			t.Error("expected error for absolute path in tar")
+		}
+	})
+
+	t.Run("DotDotTraversal", func(t *testing.T) {
+		tarData, err := createTarballWithCustomName("../../etc/passwd", []byte("malicious"))
+		if err != nil {
+			t.Fatalf("failed to create tarball: %v", err)
+		}
+
+		tmpDir := t.TempDir()
+		_, err = extractTarball(tarData, tmpDir)
+		if err == nil {
+			t.Error("expected error for path traversal in tar")
+		}
+	})
+
+	t.Run("DotDotAlone", func(t *testing.T) {
+		tarData, err := createTarballWithCustomName("..", []byte("malicious"))
+		if err != nil {
+			t.Fatalf("failed to create tarball: %v", err)
+		}
+
+		tmpDir := t.TempDir()
+		_, err = extractTarball(tarData, tmpDir)
+		if err == nil {
+			t.Error("expected error for '..' path in tar")
+		}
+	})
+
+	t.Run("EmptyTarball", func(t *testing.T) {
+		// Create an empty tarball
+		tarData, err := createTarball(map[string][]byte{})
+		if err != nil {
+			t.Fatalf("failed to create empty tarball: %v", err)
+		}
+
+		tmpDir := t.TempDir()
+		path, err := extractTarball(tarData, tmpDir)
+		if err != nil {
+			t.Fatalf("extractTarball should handle empty archive: %v", err)
+		}
+		if path != "" {
+			t.Errorf("expected empty path for empty tarball, got %s", path)
+		}
+	})
+
+	t.Run("NonExecutableFiles", func(t *testing.T) {
+		files := map[string][]byte{
+			"config.json": []byte(`{"key":"value"}`),
+			"readme.txt":  []byte("hello"),
+		}
+		tarData, err := createTarball(files)
+		if err != nil {
+			t.Fatalf("failed to create tarball: %v", err)
+		}
+
+		tmpDir := t.TempDir()
+		path, err := extractTarball(tarData, tmpDir)
+		if err != nil {
+			t.Fatalf("extractTarball failed: %v", err)
+		}
+		// config.json might not be executable, but non-JSON files get 0755
+		_ = path
+	})
+
+	t.Run("SymlinkIgnored", func(t *testing.T) {
+		// Create a tarball with a symlink entry
+		tarData, err := createTarballWithSymlink("link", "/etc/passwd")
+		if err != nil {
+			t.Fatalf("failed to create tarball: %v", err)
+		}
+
+		tmpDir := t.TempDir()
+		_, err = extractTarball(tarData, tmpDir)
+		// Symlinks should be silently skipped, not error
+		if err != nil {
+			t.Fatalf("extractTarball should skip symlinks without error: %v", err)
+		}
+
+		// Verify symlink was not created
+		linkPath := filepath.Join(tmpDir, "link")
+		if _, statErr := os.Lstat(linkPath); !os.IsNotExist(statErr) {
+			t.Error("symlink should not be created")
+		}
+	})
+
+	t.Run("DirectoryEntry", func(t *testing.T) {
+		// Create a tarball with a directory entry followed by a file in it
+		var buf bytes.Buffer
+		tw := tar.NewWriter(&buf)
+
+		// Write directory
+		tw.WriteHeader(&tar.Header{
+			Name:     "mydir/",
+			Mode:     0755,
+			Typeflag: tar.TypeDir,
+		})
+
+		// Write file in directory
+		content := []byte("file in dir")
+		tw.WriteHeader(&tar.Header{
+			Name: "mydir/file.txt",
+			Mode: 0644,
+			Size: int64(len(content)),
+		})
+		tw.Write(content)
+		tw.Close()
+
+		tmpDir := t.TempDir()
+		_, err := extractTarball(buf.Bytes(), tmpDir)
+		if err != nil {
+			t.Fatalf("extractTarball failed: %v", err)
+		}
+
+		// Verify directory and file exist
+		data, err := os.ReadFile(filepath.Join(tmpDir, "mydir", "file.txt"))
+		if err != nil {
+			t.Fatalf("failed to read extracted file: %v", err)
+		}
+		if !bytes.Equal(data, content) {
+			t.Error("content mismatch")
+		}
+	})
+}
+
+// createTarballWithCustomName creates a tar with a single file at an arbitrary path.
+func createTarballWithCustomName(name string, content []byte) ([]byte, error) {
+	var buf bytes.Buffer
+	tw := tar.NewWriter(&buf)
+	hdr := &tar.Header{
+		Name: name,
+		Mode: 0644,
+		Size: int64(len(content)),
+	}
+	if err := tw.WriteHeader(hdr); err != nil {
+		return nil, err
+	}
+	if _, err := tw.Write(content); err != nil {
+		return nil, err
+	}
+	if err := tw.Close(); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
+}
+
+// createTarballWithSymlink creates a tar containing a symlink entry.
+func createTarballWithSymlink(name, target string) ([]byte, error) {
+	var buf bytes.Buffer
+	tw := tar.NewWriter(&buf)
+	hdr := &tar.Header{
+		Name:     name,
+		Linkname: target,
+		Mode:     0777,
+		Typeflag: tar.TypeSymlink,
+	}
+	if err := tw.WriteHeader(hdr); err != nil {
+		return nil, err
+	}
+	if err := tw.Close(); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
+}
+
+func TestExtractMinerBundle_ChecksumMismatch(t *testing.T) {
+	bundle := &Bundle{
+		Type:     BundleMiner,
+		Name:     "bad-bundle",
+		Data:     []byte("some data"),
+		Checksum: "invalid-checksum",
+	}
+
+	_, _, err := ExtractMinerBundle(bundle, "password", t.TempDir())
+	if err == nil {
+		t.Error("expected error for checksum mismatch")
+	}
+}
+
+func TestCreateMinerBundle_NonExistentFile(t *testing.T) {
+	_, err := CreateMinerBundle("/non/existent/miner", nil, "test", "password")
+	if err == nil {
+		t.Error("expected error for non-existent miner file")
+	}
+}
+
+func TestCreateMinerBundle_NilProfile(t *testing.T) {
+	tmpDir := t.TempDir()
+	minerPath := filepath.Join(tmpDir, "miner")
+	os.WriteFile(minerPath, []byte("binary"), 0755)
+
+	bundle, err := CreateMinerBundle(minerPath, nil, "nil-profile", "pass")
+	if err != nil {
+		t.Fatalf("CreateMinerBundle with nil profile should succeed: %v", err)
+	}
+	if bundle.Type != BundleMiner {
+		t.Errorf("expected type BundleMiner, got %s", bundle.Type)
+	}
+}
+
+func TestReadBundle_InvalidJSON(t *testing.T) {
+	reader := bytes.NewReader([]byte("not json"))
+	_, err := ReadBundle(reader)
+	if err == nil {
+		t.Error("expected error for invalid JSON")
+	}
+}
+
+func TestStreamBundle_EmptyBundle(t *testing.T) {
+	bundle := &Bundle{
+		Type:     BundleProfile,
+		Name:     "empty",
+		Data:     nil,
+		Checksum: "",
+	}
+
+	var buf bytes.Buffer
+	err := StreamBundle(bundle, &buf)
+	if err != nil {
+		t.Fatalf("StreamBundle should handle empty bundle: %v", err)
+	}
+
+	// Should be valid JSON
+	restored, err := ReadBundle(&buf)
+	if err != nil {
+		t.Fatalf("ReadBundle should read back streamed bundle: %v", err)
+	}
+	if restored.Name != "empty" {
+		t.Errorf("expected name 'empty', got '%s'", restored.Name)
+	}
+}
+
+func TestCreateTarball_MultipleDirs(t *testing.T) {
+	files := map[string][]byte{
+		"dir1/file1.txt": []byte("content1"),
+		"dir2/file2.txt": []byte("content2"),
+	}
+
+	tarData, err := createTarball(files)
+	if err != nil {
+		t.Fatalf("failed to create tarball: %v", err)
+	}
+
+	tmpDir := t.TempDir()
+	_, err = extractTarball(tarData, tmpDir)
+	if err != nil {
+		t.Fatalf("failed to extract: %v", err)
+	}
+
+	for name, content := range files {
+		data, err := os.ReadFile(filepath.Join(tmpDir, name))
+		if err != nil {
+			t.Errorf("failed to read %s: %v", name, err)
+			continue
+		}
+		if !bytes.Equal(data, content) {
+			t.Errorf("content mismatch for %s", name)
 		}
 	}
 }

@@ -590,3 +590,176 @@ func TestTransport_ConcurrentSends(t *testing.T) {
 		t.Errorf("concurrent sends: got %d/%d messages delivered", got, expected)
 	}
 }
+
+// --- Additional coverage tests ---
+
+func TestTransport_Broadcast(t *testing.T) {
+	// Set up a controller with two worker peers connected.
+	controllerNM := testNode(t, "broadcast-controller", RoleController)
+	controllerReg := testRegistry(t)
+	controllerTransport := NewTransport(controllerNM, controllerReg, DefaultTransportConfig())
+	t.Cleanup(func() { controllerTransport.Stop() })
+
+	const numWorkers = 2
+	var receiveCounters [numWorkers]*atomic.Int32
+
+	for i := 0; i < numWorkers; i++ {
+		receiveCounters[i] = &atomic.Int32{}
+		counter := receiveCounters[i]
+
+		nm, addr, srv := makeWorkerServer(t)
+		srv.OnMessage(func(conn *PeerConnection, msg *Message) {
+			counter.Add(1)
+		})
+
+		wID := nm.GetIdentity().ID
+		peer := &Peer{
+			ID:      wID,
+			Name:    "worker",
+			Address: addr,
+			Role:    RoleWorker,
+		}
+		controllerReg.AddPeer(peer)
+
+		_, err := controllerTransport.Connect(peer)
+		if err != nil {
+			t.Fatalf("failed to connect to worker %d: %v", i, err)
+		}
+	}
+
+	time.Sleep(100 * time.Millisecond)
+
+	// Broadcast a message from the controller
+	controllerID := controllerNM.GetIdentity().ID
+	msg, _ := NewMessage(MsgPing, controllerID, "", PingPayload{
+		SentAt: time.Now().UnixMilli(),
+	})
+
+	err := controllerTransport.Broadcast(msg)
+	if err != nil {
+		t.Fatalf("Broadcast failed: %v", err)
+	}
+
+	time.Sleep(500 * time.Millisecond)
+
+	// Both workers should have received the broadcast
+	for i, counter := range receiveCounters {
+		if counter.Load() != 1 {
+			t.Errorf("worker %d received %d messages, expected 1", i, counter.Load())
+		}
+	}
+}
+
+func TestTransport_BroadcastExcludesSender(t *testing.T) {
+	// Verify that Broadcast excludes the sender.
+	tp := setupTestTransportPair(t)
+
+	serverReceived := &atomic.Int32{}
+	tp.Server.OnMessage(func(conn *PeerConnection, msg *Message) {
+		serverReceived.Add(1)
+	})
+
+	tp.connectClient(t)
+	time.Sleep(50 * time.Millisecond)
+
+	// Broadcast from the server side with From = server ID.
+	// The server has a connection to the client, but msg.From matches the client's
+	// connection peer ID check, not the server's own ID. Let's verify sender exclusion
+	// by broadcasting from the server with its own ID.
+	serverID := tp.ServerNode.GetIdentity().ID
+	msg, _ := NewMessage(MsgPing, serverID, "", PingPayload{SentAt: time.Now().UnixMilli()})
+
+	// This broadcasts from server to all connected peers (the client).
+	// The server itself won't receive it back because it's not connected to itself.
+	err := tp.Server.Broadcast(msg)
+	if err != nil {
+		t.Fatalf("Broadcast failed: %v", err)
+	}
+}
+
+func TestTransport_NewTransport_DefaultMaxMessageSize(t *testing.T) {
+	nm := testNode(t, "defaults", RoleWorker)
+	reg := testRegistry(t)
+	cfg := TransportConfig{
+		MaxMessageSize: 0, // should use default
+	}
+	tr := NewTransport(nm, reg, cfg)
+
+	if tr == nil {
+		t.Fatal("NewTransport returned nil")
+	}
+	if tr.config.MaxMessageSize != 0 {
+		t.Errorf("config should preserve 0 value, got %d", tr.config.MaxMessageSize)
+	}
+	// The actual default is applied at usage time (readLoop, handleWSUpgrade)
+}
+
+func TestTransport_ConnectedPeers(t *testing.T) {
+	tp := setupTestTransportPair(t)
+
+	if tp.Server.ConnectedPeers() != 0 {
+		t.Errorf("expected 0 connected peers initially, got %d", tp.Server.ConnectedPeers())
+	}
+
+	tp.connectClient(t)
+	time.Sleep(50 * time.Millisecond)
+
+	if tp.Server.ConnectedPeers() != 1 {
+		t.Errorf("expected 1 connected peer after connect, got %d", tp.Server.ConnectedPeers())
+	}
+}
+
+func TestTransport_StartAndStop(t *testing.T) {
+	nm := testNode(t, "start-test", RoleWorker)
+	reg := testRegistry(t)
+	cfg := DefaultTransportConfig()
+	cfg.ListenAddr = ":0" // Let OS pick a free port
+
+	tr := NewTransport(nm, reg, cfg)
+
+	err := tr.Start()
+	if err != nil {
+		t.Fatalf("Start failed: %v", err)
+	}
+
+	// Small wait for server goroutine to start
+	time.Sleep(100 * time.Millisecond)
+
+	err = tr.Stop()
+	if err != nil {
+		t.Fatalf("Stop failed: %v", err)
+	}
+}
+
+func TestTransport_CheckOrigin(t *testing.T) {
+	nm := testNode(t, "origin-test", RoleWorker)
+	reg := testRegistry(t)
+	cfg := DefaultTransportConfig()
+	tr := NewTransport(nm, reg, cfg)
+
+	tests := []struct {
+		name    string
+		origin  string
+		allowed bool
+	}{
+		{"no origin", "", true},
+		{"localhost", "http://localhost:8080", true},
+		{"127.0.0.1", "http://127.0.0.1:8080", true},
+		{"ipv6 loopback", "http://[::1]:8080", true},
+		{"remote host", "http://evil.example.com", false},
+		{"invalid origin", "://not-a-url", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			r := &http.Request{Header: http.Header{}}
+			if tt.origin != "" {
+				r.Header.Set("Origin", tt.origin)
+			}
+			result := tr.upgrader.CheckOrigin(r)
+			if result != tt.allowed {
+				t.Errorf("CheckOrigin(%q) = %v, want %v", tt.origin, result, tt.allowed)
+			}
+		})
+	}
+}

@@ -1,9 +1,12 @@
 package node
 
 import (
+	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -398,4 +401,340 @@ func TestController_SendRequestPeerNotFound(t *testing.T) {
 	_, err = controller.sendRequest("ghost-peer", msg, 1*time.Second)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "peer not found")
+}
+
+// --- Tests for StartRemoteMiner, StopRemoteMiner, GetRemoteLogs ---
+
+// setupControllerPairWithMiner creates a controller/worker pair where the worker
+// has a fully configured MinerManager so that start/stop/logs handlers work.
+func setupControllerPairWithMiner(t *testing.T) (*Controller, *Worker, *testTransportPair) {
+	t.Helper()
+
+	tp := setupTestTransportPair(t)
+
+	// Server side: register a Worker with a mock miner manager.
+	worker := NewWorker(tp.ServerNode, tp.Server)
+	mm := &mockMinerManagerFull{
+		miners: map[string]*mockMinerFull{
+			"running-miner": {
+				name:      "running-miner",
+				minerType: "xmrig",
+				stats: map[string]interface{}{
+					"hashrate":  1234.5,
+					"shares":    42,
+					"rejected":  2,
+					"uptime":    7200,
+					"pool":      "pool.example.com:3333",
+					"algorithm": "rx/0",
+				},
+				consoleHistory: []string{
+					"[2026-02-20 10:00:00] started",
+					"[2026-02-20 10:00:01] connected to pool",
+					"[2026-02-20 10:00:05] new job received",
+				},
+			},
+		},
+	}
+	worker.SetMinerManager(mm)
+	worker.RegisterWithTransport()
+
+	// Client side: create a Controller.
+	controller := NewController(tp.ClientNode, tp.ClientReg, tp.Client)
+
+	// Establish the WebSocket connection.
+	tp.connectClient(t)
+	time.Sleep(50 * time.Millisecond)
+
+	return controller, worker, tp
+}
+
+// mockMinerManagerFull implements MinerManager with functional start/stop/list/get.
+type mockMinerManagerFull struct {
+	mu     sync.Mutex
+	miners map[string]*mockMinerFull
+}
+
+func (m *mockMinerManagerFull) StartMiner(minerType string, config interface{}) (MinerInstance, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	name := minerType + "-0"
+	miner := &mockMinerFull{
+		name:      name,
+		minerType: minerType,
+		stats: map[string]interface{}{
+			"hashrate": 0.0,
+			"shares":   0,
+		},
+		consoleHistory: []string{"started " + minerType},
+	}
+	m.miners[name] = miner
+	return miner, nil
+}
+
+func (m *mockMinerManagerFull) StopMiner(name string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if _, exists := m.miners[name]; !exists {
+		return fmt.Errorf("miner %s not found", name)
+	}
+	delete(m.miners, name)
+	return nil
+}
+
+func (m *mockMinerManagerFull) ListMiners() []MinerInstance {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	result := make([]MinerInstance, 0, len(m.miners))
+	for _, miner := range m.miners {
+		result = append(result, miner)
+	}
+	return result
+}
+
+func (m *mockMinerManagerFull) GetMiner(name string) (MinerInstance, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	miner, exists := m.miners[name]
+	if !exists {
+		return nil, fmt.Errorf("miner %s not found", name)
+	}
+	return miner, nil
+}
+
+// mockMinerFull implements MinerInstance with real data.
+type mockMinerFull struct {
+	name           string
+	minerType      string
+	stats          interface{}
+	consoleHistory []string
+}
+
+func (m *mockMinerFull) GetName() string                { return m.name }
+func (m *mockMinerFull) GetType() string                { return m.minerType }
+func (m *mockMinerFull) GetStats() (interface{}, error)  { return m.stats, nil }
+func (m *mockMinerFull) GetConsoleHistory(lines int) []string {
+	if lines >= len(m.consoleHistory) {
+		return m.consoleHistory
+	}
+	return m.consoleHistory[:lines]
+}
+
+func TestController_StartRemoteMiner(t *testing.T) {
+	controller, _, tp := setupControllerPairWithMiner(t)
+	serverID := tp.ServerNode.GetIdentity().ID
+	configOverride := json.RawMessage(`{"pool":"pool.example.com:3333"}`)
+	err := controller.StartRemoteMiner(serverID, "xmrig", "profile-1", configOverride)
+
+
+	require.NoError(t, err, "StartRemoteMiner should succeed")
+}
+
+func TestController_StartRemoteMiner_WithConfig(t *testing.T) {
+	controller, _, tp := setupControllerPairWithMiner(t)
+	serverID := tp.ServerNode.GetIdentity().ID
+
+	configOverride := json.RawMessage(`{"pool":"custom-pool:3333","threads":4}`)
+	err := controller.StartRemoteMiner(serverID, "xmrig", "", configOverride)
+	require.NoError(t, err, "StartRemoteMiner with config override should succeed")
+}
+
+func TestController_StartRemoteMiner_EmptyType(t *testing.T) {
+	controller, _, tp := setupControllerPairWithMiner(t)
+	serverID := tp.ServerNode.GetIdentity().ID
+
+	err := controller.StartRemoteMiner(serverID, "", "profile-1", nil)
+	require.Error(t, err, "StartRemoteMiner with empty miner type should fail")
+	assert.Contains(t, err.Error(), "miner type is required")
+}
+
+func TestController_StartRemoteMiner_NoIdentity(t *testing.T) {
+	tp := setupTestTransportPair(t)
+
+	// Create a node without identity
+	nmNoID, err := NewNodeManagerWithPaths(
+		filepath.Join(t.TempDir(), "priv.key"),
+		filepath.Join(t.TempDir(), "node.json"),
+	)
+	require.NoError(t, err)
+
+	controller := NewController(nmNoID, tp.ClientReg, tp.Client)
+
+	err = controller.StartRemoteMiner("some-peer", "xmrig", "profile-1", nil)
+	require.Error(t, err, "should fail without identity")
+	assert.Contains(t, err.Error(), "identity not initialized")
+}
+
+func TestController_StopRemoteMiner(t *testing.T) {
+	controller, _, tp := setupControllerPairWithMiner(t)
+	serverID := tp.ServerNode.GetIdentity().ID
+
+	err := controller.StopRemoteMiner(serverID, "running-miner")
+	require.NoError(t, err, "StopRemoteMiner should succeed for existing miner")
+}
+
+func TestController_StopRemoteMiner_NotFound(t *testing.T) {
+	controller, _, tp := setupControllerPairWithMiner(t)
+	serverID := tp.ServerNode.GetIdentity().ID
+
+	err := controller.StopRemoteMiner(serverID, "non-existent-miner")
+	require.Error(t, err, "StopRemoteMiner should fail for non-existent miner")
+}
+
+func TestController_StopRemoteMiner_NoIdentity(t *testing.T) {
+	tp := setupTestTransportPair(t)
+	nmNoID, err := NewNodeManagerWithPaths(
+		filepath.Join(t.TempDir(), "priv.key"),
+		filepath.Join(t.TempDir(), "node.json"),
+	)
+	require.NoError(t, err)
+
+	controller := NewController(nmNoID, tp.ClientReg, tp.Client)
+
+	err = controller.StopRemoteMiner("some-peer", "any-miner")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "identity not initialized")
+}
+
+func TestController_GetRemoteLogs(t *testing.T) {
+	controller, _, tp := setupControllerPairWithMiner(t)
+	serverID := tp.ServerNode.GetIdentity().ID
+
+	lines, err := controller.GetRemoteLogs(serverID, "running-miner", 10)
+	require.NoError(t, err, "GetRemoteLogs should succeed")
+	require.NotNil(t, lines)
+	assert.Len(t, lines, 3, "should return all 3 console history lines")
+	assert.Contains(t, lines[0], "started")
+}
+
+func TestController_GetRemoteLogs_LimitedLines(t *testing.T) {
+	controller, _, tp := setupControllerPairWithMiner(t)
+	serverID := tp.ServerNode.GetIdentity().ID
+
+	lines, err := controller.GetRemoteLogs(serverID, "running-miner", 1)
+	require.NoError(t, err, "GetRemoteLogs with limited lines should succeed")
+	assert.Len(t, lines, 1, "should return only 1 line")
+}
+
+func TestController_GetRemoteLogs_NoIdentity(t *testing.T) {
+	tp := setupTestTransportPair(t)
+	nmNoID, err := NewNodeManagerWithPaths(
+		filepath.Join(t.TempDir(), "priv.key"),
+		filepath.Join(t.TempDir(), "node.json"),
+	)
+	require.NoError(t, err)
+
+	controller := NewController(nmNoID, tp.ClientReg, tp.Client)
+
+	_, err = controller.GetRemoteLogs("some-peer", "any-miner", 10)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "identity not initialized")
+}
+
+func TestController_GetRemoteStats_WithMiners(t *testing.T) {
+	controller, _, tp := setupControllerPairWithMiner(t)
+	serverID := tp.ServerNode.GetIdentity().ID
+
+	stats, err := controller.GetRemoteStats(serverID)
+	require.NoError(t, err, "GetRemoteStats should succeed")
+	require.NotNil(t, stats)
+	assert.NotEmpty(t, stats.NodeID)
+	// The worker has a miner manager with 1 running miner
+	assert.Len(t, stats.Miners, 1, "should list the running miner")
+	assert.Equal(t, "running-miner", stats.Miners[0].Name)
+	assert.Equal(t, 1234.5, stats.Miners[0].Hashrate)
+}
+
+func TestController_GetRemoteStats_NoIdentity(t *testing.T) {
+	tp := setupTestTransportPair(t)
+	nmNoID, err := NewNodeManagerWithPaths(
+		filepath.Join(t.TempDir(), "priv.key"),
+		filepath.Join(t.TempDir(), "node.json"),
+	)
+	require.NoError(t, err)
+
+	controller := NewController(nmNoID, tp.ClientReg, tp.Client)
+
+	_, err = controller.GetRemoteStats("some-peer")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "identity not initialized")
+}
+
+func TestController_ConnectToPeer_Success(t *testing.T) {
+	tp := setupTestTransportPair(t)
+
+	worker := NewWorker(tp.ServerNode, tp.Server)
+	worker.RegisterWithTransport()
+
+	controller := NewController(tp.ClientNode, tp.ClientReg, tp.Client)
+
+	// Add the server peer to the client registry.
+	serverIdentity := tp.ServerNode.GetIdentity()
+	peer := &Peer{
+		ID:      serverIdentity.ID,
+		Name:    "server",
+		Address: tp.ServerAddr,
+		Role:    RoleWorker,
+	}
+	tp.ClientReg.AddPeer(peer)
+
+	err := controller.ConnectToPeer(serverIdentity.ID)
+	require.NoError(t, err, "ConnectToPeer should succeed")
+
+	assert.Equal(t, 1, tp.Client.ConnectedPeers(), "should have 1 connection after ConnectToPeer")
+}
+
+func TestController_HandleResponse_NonReply(t *testing.T) {
+	tp := setupTestTransportPair(t)
+	controller := NewController(tp.ClientNode, tp.ClientReg, tp.Client)
+
+	// handleResponse should ignore messages without ReplyTo
+	msg, _ := NewMessage(MsgPing, "sender", "target", PingPayload{SentAt: 123})
+	controller.handleResponse(nil, msg)
+
+	// No pending entries should be affected
+	controller.mu.RLock()
+	count := len(controller.pending)
+	controller.mu.RUnlock()
+	assert.Equal(t, 0, count)
+}
+
+func TestController_HandleResponse_FullChannel(t *testing.T) {
+	tp := setupTestTransportPair(t)
+	controller := NewController(tp.ClientNode, tp.ClientReg, tp.Client)
+
+	// Create a pending channel that's already full
+	ch := make(chan *Message, 1)
+	ch <- &Message{} // Fill the channel
+
+	controller.mu.Lock()
+	controller.pending["test-id"] = ch
+	controller.mu.Unlock()
+
+	// handleResponse with matching reply should not panic on full channel
+	msg, _ := NewMessage(MsgPong, "sender", "target", PongPayload{SentAt: 123})
+	msg.ReplyTo = "test-id"
+	controller.handleResponse(nil, msg)
+
+	// The pending entry should be removed despite channel being full
+	controller.mu.RLock()
+	_, exists := controller.pending["test-id"]
+	controller.mu.RUnlock()
+	assert.False(t, exists, "pending entry should be removed after handling")
+}
+
+func TestController_PingPeer_NoIdentity(t *testing.T) {
+	tp := setupTestTransportPair(t)
+	nmNoID, _ := NewNodeManagerWithPaths(
+		filepath.Join(t.TempDir(), "priv.key"),
+		filepath.Join(t.TempDir(), "node.json"),
+	)
+	controller := NewController(nmNoID, tp.ClientReg, tp.Client)
+
+	_, err := controller.PingPeer("some-peer")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "identity not initialized")
 }

@@ -637,3 +637,299 @@ func TestPeerRegistry_GetPeersByScore(t *testing.T) {
 		t.Errorf("third peer should be low-score, got %s", sorted[2].ID)
 	}
 }
+
+// --- Additional coverage tests for peer.go ---
+
+func TestSafeKeyPrefix(t *testing.T) {
+	tests := []struct {
+		name     string
+		key      string
+		expected string
+	}{
+		{"long key", "abcdefghijklmnopqrstuvwxyz", "abcdefghijklmnop..."},
+		{"exactly 16", "1234567890123456", "1234567890123456..."},
+		{"short key", "abc", "abc"},
+		{"single char", "x", "x"},
+		{"empty key", "", "(empty)"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := safeKeyPrefix(tt.key)
+			if result != tt.expected {
+				t.Errorf("safeKeyPrefix(%q) = %q, want %q", tt.key, result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestValidatePeerName(t *testing.T) {
+	tests := []struct {
+		name      string
+		peerName  string
+		shouldErr bool
+	}{
+		{"empty allowed", "", false},
+		{"single alphanumeric", "A", false},
+		{"simple alphanumeric", "TestPeer", false},
+		{"with hyphens", "test-peer", false},
+		{"with underscores", "test_peer", false},
+		{"with spaces", "Test Peer", false},
+		{"max length", "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789AB", false},
+		{"too long", "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789ABC", true},
+		{"starts with hyphen", "-peer", true},
+		{"ends with space", "peer ", true},
+		{"special chars", "peer@host", true},
+		{"starts with space", " peer", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validatePeerName(tt.peerName)
+			if tt.shouldErr && err == nil {
+				t.Errorf("expected error for name %q", tt.peerName)
+			}
+			if !tt.shouldErr && err != nil {
+				t.Errorf("unexpected error for name %q: %v", tt.peerName, err)
+			}
+		})
+	}
+}
+
+func TestPeerRegistry_AddPeer_EmptyID(t *testing.T) {
+	pr, cleanup := setupTestPeerRegistry(t)
+	defer cleanup()
+
+	peer := &Peer{ID: "", Name: "no-id"}
+	err := pr.AddPeer(peer)
+	if err == nil {
+		t.Error("expected error for empty peer ID")
+	}
+}
+
+func TestPeerRegistry_UpdatePeer(t *testing.T) {
+	pr, cleanup := setupTestPeerRegistry(t)
+	defer cleanup()
+
+	// UpdatePeer for non-existent peer
+	err := pr.UpdatePeer(&Peer{ID: "non-existent"})
+	if err == nil {
+		t.Error("expected error when updating non-existent peer")
+	}
+
+	// Add then update
+	peer := &Peer{ID: "update-test", Name: "Original", Score: 50}
+	pr.AddPeer(peer)
+
+	peer.Name = "Updated"
+	peer.Score = 80
+	err = pr.UpdatePeer(peer)
+	if err != nil {
+		t.Fatalf("failed to update peer: %v", err)
+	}
+
+	updated := pr.GetPeer("update-test")
+	if updated == nil {
+		t.Fatal("expected peer to exist after update")
+	}
+	if updated.Name != "Updated" {
+		t.Errorf("expected name 'Updated', got '%s'", updated.Name)
+	}
+	if updated.Score != 80 {
+		t.Errorf("expected score 80, got %f", updated.Score)
+	}
+}
+
+func TestPeerRegistry_UpdateMetrics_NotFound(t *testing.T) {
+	pr, cleanup := setupTestPeerRegistry(t)
+	defer cleanup()
+
+	err := pr.UpdateMetrics("ghost", 10.0, 100.0, 1)
+	if err == nil {
+		t.Error("expected error updating metrics for non-existent peer")
+	}
+}
+
+func TestPeerRegistry_UpdateScore_NotFound(t *testing.T) {
+	pr, cleanup := setupTestPeerRegistry(t)
+	defer cleanup()
+
+	err := pr.UpdateScore("ghost", 75.0)
+	if err == nil {
+		t.Error("expected error updating score for non-existent peer")
+	}
+}
+
+func TestPeerRegistry_RecordSuccess_NotFound(t *testing.T) {
+	pr, cleanup := setupTestPeerRegistry(t)
+	defer cleanup()
+
+	// Should not panic for non-existent peer
+	pr.RecordSuccess("ghost-peer")
+}
+
+func TestPeerRegistry_RecordFailure_NotFound(t *testing.T) {
+	pr, cleanup := setupTestPeerRegistry(t)
+	defer cleanup()
+
+	pr.RecordFailure("ghost-peer")
+}
+
+func TestPeerRegistry_RecordTimeout_NotFound(t *testing.T) {
+	pr, cleanup := setupTestPeerRegistry(t)
+	defer cleanup()
+
+	pr.RecordTimeout("ghost-peer")
+}
+
+func TestPeerRegistry_SelectOptimalPeer_EmptyRegistry(t *testing.T) {
+	pr, cleanup := setupTestPeerRegistry(t)
+	defer cleanup()
+
+	optimal := pr.SelectOptimalPeer()
+	if optimal != nil {
+		t.Error("expected nil for empty registry")
+	}
+}
+
+func TestPeerRegistry_SelectNearestPeers_EmptyRegistry(t *testing.T) {
+	pr, cleanup := setupTestPeerRegistry(t)
+	defer cleanup()
+
+	nearest := pr.SelectNearestPeers(5)
+	if nearest != nil {
+		t.Error("expected nil for empty registry")
+	}
+}
+
+func TestPeerRegistry_SetConnected_NonExistent(t *testing.T) {
+	pr, cleanup := setupTestPeerRegistry(t)
+	defer cleanup()
+
+	// Should not panic for non-existent peer
+	pr.SetConnected("ghost-peer", true)
+}
+
+func TestPeerRegistry_Close_NoDirtyData(t *testing.T) {
+	pr, cleanup := setupTestPeerRegistry(t)
+	defer cleanup()
+
+	// Close without any changes should succeed
+	err := pr.Close()
+	if err != nil {
+		t.Errorf("Close with no dirty data should not error: %v", err)
+	}
+}
+
+func TestPeerRegistry_Close_WithDirtyData(t *testing.T) {
+	tmpDir, _ := os.MkdirTemp("", "close-dirty-test")
+	defer os.RemoveAll(tmpDir)
+
+	peersPath := filepath.Join(tmpDir, "peers.json")
+	pr, err := NewPeerRegistryWithPath(peersPath)
+	if err != nil {
+		t.Fatalf("failed to create registry: %v", err)
+	}
+
+	// Add a peer which triggers scheduleSave (dirty flag)
+	pr.AddPeer(&Peer{ID: "dirty-peer", Name: "Dirty"})
+
+	// Close should flush dirty data
+	err = pr.Close()
+	if err != nil {
+		t.Errorf("Close should not error: %v", err)
+	}
+
+	// Verify data was saved
+	pr2, err := NewPeerRegistryWithPath(peersPath)
+	if err != nil {
+		t.Fatalf("failed to reload: %v", err)
+	}
+	if pr2.Count() != 1 {
+		t.Errorf("expected 1 peer after close+reload, got %d", pr2.Count())
+	}
+}
+
+func TestPeerRegistry_ScheduleSave_Debounce(t *testing.T) {
+	tmpDir, _ := os.MkdirTemp("", "debounce-test")
+	defer os.RemoveAll(tmpDir)
+
+	peersPath := filepath.Join(tmpDir, "peers.json")
+	pr, err := NewPeerRegistryWithPath(peersPath)
+	if err != nil {
+		t.Fatalf("failed to create registry: %v", err)
+	}
+
+	// Multiple rapid saves should be debounced
+	for i := 0; i < 10; i++ {
+		pr.scheduleSave()
+	}
+
+	// Close should flush
+	err = pr.Close()
+	if err != nil {
+		t.Errorf("Close should not error: %v", err)
+	}
+}
+
+func TestPeerRegistry_SaveNow(t *testing.T) {
+	tmpDir, _ := os.MkdirTemp("", "savenow-test")
+	defer os.RemoveAll(tmpDir)
+
+	peersPath := filepath.Join(tmpDir, "subdir", "peers.json")
+	pr, err := NewPeerRegistryWithPath(peersPath)
+	if err != nil {
+		t.Fatalf("failed to create registry: %v", err)
+	}
+
+	pr.AddPeer(&Peer{ID: "save-test", Name: "SaveTest"})
+
+	// Direct saveNow call
+	pr.mu.RLock()
+	err = pr.saveNow()
+	pr.mu.RUnlock()
+	if err != nil {
+		t.Fatalf("saveNow failed: %v", err)
+	}
+
+	// Verify the file was written
+	if _, err := os.Stat(peersPath); os.IsNotExist(err) {
+		t.Error("peers.json should exist after saveNow")
+	}
+}
+
+func TestPeerRegistry_ScheduleSave_TimerFires(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping debounce timer test in short mode")
+	}
+
+	tmpDir, _ := os.MkdirTemp("", "timer-fire-test")
+	defer os.RemoveAll(tmpDir)
+
+	peersPath := filepath.Join(tmpDir, "peers.json")
+	pr, err := NewPeerRegistryWithPath(peersPath)
+	if err != nil {
+		t.Fatalf("failed to create registry: %v", err)
+	}
+
+	pr.AddPeer(&Peer{ID: "timer-peer", Name: "Timer"})
+
+	// Wait for the debounce interval to fire (5s + buffer)
+	time.Sleep(6 * time.Second)
+
+	// The file should have been saved by the timer
+	if _, err := os.Stat(peersPath); os.IsNotExist(err) {
+		t.Error("peers.json should exist after debounce timer fires")
+	}
+
+	// Reload and verify
+	pr2, err := NewPeerRegistryWithPath(peersPath)
+	if err != nil {
+		t.Fatalf("failed to reload: %v", err)
+	}
+	if pr2.Count() != 1 {
+		t.Errorf("expected 1 peer after timer save, got %d", pr2.Count())
+	}
+
+	pr.Close()
+}

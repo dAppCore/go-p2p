@@ -282,3 +282,44 @@ func TestErrorCodes(t *testing.T) {
 		})
 	}
 }
+
+func TestNewMessage_NilPayload(t *testing.T) {
+	msg, err := NewMessage(MsgPing, "from", "to", nil)
+	if err != nil {
+		t.Fatalf("NewMessage with nil payload should succeed: %v", err)
+	}
+	if msg.Payload != nil {
+		t.Error("payload should be nil for nil input")
+	}
+}
+
+func TestMessage_ParsePayload_Nil(t *testing.T) {
+	msg := &Message{Payload: nil}
+	var target PingPayload
+	err := msg.ParsePayload(&target)
+	if err != nil {
+		t.Errorf("ParsePayload with nil payload should succeed: %v", err)
+	}
+}
+
+func TestNewErrorMessage_Success(t *testing.T) {
+	msg, err := NewErrorMessage("from", "to", ErrCodeOperationFailed, "something went wrong", "reply-123")
+	if err != nil {
+		t.Fatalf("NewErrorMessage failed: %v", err)
+	}
+	if msg.Type != MsgError {
+		t.Errorf("expected type %s, got %s", MsgError, msg.Type)
+	}
+	if msg.ReplyTo != "reply-123" {
+		t.Errorf("expected ReplyTo 'reply-123', got '%s'", msg.ReplyTo)
+	}
+
+	var payload ErrorPayload
+	msg.ParsePayload(&payload)
+	if payload.Code != ErrCodeOperationFailed {
+		t.Errorf("expected code %d, got %d", ErrCodeOperationFailed, payload.Code)
+	}
+	if payload.Message != "something went wrong" {
+		t.Errorf("expected message 'something went wrong', got '%s'", payload.Message)
+	}
+}
