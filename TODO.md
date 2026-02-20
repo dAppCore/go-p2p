@@ -4,35 +4,35 @@ Dispatched from core/go orchestration. Pick up tasks in phase order.
 
 ---
 
-## Phase 1: UEPS Wire Protocol Tests (CRITICAL — 0% coverage)
+## Phase 1: UEPS Wire Protocol Tests — COMPLETE (88.5% coverage)
 
-The UEPS packet builder and reader implement HMAC-SHA256 signed TLV frames. Zero tests exist. This is crypto code — it must be tested.
+All crypto wire protocol tests implemented. Commit `2bc53ba`.
 
-- [ ] **PacketBuilder round-trip** — Build packet with known fields, marshal+sign, then ReadAndVerify, assert all header fields match and payload is intact.
-- [ ] **HMAC verification** — Tamper with payload byte after signing, verify ReadAndVerify returns integrity error. Do same for header tampering.
-- [ ] **Wrong shared secret** — Sign with key A, verify with key B, expect HMAC mismatch.
-- [ ] **Empty payload** — Payload=nil or []byte{}, should produce valid signed packet.
-- [ ] **Max ThreatScore boundary** — ThreatScore=65535 (uint16 max), verify serialisation round-trips correctly.
-- [ ] **Missing HMAC tag** — Craft packet without 0x06 tag, expect "missing HMAC" error from reader.
-- [ ] **TLV value too large** — Value >255 bytes, expect writeTLV error.
-- [ ] **Truncated packet** — Short read / EOF mid-TLV, expect io error.
-- [ ] **Unknown TLV tag** — Insert unknown tag between header TLVs and HMAC, verify reader skips it but includes in signature check.
+- [x] **PacketBuilder round-trip** — Basic, binary, threat score, large payload variants
+- [x] **HMAC verification** — Payload tampering + header tampering both caught
+- [x] **Wrong shared secret** — HMAC mismatch detected
+- [x] **Empty payload** — Nil and empty slice both produce valid packets
+- [x] **Max ThreatScore boundary** — uint16 max round-trips correctly
+- [x] **Missing HMAC tag** — Error returned
+- [x] **TLV value too large** — writeTLV error for >255 bytes
+- [x] **Truncated packet** — EOF mid-TLV detected at multiple cut points
+- [x] **Unknown TLV tag** — Reader skips unknown tags, included in signature
 
-## Phase 2: Transport Tests (0 tests, 934 lines)
+## Phase 2: Transport Tests — COMPLETE (node/ 42% → 63.5%)
 
-Transport is the encrypted WebSocket layer. Tests need real WebSocket connections via httptest.NewServer.
+All transport layer tests implemented with real WebSocket connections. Commit `3ee5553`.
 
-- [ ] **Test pair setup helper** — Create reusable helper that spins up two identities, registries (open auth), transports on random ports. This helper underpins all transport tests.
-- [ ] **Full handshake** — Client connects to server, challenge-response completes, shared secret derived, both sides have connection.
-- [ ] **Handshake rejection: wrong protocol version** — Peer with incompatible version gets rejection message before disconnect.
-- [ ] **Handshake rejection: allowlist** — Peer not in allowlist gets "not authorized" rejection.
-- [ ] **Encrypted message round-trip** — Send message from A to B via SMSG encryption, verify decrypt and content match.
-- [ ] **Message deduplication** — Send message with same ID twice, second is dropped silently.
-- [ ] **Rate limiting** — Burst >100 messages from one peer, verify messages dropped after token bucket empties.
-- [ ] **MaxConns enforcement** — Fill MaxConns, next connection gets 503 rejection.
-- [ ] **Keepalive timeout** — No activity beyond PingInterval+PongTimeout, connection cleaned up.
-- [ ] **Graceful close** — GracefulClose sends disconnect message (MsgDisconnect) before closing.
-- [ ] **Concurrent sends** — Multiple goroutines sending on same connection, no races (writeMu protects).
+- [x] **Test pair setup helper** — Reusable helper for identities + registries + transports
+- [x] **Full handshake** — Challenge-response completes, shared secret derived
+- [x] **Handshake rejection: wrong protocol version** — Rejection before disconnect
+- [x] **Handshake rejection: allowlist** — "not authorized" rejection
+- [x] **Encrypted message round-trip** — SMSG encrypt/decrypt verified
+- [x] **Message deduplication** — Duplicate ID dropped silently
+- [x] **Rate limiting** — Burst >100 messages, drops after token bucket empties
+- [x] **MaxConns enforcement** — 503 rejection on overflow
+- [x] **Keepalive timeout** — Connection cleaned up after PingInterval+PongTimeout
+- [x] **Graceful close** — MsgDisconnect sent before close
+- [x] **Concurrent sends** — No races (writeMu protects)
 
 ## Phase 3: Controller Tests (0 tests, 327 lines)
 
