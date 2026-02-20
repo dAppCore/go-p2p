@@ -56,11 +56,13 @@ UEPS packet dispatcher with threat circuit breaker and intent routing. Commit `a
 - [x] **Intent router** — Route by IntentID: 0x01 handshake, 0x20 compute, 0x30 rehab, 0xFF custom. Unknown intents logged and dropped.
 - [x] **Dispatcher tests** — 10 test functions, 17 subtests: register/dispatch, threat boundary (at/above/max/zero), unknown intent, multi-handler routing, nil/empty payload, concurrent dispatch, concurrent register+dispatch, handler replacement, threat-before-routing ordering, intent constant verification.
 
-## Phase 5: Integration & Benchmarks
+## Phase 5: Integration & Benchmarks — COMPLETE
 
-- [ ] **Full integration test** — Two nodes on localhost: identity creation, handshake, encrypted message exchange, UEPS packet routing, graceful shutdown.
-- [ ] **Benchmarks** — Peer scoring (KD-tree), UEPS marshal/unmarshal, identity key generation, message serialisation, SMSG encrypt/decrypt.
-- [ ] **bufpool.go tests** — Buffer reuse verification, concurrent access.
+All integration tests, benchmarks, and bufpool tests implemented. Race-free under `-race`.
+
+- [x] **Full integration test** — Two nodes on localhost: identity creation, handshake, encrypted message exchange, controller ping/pong, UEPS packet routing via dispatcher, threat circuit breaker, graceful shutdown with disconnect message. 3 integration test functions.
+- [x] **Benchmarks** — 13 benchmark functions across node/ and ueps/: identity keygen (217us), shared secret derivation (53us), message serialise (4us), SMSG encrypt+decrypt (4.7us), challenge sign+verify (505ns), peer scoring (KD-tree select 349ns, rebuild 2.5us), UEPS marshal (621ns), UEPS read+verify (1us), bufpool get/put (8ns zero-alloc), challenge generation (211ns).
+- [x] **bufpool.go tests** — 9 test functions: get/put round-trip, buffer reuse verification, large buffer eviction (>64KB not pooled), concurrent get/put (100 goroutines x 50 iterations), buffer independence, MarshalJSON correctness (7 types), independent copy verification, HTML escaping disabled, concurrent MarshalJSON.
 
 ---
 
