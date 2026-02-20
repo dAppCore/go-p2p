@@ -56,13 +56,13 @@ UEPS packet dispatcher with threat circuit breaker and intent routing. Commit `a
 - [x] **Intent router** — Route by IntentID: 0x01 handshake, 0x20 compute, 0x30 rehab, 0xFF custom. Unknown intents logged and dropped.
 - [x] **Dispatcher tests** — 10 test functions, 17 subtests: register/dispatch, threat boundary (at/above/max/zero), unknown intent, multi-handler routing, nil/empty payload, concurrent dispatch, concurrent register+dispatch, handler replacement, threat-before-routing ordering, intent constant verification.
 
-## Phase 5: Integration & Benchmarks — COMPLETE
+## Phase 5: Integration & Benchmarks — COMPLETE (node/ 87.5%, ueps/ 93.1%)
 
-All integration tests, benchmarks, and bufpool tests implemented. Race-free under `-race`.
+Full integration tests, benchmarks, and bufpool tests. Race-free under `-race`. Commit `12c47f3`.
 
-- [x] **Full integration test** — Two nodes on localhost: identity creation, handshake, encrypted message exchange, controller ping/pong, UEPS packet routing via dispatcher, threat circuit breaker, graceful shutdown with disconnect message. 3 integration test functions.
-- [x] **Benchmarks** — 13 benchmark functions across node/ and ueps/: identity keygen (217us), shared secret derivation (53us), message serialise (4us), SMSG encrypt+decrypt (4.7us), challenge sign+verify (505ns), peer scoring (KD-tree select 349ns, rebuild 2.5us), UEPS marshal (621ns), UEPS read+verify (1us), bufpool get/put (8ns zero-alloc), challenge generation (211ns).
-- [x] **bufpool.go tests** — 9 test functions: get/put round-trip, buffer reuse verification, large buffer eviction (>64KB not pooled), concurrent get/put (100 goroutines x 50 iterations), buffer independence, MarshalJSON correctness (7 types), independent copy verification, HTML escaping disabled, concurrent MarshalJSON.
+- [x] **Full integration test** — Two nodes on localhost: identity creation, handshake, encrypted message exchange, UEPS packet routing, graceful shutdown. Plus multi-peer topology, allowlist rejection/acceptance, bidirectional messages, identity persistence/reload, UEPS integrity failure, message serialise/deserialise round-trip, and controller ping/pong. 12 integration test functions.
+- [x] **Benchmarks** — 16 benchmark functions across node/ and ueps/: identity keygen, shared secret derivation, message serialisation (Ping/Stats), MarshalJSON vs stdlib, SMSG encrypt/decrypt/round-trip, challenge-response (generate/sign/verify), peer scoring (KD-tree: 10/100/1000 peers), UEPS marshal/unmarshal (64B/1KB/64KB/empty), bufpool get/put.
+- [x] **bufpool.go tests** — Buffer reuse verification (reset after return), oversized buffer discard (>64KB), buffer independence, concurrent access (100 goroutines x 50 iterations), MarshalJSON correctness (8 types), no trailing newline, HTML escaping disabled, returned copy independence, invalid value error, concurrent MarshalJSON safety (50 goroutines).
 
 ---
 
