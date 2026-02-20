@@ -10,80 +10,56 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestBufPool_GetPutRoundTrip(t *testing.T) {
-	buf := getBuffer()
-	require.NotNil(t, buf, "getBuffer should return a non-nil buffer")
-	assert.Equal(t, 0, buf.Len(), "buffer should be empty after get")
+// --- bufpool.go tests ---
 
-	buf.WriteString("hello")
-	assert.Equal(t, 5, buf.Len())
+func TestGetBuffer_ReturnsResetBuffer(t *testing.T) {
+	t.Run("buffer is initially empty", func(t *testing.T) {
+		buf := getBuffer()
+		defer putBuffer(buf)
 
-	putBuffer(buf)
+		assert.Equal(t, 0, buf.Len(), "buffer from pool should have zero length")
+	})
 
-	// Get another buffer — should be reset
-	buf2 := getBuffer()
-	assert.Equal(t, 0, buf2.Len(), "buffer should be reset after get")
-	putBuffer(buf2)
+	t.Run("buffer is reset after reuse", func(t *testing.T) {
+		buf := getBuffer()
+		buf.WriteString("stale data that should be cleared")
+		putBuffer(buf)
+
+		buf2 := getBuffer()
+		defer putBuffer(buf2)
+
+		assert.Equal(t, 0, buf2.Len(),
+			"reused buffer should be reset (no stale data)")
+	})
 }
 
-func TestBufPool_BufferReuse(t *testing.T) {
-	// Get a buffer, write to it, put it back, get again.
-	// The pool may return the same buffer (though not guaranteed by sync.Pool).
-	// We can at least verify the buffer is properly reset.
-	buf1 := getBuffer()
-	buf1.WriteString("reuse-test")
-	cap1 := buf1.Cap()
-	putBuffer(buf1)
+func TestPutBuffer_DiscardsOversizedBuffers(t *testing.T) {
+	t.Run("buffer at 64KB limit is pooled", func(t *testing.T) {
+		buf := getBuffer()
+		buf.Grow(65536)
+		putBuffer(buf)
 
-	buf2 := getBuffer()
-	assert.Equal(t, 0, buf2.Len(), "reused buffer must be reset")
-	// If we got the same buffer, capacity should be at least as large
-	if buf2.Cap() >= cap1 {
-		// Likely the same buffer — good, it was reused
-		t.Logf("buffer likely reused: cap1=%d, cap2=%d", cap1, buf2.Cap())
-	}
-	putBuffer(buf2)
-}
+		buf2 := getBuffer()
+		defer putBuffer(buf2)
+		assert.Equal(t, 0, buf2.Len())
+	})
 
-func TestBufPool_LargeBufferNotPooled(t *testing.T) {
-	buf := getBuffer()
-	// Grow buffer beyond the 64KB threshold
-	large := make([]byte, 70000)
-	buf.Write(large)
-	assert.Greater(t, buf.Cap(), 65536, "buffer should have grown past threshold")
+	t.Run("buffer exceeding 64KB is discarded", func(t *testing.T) {
+		buf := getBuffer()
+		large := make([]byte, 65537)
+		buf.Write(large)
+		assert.Greater(t, buf.Cap(), 65536, "buffer should have grown past 64KB")
 
-	putBuffer(buf) // Should NOT be returned to the pool
+		putBuffer(buf)
 
-	// Get a new buffer — it should be a fresh one (small capacity)
-	buf2 := getBuffer()
-	assert.LessOrEqual(t, buf2.Cap(), 65536,
-		"buffer from pool should not be the oversized one")
-	putBuffer(buf2)
-}
-
-func TestBufPool_ConcurrentGetPut(t *testing.T) {
-	const goroutines = 100
-	const iterations = 50
-	var wg sync.WaitGroup
-	wg.Add(goroutines)
-
-	for g := 0; g < goroutines; g++ {
-		go func(id int) {
-			defer wg.Done()
-			for i := 0; i < iterations; i++ {
-				buf := getBuffer()
-				buf.WriteString("concurrent-data")
-				assert.Greater(t, buf.Len(), 0)
-				putBuffer(buf)
-			}
-		}(g)
-	}
-
-	wg.Wait()
+		buf2 := getBuffer()
+		defer putBuffer(buf2)
+		assert.LessOrEqual(t, buf2.Cap(), 65536,
+			"pool should not return an oversized buffer")
+	})
 }
 
 func TestBufPool_BufferIndependence(t *testing.T) {
-	// Get two buffers, write to one, verify the other is unaffected.
 	buf1 := getBuffer()
 	buf2 := getBuffer()
 
@@ -93,7 +69,6 @@ func TestBufPool_BufferIndependence(t *testing.T) {
 	assert.Equal(t, "buffer-one", buf1.String())
 	assert.Equal(t, "buffer-two", buf2.String())
 
-	// Writing more to buf1 should not affect buf2
 	buf1.WriteString("-extra")
 	assert.Equal(t, "buffer-one-extra", buf1.String())
 	assert.Equal(t, "buffer-two", buf2.String())
@@ -107,66 +82,175 @@ func TestMarshalJSON_BasicTypes(t *testing.T) {
 		name  string
 		input interface{}
 	}{
-		{"string", "hello"},
-		{"int", 42},
-		{"float", 3.14},
-		{"bool", true},
-		{"nil", nil},
-		{"map", map[string]string{"key": "value"}},
-		{"slice", []int{1, 2, 3}},
+		{
+			name:  "string value",
+			input: "hello",
+		},
+		{
+			name:  "integer value",
+			input: 42,
+		},
+		{
+			name:  "float value",
+			input: 3.14,
+		},
+		{
+			name:  "boolean value",
+			input: true,
+		},
+		{
+			name:  "nil value",
+			input: nil,
+		},
+		{
+			name:  "struct value",
+			input: PingPayload{SentAt: 1234567890},
+		},
+		{
+			name:  "map value",
+			input: map[string]interface{}{"key": "value", "num": 42},
+		},
+		{
+			name:  "slice value",
+			input: []int{1, 2, 3},
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			pooled, err := MarshalJSON(tt.input)
+			got, err := MarshalJSON(tt.input)
 			require.NoError(t, err)
 
-			standard, err := json.Marshal(tt.input)
+			expected, err := json.Marshal(tt.input)
 			require.NoError(t, err)
 
-			assert.Equal(t, string(standard), string(pooled),
-				"MarshalJSON should produce same output as json.Marshal")
+			assert.JSONEq(t, string(expected), string(got),
+				"MarshalJSON output should match json.Marshal")
 		})
 	}
 }
 
+func TestMarshalJSON_NoTrailingNewline(t *testing.T) {
+	data, err := MarshalJSON(map[string]string{"key": "value"})
+	require.NoError(t, err)
+
+	assert.NotEqual(t, byte('\n'), data[len(data)-1],
+		"MarshalJSON should strip the trailing newline added by json.Encoder")
+}
+
+func TestMarshalJSON_HTMLEscaping(t *testing.T) {
+	input := map[string]string{"html": "<script>alert('xss')</script>"}
+	data, err := MarshalJSON(input)
+	require.NoError(t, err)
+
+	assert.Contains(t, string(data), "<script>",
+		"HTML characters should not be escaped when EscapeHTML is false")
+}
+
+func TestMarshalJSON_ReturnsCopy(t *testing.T) {
+	data1, err := MarshalJSON("first")
+	require.NoError(t, err)
+
+	snapshot := make([]byte, len(data1))
+	copy(snapshot, data1)
+
+	data2, err := MarshalJSON("second")
+	require.NoError(t, err)
+	_ = data2
+
+	assert.Equal(t, snapshot, data1,
+		"returned slice should be a copy and not be mutated by subsequent calls")
+}
+
 func TestMarshalJSON_ReturnsIndependentCopy(t *testing.T) {
-	// Ensure the returned bytes are a copy, not a reference to the pooled buffer.
 	data1, err := MarshalJSON(map[string]string{"first": "call"})
 	require.NoError(t, err)
 
 	data2, err := MarshalJSON(map[string]string{"second": "call"})
 	require.NoError(t, err)
 
-	// data1 should still contain the first result, not be overwritten
 	assert.True(t, bytes.Contains(data1, []byte("first")),
 		"first result should be independent of second call")
 	assert.True(t, bytes.Contains(data2, []byte("second")),
 		"second result should contain its own data")
 }
 
-func TestMarshalJSON_NoHTMLEscaping(t *testing.T) {
-	// MarshalJSON has SetEscapeHTML(false), so <, >, & should not be escaped
-	data, err := MarshalJSON(map[string]string{"html": "<b>bold</b>"})
-	require.NoError(t, err)
-
-	assert.Contains(t, string(data), "<b>bold</b>",
-		"HTML characters should not be escaped")
+func TestMarshalJSON_InvalidValue(t *testing.T) {
+	ch := make(chan int)
+	_, err := MarshalJSON(ch)
+	assert.Error(t, err, "marshalling an unserialisable type should return an error")
 }
 
-func TestMarshalJSON_ConcurrentCalls(t *testing.T) {
-	const goroutines = 50
+func TestBufferPool_ConcurrentAccess(t *testing.T) {
+	const goroutines = 100
+	const iterations = 50
+
 	var wg sync.WaitGroup
 	wg.Add(goroutines)
 
 	for g := 0; g < goroutines; g++ {
-		go func(id int) {
+		go func() {
 			defer wg.Done()
-			data, err := MarshalJSON(map[string]int{"id": id})
-			assert.NoError(t, err)
-			assert.NotEmpty(t, data)
+			for i := 0; i < iterations; i++ {
+				buf := getBuffer()
+				buf.WriteString("concurrent test data")
+
+				assert.IsType(t, &bytes.Buffer{}, buf)
+				assert.Greater(t, buf.Len(), 0)
+
+				putBuffer(buf)
+			}
+		}()
+	}
+
+	wg.Wait()
+}
+
+func TestMarshalJSON_ConcurrentSafety(t *testing.T) {
+	const goroutines = 50
+
+	var wg sync.WaitGroup
+	wg.Add(goroutines)
+
+	errs := make([]error, goroutines)
+
+	for g := 0; g < goroutines; g++ {
+		go func(idx int) {
+			defer wg.Done()
+			payload := PingPayload{SentAt: int64(idx)}
+			data, err := MarshalJSON(payload)
+			errs[idx] = err
+
+			if err == nil {
+				var parsed PingPayload
+				err = json.Unmarshal(data, &parsed)
+				if err != nil {
+					errs[idx] = err
+					return
+				}
+				if parsed.SentAt != int64(idx) {
+					errs[idx] = assert.AnError
+				}
+			}
 		}(g)
 	}
 
 	wg.Wait()
+
+	for i, err := range errs {
+		assert.NoError(t, err, "goroutine %d should not produce an error", i)
+	}
+}
+
+func TestBufferPool_ReuseAfterReset(t *testing.T) {
+	buf := getBuffer()
+	buf.Write(make([]byte, 4096))
+	putBuffer(buf)
+
+	buf2 := getBuffer()
+	defer putBuffer(buf2)
+
+	assert.Equal(t, 0, buf2.Len(), "buffer should be reset")
+	assert.GreaterOrEqual(t, buf2.Cap(), 1024,
+		"buffer capacity should be at least the default (1024)")
 }
