@@ -34,17 +34,18 @@ All transport layer tests implemented with real WebSocket connections. Commit `3
 - [x] **Graceful close** — MsgDisconnect sent before close
 - [x] **Concurrent sends** — No races (writeMu protects)
 
-## Phase 3: Controller Tests (0 tests, 327 lines)
+## Phase 3: Controller Tests — COMPLETE (node/ 63.5% → 72.1%)
 
-Controller wraps transport for request-response patterns. Test over a real transport pair from Phase 2.
+All controller tests implemented with real WebSocket transport pairs. 14 tests total.
+Also fixed pre-existing data race in GracefulClose (P2P-RACE-1).
 
-- [ ] **Request-response correlation** — Send request, worker replies with ReplyTo set, controller matches correctly.
-- [ ] **Request timeout** — No response within deadline, returns timeout error.
-- [ ] **Auto-connect** — Peer not connected, controller auto-connects via transport before sending.
-- [ ] **GetAllStats** — Multiple connected peers, verify parallel stat collection completes.
-- [ ] **PingPeer RTT** — Send ping, receive pong, RTT calculated and peer metrics updated.
-- [ ] **Concurrent requests** — Multiple requests in flight to different peers, correct correlation.
-- [ ] **Dead peer cleanup** — Response channel cleaned up after timeout (no goroutine/memory leak).
+- [x] **Request-response correlation** — Send request, worker replies with ReplyTo set, controller matches correctly.
+- [x] **Request timeout** — No response within deadline, returns timeout error.
+- [x] **Auto-connect** — Peer not connected, controller auto-connects via transport before sending.
+- [x] **GetAllStats** — Multiple connected peers, verify parallel stat collection completes.
+- [x] **PingPeer RTT** — Send ping, receive pong, RTT calculated and peer metrics updated.
+- [x] **Concurrent requests** — Multiple requests in flight to different peers, correct correlation.
+- [x] **Dead peer cleanup** — Response channel cleaned up after timeout (no goroutine/memory leak).
 
 ## Phase 4: Dispatcher Implementation
 

@@ -864,7 +864,10 @@ const (
 func (pc *PeerConnection) GracefulClose(reason string, code int) error {
 	var err error
 	pc.closeOnce.Do(func() {
-		// Try to send disconnect message (best effort)
+		// Try to send disconnect message (best effort).
+		// Note: we must NOT call SetWriteDeadline outside writeMu — Send()
+		// already manages write deadlines under the lock.  Setting it here
+		// without the lock races with concurrent Send() calls (P2P-RACE-1).
 		if pc.transport != nil && pc.SharedSecret != nil {
 			identity := pc.transport.node.GetIdentity()
 			if identity != nil {
@@ -874,8 +877,6 @@ func (pc *PeerConnection) GracefulClose(reason string, code int) error {
 				}
 				msg, msgErr := NewMessage(MsgDisconnect, identity.ID, pc.Peer.ID, payload)
 				if msgErr == nil {
-					// Set short deadline for disconnect message
-					pc.Conn.SetWriteDeadline(time.Now().Add(2 * time.Second))
 					pc.Send(msg)
 				}
 			}
