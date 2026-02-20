@@ -36,7 +36,7 @@ All transport layer tests implemented with real WebSocket connections. Commit `3
 
 ## Phase 3: Controller Tests — COMPLETE (node/ 63.5% → 72.1%)
 
-All controller tests implemented with real WebSocket transport pairs. 14 tests total.
+All controller tests implemented with real WebSocket transport pairs. 14 tests total. Commit `33eda7b`.
 Also fixed pre-existing data race in GracefulClose (P2P-RACE-1).
 
 - [x] **Request-response correlation** — Send request, worker replies with ReplyTo set, controller matches correctly.
