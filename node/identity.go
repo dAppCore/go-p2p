@@ -14,7 +14,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Snider/Borg/pkg/stmf"
+	"forge.lthn.ai/Snider/Borg/pkg/stmf"
 	"github.com/adrg/xdg"
 )
 

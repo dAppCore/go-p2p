@@ -12,8 +12,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"forge.lthn.ai/Snider/Borg/pkg/smsg"
 	"forge.lthn.ai/core/go-p2p/logging"
-	"github.com/Snider/Borg/pkg/smsg"
 	"github.com/gorilla/websocket"
 )
 

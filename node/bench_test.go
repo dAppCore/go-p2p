@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Snider/Borg/pkg/smsg"
+	"forge.lthn.ai/Snider/Borg/pkg/smsg"
 )
 
 // BenchmarkIdentityGenerate measures Ed25519/X25519 keypair generation and

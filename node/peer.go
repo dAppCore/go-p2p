@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"forge.lthn.ai/core/go-p2p/logging"
-	"github.com/Snider/Poindexter"
+	"forge.lthn.ai/Snider/Poindexter"
 	"github.com/adrg/xdg"
 )
 

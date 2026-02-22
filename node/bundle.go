@@ -12,8 +12,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/Snider/Borg/pkg/datanode"
-	"github.com/Snider/Borg/pkg/tim"
+	"forge.lthn.ai/Snider/Borg/pkg/datanode"
+	"forge.lthn.ai/Snider/Borg/pkg/tim"
 )
 
 // BundleType defines the type of deployment bundle.
