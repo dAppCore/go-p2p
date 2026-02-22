@@ -111,13 +111,13 @@ func BenchmarkMessageCreateOnly(b *testing.B) {
 
 // BenchmarkMarshalJSON measures the pooled JSON encoder against stdlib.
 func BenchmarkMarshalJSON(b *testing.B) {
-	data := map[string]interface{}{
+	data := map[string]any{
 		"id":        "test-id-1234",
 		"type":      "stats",
 		"from":      "node-a",
 		"to":        "node-b",
 		"timestamp": time.Now(),
-		"payload": map[string]interface{}{
+		"payload": map[string]any{
 			"hashrate": 1234.56,
 			"shares":   1000,
 		},
@@ -209,7 +209,7 @@ func BenchmarkPeerScoring(b *testing.B) {
 	defer reg.Close()
 
 	// Add 50 peers with varied metrics
-	for i := 0; i < 50; i++ {
+	for i := range 50 {
 		peer := &Peer{
 			ID:      filepath.Join("peer", string(rune('A'+i%26)), string(rune('0'+i/26))),
 			Name:    "peer",

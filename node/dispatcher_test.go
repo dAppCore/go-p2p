@@ -248,7 +248,7 @@ func TestDispatcher_ConcurrentDispatchSafety(t *testing.T) {
 	var wg sync.WaitGroup
 	wg.Add(goroutines)
 
-	for i := 0; i < goroutines; i++ {
+	for range goroutines {
 		go func() {
 			defer wg.Done()
 			pkt := makePacket(IntentCompute, 0, []byte("concurrent"))
@@ -277,7 +277,7 @@ func TestDispatcher_ConcurrentRegisterAndDispatch(t *testing.T) {
 	wg.Add(goroutines * 2)
 
 	// Half the goroutines dispatch packets
-	for i := 0; i < goroutines; i++ {
+	for range goroutines {
 		go func() {
 			defer wg.Done()
 			pkt := makePacket(IntentHandshake, 0, []byte("data"))
@@ -286,7 +286,7 @@ func TestDispatcher_ConcurrentRegisterAndDispatch(t *testing.T) {
 	}
 
 	// Half the goroutines register/replace handlers concurrently
-	for i := 0; i < goroutines; i++ {
+	for i := range goroutines {
 		go func(n int) {
 			defer wg.Done()
 			d.RegisterHandler(byte(n%4), func(pkt *ueps.ParsedPacket) error {

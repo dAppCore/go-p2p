@@ -80,7 +80,7 @@ func TestBufPool_BufferIndependence(t *testing.T) {
 func TestMarshalJSON_BasicTypes(t *testing.T) {
 	tests := []struct {
 		name  string
-		input interface{}
+		input any
 	}{
 		{
 			name:  "string value",
@@ -108,7 +108,7 @@ func TestMarshalJSON_BasicTypes(t *testing.T) {
 		},
 		{
 			name:  "map value",
-			input: map[string]interface{}{"key": "value", "num": 42},
+			input: map[string]any{"key": "value", "num": 42},
 		},
 		{
 			name:  "slice value",
@@ -188,10 +188,10 @@ func TestBufferPool_ConcurrentAccess(t *testing.T) {
 	var wg sync.WaitGroup
 	wg.Add(goroutines)
 
-	for g := 0; g < goroutines; g++ {
+	for range goroutines {
 		go func() {
 			defer wg.Done()
-			for i := 0; i < iterations; i++ {
+			for range iterations {
 				buf := getBuffer()
 				buf.WriteString("concurrent test data")
 
@@ -214,7 +214,7 @@ func TestMarshalJSON_ConcurrentSafety(t *testing.T) {
 
 	errs := make([]error, goroutines)
 
-	for g := 0; g < goroutines; g++ {
+	for g := range goroutines {
 		go func(idx int) {
 			defer wg.Done()
 			payload := PingPayload{SentAt: int64(idx)}

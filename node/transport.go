@@ -12,8 +12,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/Snider/Borg/pkg/smsg"
 	"forge.lthn.ai/core/go-p2p/logging"
+	"github.com/Snider/Borg/pkg/smsg"
 	"github.com/gorilla/websocket"
 )
 
@@ -237,9 +237,7 @@ func (t *Transport) Start() error {
 		}
 	}
 
-	t.wg.Add(1)
-	go func() {
-		defer t.wg.Done()
+	t.wg.Go(func() {
 		var err error
 		if t.config.TLSCertPath != "" && t.config.TLSKeyPath != "" {
 			err = t.server.ListenAndServeTLS(t.config.TLSCertPath, t.config.TLSKeyPath)
@@ -249,12 +247,10 @@ func (t *Transport) Start() error {
 		if err != nil && err != http.ErrServerClosed {
 			logging.Error("HTTP server error", logging.Fields{"error": err, "addr": t.config.ListenAddr})
 		}
-	}()
+	})
 
 	// Start message deduplication cleanup goroutine
-	t.wg.Add(1)
-	go func() {
-		defer t.wg.Done()
+	t.wg.Go(func() {
 		ticker := time.NewTicker(time.Minute)
 		defer ticker.Stop()
 		for {
@@ -265,7 +261,7 @@ func (t *Transport) Start() error {
 				t.dedup.Cleanup()
 			}
 		}
-	}()
+	})
 
 	return nil
 }

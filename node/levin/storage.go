@@ -484,7 +484,7 @@ func decodeSection(buf []byte) (Section, int, error) {
 
 	s := make(Section, int(count))
 
-	for i := uint64(0); i < count; i++ {
+	for range count {
 		// Name length (1 byte).
 		if off >= len(buf) {
 			return nil, 0, ErrStorageTruncated
@@ -632,7 +632,7 @@ func decodeArray(buf []byte, tag uint8) (Value, int, error) {
 	switch elemType {
 	case TypeUint64:
 		arr := make([]uint64, count)
-		for i := uint64(0); i < count; i++ {
+		for i := range count {
 			if off+8 > len(buf) {
 				return Value{}, 0, ErrStorageTruncated
 			}
@@ -643,7 +643,7 @@ func decodeArray(buf []byte, tag uint8) (Value, int, error) {
 
 	case TypeUint32:
 		arr := make([]uint32, count)
-		for i := uint64(0); i < count; i++ {
+		for i := range count {
 			if off+4 > len(buf) {
 				return Value{}, 0, ErrStorageTruncated
 			}
@@ -654,7 +654,7 @@ func decodeArray(buf []byte, tag uint8) (Value, int, error) {
 
 	case TypeString:
 		arr := make([][]byte, count)
-		for i := uint64(0); i < count; i++ {
+		for i := range count {
 			strLen, sn, err := UnpackVarint(buf[off:])
 			if err != nil {
 				return Value{}, 0, err
@@ -672,7 +672,7 @@ func decodeArray(buf []byte, tag uint8) (Value, int, error) {
 
 	case TypeObject:
 		arr := make([]Section, count)
-		for i := uint64(0); i < count; i++ {
+		for i := range count {
 			sec, consumed, err := decodeSection(buf[off:])
 			if err != nil {
 				return Value{}, 0, err

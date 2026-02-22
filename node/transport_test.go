@@ -162,7 +162,7 @@ func TestMessageDeduplicator(t *testing.T) {
 	t.Run("ConcurrentAccess", func(t *testing.T) {
 		d := NewMessageDeduplicator(5 * time.Minute)
 		var wg sync.WaitGroup
-		for i := 0; i < 100; i++ {
+		for i := range 100 {
 			wg.Add(1)
 			go func(id int) {
 				defer wg.Done()
@@ -179,7 +179,7 @@ func TestPeerRateLimiter(t *testing.T) {
 	t.Run("AllowUpToBurst", func(t *testing.T) {
 		rl := NewPeerRateLimiter(10, 5)
 
-		for i := 0; i < 10; i++ {
+		for i := range 10 {
 			if !rl.Allow() {
 				t.Errorf("should allow message %d (within burst)", i)
 			}
@@ -194,7 +194,7 @@ func TestPeerRateLimiter(t *testing.T) {
 		rl := NewPeerRateLimiter(5, 10) // 5 burst, 10/sec refill
 
 		// Exhaust all tokens
-		for i := 0; i < 5; i++ {
+		for range 5 {
 			rl.Allow()
 		}
 
@@ -397,7 +397,7 @@ func TestTransport_RateLimiting(t *testing.T) {
 	serverID := tp.ServerNode.GetIdentity().ID
 
 	// Send 150 messages rapidly (rate limiter burst = 100)
-	for i := 0; i < 150; i++ {
+	for range 150 {
 		msg, _ := NewMessage(MsgPing, clientID, serverID, PingPayload{SentAt: time.Now().UnixMilli()})
 		pc.Send(msg)
 	}
@@ -569,15 +569,13 @@ func TestTransport_ConcurrentSends(t *testing.T) {
 	const msgsPerGoroutine = 5
 	var wg sync.WaitGroup
 
-	for g := 0; g < goroutines; g++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for i := 0; i < msgsPerGoroutine; i++ {
+	for range goroutines {
+		wg.Go(func() {
+			for range msgsPerGoroutine {
 				msg, _ := NewMessage(MsgPing, clientID, serverID, PingPayload{SentAt: time.Now().UnixMilli()})
 				pc.Send(msg)
 			}
-		}()
+		})
 	}
 
 	wg.Wait()
@@ -603,7 +601,7 @@ func TestTransport_Broadcast(t *testing.T) {
 	const numWorkers = 2
 	var receiveCounters [numWorkers]*atomic.Int32
 
-	for i := 0; i < numWorkers; i++ {
+	for i := range numWorkers {
 		receiveCounters[i] = &atomic.Int32{}
 		counter := receiveCounters[i]
 

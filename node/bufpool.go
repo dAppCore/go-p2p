@@ -9,7 +9,7 @@ import (
 // bufferPool provides reusable byte buffers for JSON encoding.
 // This reduces allocation overhead in hot paths like message serialization.
 var bufferPool = sync.Pool{
-	New: func() interface{} {
+	New: func() any {
 		return bytes.NewBuffer(make([]byte, 0, 1024))
 	},
 }
@@ -31,7 +31,7 @@ func putBuffer(buf *bytes.Buffer) {
 
 // MarshalJSON encodes a value to JSON using a pooled buffer.
 // Returns a copy of the encoded bytes (safe to use after the function returns).
-func MarshalJSON(v interface{}) ([]byte, error) {
+func MarshalJSON(v any) ([]byte, error) {
 	buf := getBuffer()
 	defer putBuffer(buf)
 

@@ -2,6 +2,7 @@ package node
 
 import (
 	"encoding/json"
+	"slices"
 	"time"
 
 	"github.com/google/uuid"
@@ -21,12 +22,7 @@ var SupportedProtocolVersions = []string{"1.0"}
 
 // IsProtocolVersionSupported checks if a given version is supported.
 func IsProtocolVersionSupported(version string) bool {
-	for _, v := range SupportedProtocolVersions {
-		if v == version {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(SupportedProtocolVersions, version)
 }
 
 // MessageType defines the type of P2P message.
@@ -71,7 +67,7 @@ type Message struct {
 }
 
 // NewMessage creates a new message with a generated ID and timestamp.
-func NewMessage(msgType MessageType, from, to string, payload interface{}) (*Message, error) {
+func NewMessage(msgType MessageType, from, to string, payload any) (*Message, error) {
 	var payloadBytes json.RawMessage
 	if payload != nil {
 		data, err := MarshalJSON(payload)
@@ -92,7 +88,7 @@ func NewMessage(msgType MessageType, from, to string, payload interface{}) (*Mes
 }
 
 // Reply creates a reply message to this message.
-func (m *Message) Reply(msgType MessageType, payload interface{}) (*Message, error) {
+func (m *Message) Reply(msgType MessageType, payload any) (*Message, error) {
 	reply, err := NewMessage(msgType, m.To, m.From, payload)
 	if err != nil {
 		return nil, err
@@ -102,7 +98,7 @@ func (m *Message) Reply(msgType MessageType, payload interface{}) (*Message, err
 }
 
 // ParsePayload unmarshals the payload into the given struct.
-func (m *Message) ParsePayload(v interface{}) error {
+func (m *Message) ParsePayload(v any) error {
 	if m.Payload == nil {
 		return nil
 	}

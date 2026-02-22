@@ -14,7 +14,7 @@ import (
 // MinerManager interface for the mining package integration.
 // This allows the node package to interact with mining.Manager without import cycles.
 type MinerManager interface {
-	StartMiner(minerType string, config interface{}) (MinerInstance, error)
+	StartMiner(minerType string, config any) (MinerInstance, error)
 	StopMiner(name string) error
 	ListMiners() []MinerInstance
 	GetMiner(name string) (MinerInstance, error)
@@ -24,14 +24,14 @@ type MinerManager interface {
 type MinerInstance interface {
 	GetName() string
 	GetType() string
-	GetStats() (interface{}, error)
+	GetStats() (any, error)
 	GetConsoleHistory(lines int) []string
 }
 
 // ProfileManager interface for profile operations.
 type ProfileManager interface {
-	GetProfile(id string) (interface{}, error)
-	SaveProfile(profile interface{}) error
+	GetProfile(id string) (any, error)
+	SaveProfile(profile any) error
 }
 
 // Worker handles incoming messages on a worker node.
@@ -159,14 +159,14 @@ func (w *Worker) handleGetStats(msg *Message) (*Message, error) {
 }
 
 // convertMinerStats converts miner stats to the protocol format.
-func convertMinerStats(miner MinerInstance, rawStats interface{}) MinerStatsItem {
+func convertMinerStats(miner MinerInstance, rawStats any) MinerStatsItem {
 	item := MinerStatsItem{
 		Name: miner.GetName(),
 		Type: miner.GetType(),
 	}
 
 	// Try to extract common fields from the stats
-	if statsMap, ok := rawStats.(map[string]interface{}); ok {
+	if statsMap, ok := rawStats.(map[string]any); ok {
 		if hashrate, ok := statsMap["hashrate"].(float64); ok {
 			item.Hashrate = hashrate
 		}
@@ -207,7 +207,7 @@ func (w *Worker) handleStartMiner(msg *Message) (*Message, error) {
 	}
 
 	// Get the config from the profile or use the override
-	var config interface{}
+	var config any
 	if payload.Config != nil {
 		config = payload.Config
 	} else if w.profileManager != nil {
@@ -327,7 +327,7 @@ func (w *Worker) handleDeploy(conn *PeerConnection, msg *Message) (*Message, err
 		}
 
 		// Unmarshal into interface{} to pass to ProfileManager
-		var profile interface{}
+		var profile any
 		if err := json.Unmarshal(profileData, &profile); err != nil {
 			return nil, fmt.Errorf("invalid profile data JSON: %w", err)
 		}
@@ -367,7 +367,7 @@ func (w *Worker) handleDeploy(conn *PeerConnection, msg *Message) (*Message, err
 
 		// If the bundle contained a profile config, save it
 		if len(profileData) > 0 && w.profileManager != nil {
-			var profile interface{}
+			var profile any
 			if err := json.Unmarshal(profileData, &profile); err != nil {
 				logging.Warn("failed to parse profile from miner bundle", logging.Fields{"error": err})
 			} else {

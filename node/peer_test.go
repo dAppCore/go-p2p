@@ -3,6 +3,7 @@ package node
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 	"time"
 )
@@ -431,13 +432,7 @@ func TestPeerRegistry_PublicKeyAllowlist(t *testing.T) {
 
 	// List should contain the key
 	keys := pr.ListAllowedPublicKeys()
-	found := false
-	for _, k := range keys {
-		if k == testKey {
-			found = true
-			break
-		}
-	}
+	found := slices.Contains(keys, testKey)
 	if !found {
 		t.Error("ListAllowedPublicKeys should contain the added key")
 	}
@@ -562,7 +557,7 @@ func TestPeerRegistry_ScoreRecording(t *testing.T) {
 	pr.AddPeer(peer)
 
 	// Record successes - score should increase
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		pr.RecordSuccess("score-record-test")
 	}
 	updated := pr.GetPeer("score-record-test")
@@ -572,7 +567,7 @@ func TestPeerRegistry_ScoreRecording(t *testing.T) {
 
 	// Record failures - score should decrease
 	initialScore := updated.Score
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		pr.RecordFailure("score-record-test")
 	}
 	updated = pr.GetPeer("score-record-test")
@@ -589,7 +584,7 @@ func TestPeerRegistry_ScoreRecording(t *testing.T) {
 	}
 
 	// Score should be clamped to min/max
-	for i := 0; i < 100; i++ {
+	for range 100 {
 		pr.RecordSuccess("score-record-test")
 	}
 	updated = pr.GetPeer("score-record-test")
@@ -597,7 +592,7 @@ func TestPeerRegistry_ScoreRecording(t *testing.T) {
 		t.Errorf("score should be clamped to max %f, got %f", ScoreMaximum, updated.Score)
 	}
 
-	for i := 0; i < 100; i++ {
+	for range 100 {
 		pr.RecordFailure("score-record-test")
 	}
 	updated = pr.GetPeer("score-record-test")
@@ -861,7 +856,7 @@ func TestPeerRegistry_ScheduleSave_Debounce(t *testing.T) {
 	}
 
 	// Multiple rapid saves should be debounced
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		pr.scheduleSave()
 	}
 

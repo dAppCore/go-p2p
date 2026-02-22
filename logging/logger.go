@@ -4,6 +4,7 @@ package logging
 import (
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"strings"
 	"sync"
@@ -100,7 +101,7 @@ func (l *Logger) GetLevel() Level {
 }
 
 // Fields represents key-value pairs for structured logging.
-type Fields map[string]interface{}
+type Fields map[string]any
 
 // log writes a log message at the specified level.
 func (l *Logger) log(level Level, msg string, fields Fields) {
@@ -164,22 +165,22 @@ func (l *Logger) Error(msg string, fields ...Fields) {
 }
 
 // Debugf logs a formatted debug message.
-func (l *Logger) Debugf(format string, args ...interface{}) {
+func (l *Logger) Debugf(format string, args ...any) {
 	l.log(LevelDebug, fmt.Sprintf(format, args...), nil)
 }
 
 // Infof logs a formatted informational message.
-func (l *Logger) Infof(format string, args ...interface{}) {
+func (l *Logger) Infof(format string, args ...any) {
 	l.log(LevelInfo, fmt.Sprintf(format, args...), nil)
 }
 
 // Warnf logs a formatted warning message.
-func (l *Logger) Warnf(format string, args ...interface{}) {
+func (l *Logger) Warnf(format string, args ...any) {
 	l.log(LevelWarn, fmt.Sprintf(format, args...), nil)
 }
 
 // Errorf logs a formatted error message.
-func (l *Logger) Errorf(format string, args ...interface{}) {
+func (l *Logger) Errorf(format string, args ...any) {
 	l.log(LevelError, fmt.Sprintf(format, args...), nil)
 }
 
@@ -190,9 +191,7 @@ func mergeFields(fields []Fields) Fields {
 	}
 	result := make(Fields)
 	for _, f := range fields {
-		for k, v := range f {
-			result[k] = v
-		}
+		maps.Copy(result, f)
 	}
 	return result
 }
@@ -248,22 +247,22 @@ func Error(msg string, fields ...Fields) {
 }
 
 // Debugf logs a formatted debug message using the global logger.
-func Debugf(format string, args ...interface{}) {
+func Debugf(format string, args ...any) {
 	GetGlobal().Debugf(format, args...)
 }
 
 // Infof logs a formatted informational message using the global logger.
-func Infof(format string, args ...interface{}) {
+func Infof(format string, args ...any) {
 	GetGlobal().Infof(format, args...)
 }
 
 // Warnf logs a formatted warning message using the global logger.
-func Warnf(format string, args ...interface{}) {
+func Warnf(format string, args ...any) {
 	GetGlobal().Warnf(format, args...)
 }
 
 // Errorf logs a formatted error message using the global logger.
-func Errorf(format string, args ...interface{}) {
+func Errorf(format string, args ...any) {
 	GetGlobal().Errorf(format, args...)
 }
 

@@ -46,7 +46,7 @@ func (h *ResponseHandler) ValidateResponse(resp *Message, expectedType MessageTy
 
 // ParseResponse validates the response and parses the payload into the target.
 // This combines ValidateResponse and ParsePayload into a single call.
-func (h *ResponseHandler) ParseResponse(resp *Message, expectedType MessageType, target interface{}) error {
+func (h *ResponseHandler) ParseResponse(resp *Message, expectedType MessageType, target any) error {
 	if err := h.ValidateResponse(resp, expectedType); err != nil {
 		return err
 	}
@@ -69,7 +69,7 @@ func ValidateResponse(resp *Message, expectedType MessageType) error {
 }
 
 // ParseResponse is a convenience function using the default handler.
-func ParseResponse(resp *Message, expectedType MessageType, target interface{}) error {
+func ParseResponse(resp *Message, expectedType MessageType, target any) error {
 	return DefaultResponseHandler.ParseResponse(resp, expectedType, target)
 }
 

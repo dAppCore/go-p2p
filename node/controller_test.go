@@ -159,7 +159,7 @@ func TestController_GetAllStats(t *testing.T) {
 	const numWorkers = 2
 	workerIDs := make([]string, numWorkers)
 
-	for i := 0; i < numWorkers; i++ {
+	for i := range numWorkers {
 		nm, addr, _ := makeWorkerServer(t)
 		wID := nm.GetIdentity().ID
 		workerIDs[i] = wID
@@ -228,7 +228,7 @@ func TestController_ConcurrentRequests(t *testing.T) {
 	const numPeers = 3
 	peerIDs := make([]string, numPeers)
 
-	for i := 0; i < numPeers; i++ {
+	for i := range numPeers {
 		nm, addr, _ := makeWorkerServer(t)
 		pID := nm.GetIdentity().ID
 		peerIDs[i] = pID
@@ -312,7 +312,7 @@ func TestController_MultipleSequentialPings(t *testing.T) {
 	controller, _, tp := setupControllerPair(t)
 	serverID := tp.ServerNode.GetIdentity().ID
 
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		rtt, err := controller.PingPeer(serverID)
 		require.NoError(t, err, "iteration %d should succeed", i)
 		assert.Greater(t, rtt, 0.0, "iteration %d RTT should be positive", i)
@@ -329,15 +329,13 @@ func TestController_ConcurrentRequestsSamePeer(t *testing.T) {
 	var wg sync.WaitGroup
 	var successCount atomic.Int32
 
-	for g := 0; g < goroutines; g++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range goroutines {
+		wg.Go(func() {
 			rtt, err := controller.PingPeer(serverID)
 			if err == nil && rtt > 0 {
 				successCount.Add(1)
 			}
-		}()
+		})
 	}
 
 	wg.Wait()
@@ -419,7 +417,7 @@ func setupControllerPairWithMiner(t *testing.T) (*Controller, *Worker, *testTran
 			"running-miner": {
 				name:      "running-miner",
 				minerType: "xmrig",
-				stats: map[string]interface{}{
+				stats: map[string]any{
 					"hashrate":  1234.5,
 					"shares":    42,
 					"rejected":  2,
@@ -454,7 +452,7 @@ type mockMinerManagerFull struct {
 	miners map[string]*mockMinerFull
 }
 
-func (m *mockMinerManagerFull) StartMiner(minerType string, config interface{}) (MinerInstance, error) {
+func (m *mockMinerManagerFull) StartMiner(minerType string, config any) (MinerInstance, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -462,7 +460,7 @@ func (m *mockMinerManagerFull) StartMiner(minerType string, config interface{}) 
 	miner := &mockMinerFull{
 		name:      name,
 		minerType: minerType,
-		stats: map[string]interface{}{
+		stats: map[string]any{
 			"hashrate": 0.0,
 			"shares":   0,
 		},
@@ -509,13 +507,13 @@ func (m *mockMinerManagerFull) GetMiner(name string) (MinerInstance, error) {
 type mockMinerFull struct {
 	name           string
 	minerType      string
-	stats          interface{}
+	stats          any
 	consoleHistory []string
 }
 
-func (m *mockMinerFull) GetName() string                { return m.name }
-func (m *mockMinerFull) GetType() string                { return m.minerType }
-func (m *mockMinerFull) GetStats() (interface{}, error)  { return m.stats, nil }
+func (m *mockMinerFull) GetName() string        { return m.name }
+func (m *mockMinerFull) GetType() string        { return m.minerType }
+func (m *mockMinerFull) GetStats() (any, error) { return m.stats, nil }
 func (m *mockMinerFull) GetConsoleHistory(lines int) []string {
 	if lines >= len(m.consoleHistory) {
 		return m.consoleHistory
@@ -528,7 +526,6 @@ func TestController_StartRemoteMiner(t *testing.T) {
 	serverID := tp.ServerNode.GetIdentity().ID
 	configOverride := json.RawMessage(`{"pool":"pool.example.com:3333"}`)
 	err := controller.StartRemoteMiner(serverID, "xmrig", "profile-1", configOverride)
-
 
 	require.NoError(t, err, "StartRemoteMiner should succeed")
 }

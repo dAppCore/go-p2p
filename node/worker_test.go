@@ -425,12 +425,12 @@ func TestWorker_HandleDeploy_UnknownType(t *testing.T) {
 func TestConvertMinerStats(t *testing.T) {
 	tests := []struct {
 		name     string
-		rawStats interface{}
+		rawStats any
 		wantHash float64
 	}{
 		{
 			name: "MapWithHashrate",
-			rawStats: map[string]interface{}{
+			rawStats: map[string]any{
 				"hashrate":  100.5,
 				"shares":    10,
 				"rejected":  2,
@@ -442,7 +442,7 @@ func TestConvertMinerStats(t *testing.T) {
 		},
 		{
 			name:     "EmptyMap",
-			rawStats: map[string]interface{}{},
+			rawStats: map[string]any{},
 			wantHash: 0,
 		},
 		{
@@ -473,7 +473,7 @@ type mockMinerManager struct {
 	miners []MinerInstance
 }
 
-func (m *mockMinerManager) StartMiner(minerType string, config interface{}) (MinerInstance, error) {
+func (m *mockMinerManager) StartMiner(minerType string, config any) (MinerInstance, error) {
 	return nil, nil
 }
 
@@ -497,21 +497,21 @@ func (m *mockMinerManager) GetMiner(name string) (MinerInstance, error) {
 type mockMinerInstance struct {
 	name      string
 	minerType string
-	stats     interface{}
+	stats     any
 }
 
 func (m *mockMinerInstance) GetName() string                      { return m.name }
 func (m *mockMinerInstance) GetType() string                      { return m.minerType }
-func (m *mockMinerInstance) GetStats() (interface{}, error)       { return m.stats, nil }
+func (m *mockMinerInstance) GetStats() (any, error)               { return m.stats, nil }
 func (m *mockMinerInstance) GetConsoleHistory(lines int) []string { return []string{} }
 
 type mockProfileManager struct{}
 
-func (m *mockProfileManager) GetProfile(id string) (interface{}, error) {
+func (m *mockProfileManager) GetProfile(id string) (any, error) {
 	return nil, nil
 }
 
-func (m *mockProfileManager) SaveProfile(profile interface{}) error {
+func (m *mockProfileManager) SaveProfile(profile any) error {
 	return nil
 }
 
@@ -522,7 +522,7 @@ type mockMinerManagerFailing struct {
 	mockMinerManager
 }
 
-func (m *mockMinerManagerFailing) StartMiner(minerType string, config interface{}) (MinerInstance, error) {
+func (m *mockMinerManagerFailing) StartMiner(minerType string, config any) (MinerInstance, error) {
 	return nil, fmt.Errorf("mining hardware not available")
 }
 
@@ -536,10 +536,10 @@ func (m *mockMinerManagerFailing) GetMiner(name string) (MinerInstance, error) {
 
 // mockProfileManagerFull implements ProfileManager that returns real data.
 type mockProfileManagerFull struct {
-	profiles map[string]interface{}
+	profiles map[string]any
 }
 
-func (m *mockProfileManagerFull) GetProfile(id string) (interface{}, error) {
+func (m *mockProfileManagerFull) GetProfile(id string) (any, error) {
 	p, ok := m.profiles[id]
 	if !ok {
 		return nil, fmt.Errorf("profile %s not found", id)
@@ -547,18 +547,18 @@ func (m *mockProfileManagerFull) GetProfile(id string) (interface{}, error) {
 	return p, nil
 }
 
-func (m *mockProfileManagerFull) SaveProfile(profile interface{}) error {
+func (m *mockProfileManagerFull) SaveProfile(profile any) error {
 	return nil
 }
 
 // mockProfileManagerFailing always returns errors.
 type mockProfileManagerFailing struct{}
 
-func (m *mockProfileManagerFailing) GetProfile(id string) (interface{}, error) {
+func (m *mockProfileManagerFailing) GetProfile(id string) (any, error) {
 	return nil, fmt.Errorf("profile %s not found", id)
 }
 
-func (m *mockProfileManagerFailing) SaveProfile(profile interface{}) error {
+func (m *mockProfileManagerFailing) SaveProfile(profile any) error {
 	return fmt.Errorf("save failed")
 }
 
@@ -640,8 +640,8 @@ func TestWorker_HandleStartMiner_WithManager(t *testing.T) {
 
 	t.Run("WithProfileManager", func(t *testing.T) {
 		pm := &mockProfileManagerFull{
-			profiles: map[string]interface{}{
-				"test-profile": map[string]interface{}{"pool": "pool.test:3333"},
+			profiles: map[string]any{
+				"test-profile": map[string]any{"pool": "pool.test:3333"},
 			},
 		}
 		worker.SetProfileManager(pm)
@@ -723,7 +723,7 @@ type mockMinerManagerWithStart struct {
 	counter int
 }
 
-func (m *mockMinerManagerWithStart) StartMiner(minerType string, config interface{}) (MinerInstance, error) {
+func (m *mockMinerManagerWithStart) StartMiner(minerType string, config any) (MinerInstance, error) {
 	m.counter++
 	name := fmt.Sprintf("%s-%d", minerType, m.counter)
 	return &mockMinerInstance{name: name, minerType: minerType}, nil
@@ -845,9 +845,6 @@ func TestWorker_HandleGetLogs_WithManager(t *testing.T) {
 		mm := &mockMinerManagerFailing{}
 		worker.SetMinerManager(mm)
 
-
-
-
 		payload := GetLogsPayload{MinerName: "non-existent", Lines: 50}
 		msg, _ := NewMessage(MsgGetLogs, "sender-id", identity.ID, payload)
 
@@ -924,7 +921,7 @@ func TestWorker_HandleGetStats_WithMinerManager(t *testing.T) {
 			&mockMinerInstance{
 				name:      "miner-1",
 				minerType: "xmrig",
-				stats: map[string]interface{}{
+				stats: map[string]any{
 					"hashrate":  500.0,
 					"shares":    25,
 					"rejected":  1,
@@ -936,7 +933,7 @@ func TestWorker_HandleGetStats_WithMinerManager(t *testing.T) {
 			&mockMinerInstance{
 				name:      "miner-2",
 				minerType: "tt-miner",
-				stats: map[string]interface{}{
+				stats: map[string]any{
 					"hashrate": 1200.0,
 				},
 			},
@@ -983,7 +980,6 @@ func TestWorker_HandleMessage_UnknownType(t *testing.T) {
 	worker.HandleMessage(nil, msg)
 }
 
-
 func TestWorker_HandleDeploy_ProfileWithManager(t *testing.T) {
 	cleanup := setupTestEnv(t)
 	defer cleanup()
@@ -1002,7 +998,7 @@ func TestWorker_HandleDeploy_ProfileWithManager(t *testing.T) {
 	transport := NewTransport(nm, pr, DefaultTransportConfig())
 	worker := NewWorker(nm, transport)
 
-	pm := &mockProfileManagerFull{profiles: make(map[string]interface{})}
+	pm := &mockProfileManagerFull{profiles: make(map[string]any)}
 	worker.SetProfileManager(pm)
 
 	identity := nm.GetIdentity()
@@ -1098,7 +1094,7 @@ func TestWorker_HandleDeploy_MinerBundle(t *testing.T) {
 	}
 	transport := NewTransport(nm, pr, DefaultTransportConfig())
 	worker := NewWorker(nm, transport)
-	pm := &mockProfileManagerFull{profiles: make(map[string]interface{})}
+	pm := &mockProfileManagerFull{profiles: make(map[string]any)}
 	worker.SetProfileManager(pm)
 
 	identity := nm.GetIdentity()
@@ -1329,7 +1325,7 @@ func TestWorker_HandleMessage_GetStats_IntegrationViaWebSocket(t *testing.T) {
 			&mockMinerInstance{
 				name:      "test-miner",
 				minerType: "xmrig",
-				stats: map[string]interface{}{
+				stats: map[string]any{
 					"hashrate":  500.0,
 					"shares":    25,
 					"rejected":  1,

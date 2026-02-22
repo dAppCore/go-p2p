@@ -70,7 +70,7 @@ func TestIntegration_FullNodeLifecycle(t *testing.T) {
 			"integration-miner": {
 				name:      "integration-miner",
 				minerType: "xmrig",
-				stats: map[string]interface{}{
+				stats: map[string]any{
 					"hashrate": 5000.0,
 					"shares":   250,
 				},
@@ -276,7 +276,7 @@ func TestIntegration_TwoNodeBidirectionalMessages(t *testing.T) {
 	assert.NotEmpty(t, stats.NodeID)
 
 	// Verify multiple sequential round-trips work.
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		rtt, err := controller.PingPeer(serverID)
 		require.NoError(t, err, "sequential ping %d should succeed", i)
 		assert.Greater(t, rtt, 0.0)
@@ -294,7 +294,7 @@ func TestIntegration_MultiPeerTopology(t *testing.T) {
 	const numWorkers = 3
 	workerIDs := make([]string, numWorkers)
 
-	for i := 0; i < numWorkers; i++ {
+	for i := range numWorkers {
 		nm, addr, _ := makeWorkerServer(t)
 		wID := nm.GetIdentity().ID
 		workerIDs[i] = wID
