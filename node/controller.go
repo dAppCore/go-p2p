@@ -239,12 +239,11 @@ func (c *Controller) GetRemoteLogs(peerID, minerName string, lines int) ([]strin
 
 // GetAllStats fetches stats from all connected peers.
 func (c *Controller) GetAllStats() map[string]*StatsPayload {
-	peers := c.peers.GetConnectedPeers()
 	results := make(map[string]*StatsPayload)
 	var mu sync.Mutex
 	var wg sync.WaitGroup
 
-	for _, peer := range peers {
+	for peer := range c.peers.ConnectedPeers() {
 		wg.Add(1)
 		go func(p *Peer) {
 			defer wg.Done()

@@ -13,7 +13,11 @@ require (
 
 require (
 	github.com/ProtonMail/go-crypto v1.3.0 // indirect
+<<<<<<< Updated upstream
 	forge.lthn.ai/Snider/Enchantrix v0.0.4 // indirect
+=======
+	github.com/Snider/Enchantrix v0.0.2 // indirect
+>>>>>>> Stashed changes
 	github.com/cloudflare/circl v1.6.3 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
 	github.com/klauspost/compress v1.18.4 // indirect

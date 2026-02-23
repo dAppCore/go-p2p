@@ -3,9 +3,12 @@ package node
 import (
 	"encoding/json"
 	"fmt"
+	"iter"
+	"maps"
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sync"
 	"time"
 
@@ -215,14 +218,21 @@ func (r *PeerRegistry) IsPeerAllowed(peerID string, publicKey string) bool {
 
 // ListAllowedPublicKeys returns all allowlisted public keys.
 func (r *PeerRegistry) ListAllowedPublicKeys() []string {
-	r.allowedPublicKeyMu.RLock()
-	defer r.allowedPublicKeyMu.RUnlock()
+	return slices.Collect(r.AllowedPublicKeys())
+}
 
-	keys := make([]string, 0, len(r.allowedPublicKeys))
-	for key := range r.allowedPublicKeys {
-		keys = append(keys, key)
+// AllowedPublicKeys returns an iterator over all allowlisted public keys.
+func (r *PeerRegistry) AllowedPublicKeys() iter.Seq[string] {
+	return func(yield func(string) bool) {
+		r.allowedPublicKeyMu.RLock()
+		defer r.allowedPublicKeyMu.RUnlock()
+
+		for key := range r.allowedPublicKeys {
+			if !yield(key) {
+				return
+			}
+		}
 	}
-	return keys
 }
 
 // AddPeer adds a new peer to the registry.
@@ -313,15 +323,23 @@ func (r *PeerRegistry) GetPeer(id string) *Peer {
 
 // ListPeers returns all registered peers.
 func (r *PeerRegistry) ListPeers() []*Peer {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
+	return slices.Collect(r.Peers())
+}
 
-	peers := make([]*Peer, 0, len(r.peers))
-	for _, peer := range r.peers {
-		peerCopy := *peer
-		peers = append(peers, &peerCopy)
+// Peers returns an iterator over all registered peers.
+// Each peer is a copy to prevent mutation.
+func (r *PeerRegistry) Peers() iter.Seq[*Peer] {
+	return func(yield func(*Peer) bool) {
+		r.mu.RLock()
+		defer r.mu.RUnlock()
+
+		for _, peer := range r.peers {
+			peerCopy := *peer
+			if !yield(&peerCopy) {
+				return
+			}
+		}
 	}
-	return peers
 }
 
 // UpdateMetrics updates a peer's performance metrics.
@@ -456,21 +474,32 @@ func (r *PeerRegistry) GetPeersByScore() []*Peer {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
-	peers := make([]*Peer, 0, len(r.peers))
-	for _, p := range r.peers {
-		peers = append(peers, p)
-	}
+	peers := slices.Collect(maps.Values(r.peers))
 
 	// Sort by score descending
-	for i := 0; i < len(peers)-1; i++ {
-		for j := i + 1; j < len(peers); j++ {
-			if peers[j].Score > peers[i].Score {
-				peers[i], peers[j] = peers[j], peers[i]
+	slices.SortFunc(peers, func(a, b *Peer) int {
+		if b.Score > a.Score {
+			return 1
+		}
+		if b.Score < a.Score {
+			return -1
+		}
+		return 0
+	})
+
+	return peers
+}
+
+// PeersByScore returns an iterator over peers sorted by score (highest first).
+func (r *PeerRegistry) PeersByScore() iter.Seq[*Peer] {
+	return func(yield func(*Peer) bool) {
+		peers := r.GetPeersByScore()
+		for _, p := range peers {
+			if !yield(p) {
+				return
 			}
 		}
 	}
-
-	return peers
 }
 
 // SelectOptimalPeer returns the best peer based on multi-factor optimization.
@@ -528,17 +557,25 @@ func (r *PeerRegistry) SelectNearestPeers(n int) []*Peer {
 
 // GetConnectedPeers returns all currently connected peers.
 func (r *PeerRegistry) GetConnectedPeers() []*Peer {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
+	return slices.Collect(r.ConnectedPeers())
+}
 
-	peers := make([]*Peer, 0)
-	for _, peer := range r.peers {
-		if peer.Connected {
-			peerCopy := *peer
-			peers = append(peers, &peerCopy)
+// ConnectedPeers returns an iterator over all currently connected peers.
+// Each peer is a copy to prevent mutation.
+func (r *PeerRegistry) ConnectedPeers() iter.Seq[*Peer] {
+	return func(yield func(*Peer) bool) {
+		r.mu.RLock()
+		defer r.mu.RUnlock()
+
+		for _, peer := range r.peers {
+			if peer.Connected {
+				peerCopy := *peer
+				if !yield(&peerCopy) {
+					return
+				}
+			}
 		}
 	}
-	return peers
 }
 
 // Count returns the number of registered peers.
@@ -627,10 +664,7 @@ func (r *PeerRegistry) saveNow() error {
 	}
 
 	// Convert to slice for JSON
-	peers := make([]*Peer, 0, len(r.peers))
-	for _, peer := range r.peers {
-		peers = append(peers, peer)
-	}
+	peers := slices.Collect(maps.Values(r.peers))
 
 	data, err := json.MarshalIndent(peers, "", "  ")
 	if err != nil {
