@@ -6,8 +6,11 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"iter"
+	"maps"
 	"net/http"
 	"net/url"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -271,11 +274,13 @@ func (t *Transport) Stop() error {
 	t.cancel()
 
 	// Gracefully close all connections with shutdown message
-	t.mu.Lock()
-	for _, pc := range t.conns {
+	t.mu.RLock()
+	conns := slices.Collect(maps.Values(t.conns))
+	t.mu.RUnlock()
+
+	for _, pc := range conns {
 		pc.GracefulClose("server shutdown", DisconnectShutdown)
 	}
-	t.mu.Unlock()
 
 	// Shutdown HTTP server if it was started
 	if t.server != nil {
@@ -368,22 +373,31 @@ func (t *Transport) Send(peerID string, msg *Message) error {
 	return pc.Send(msg)
 }
 
+// Connections returns an iterator over all active peer connections.
+func (t *Transport) Connections() iter.Seq[*PeerConnection] {
+	return func(yield func(*PeerConnection) bool) {
+		t.mu.RLock()
+		defer t.mu.RUnlock()
+
+		for _, pc := range t.conns {
+			if !yield(pc) {
+				return
+			}
+		}
+	}
+}
+
 // Broadcast sends a message to all connected peers except the sender.
 // The sender is identified by msg.From and excluded to prevent echo.
 func (t *Transport) Broadcast(msg *Message) error {
-	t.mu.RLock()
-	conns := make([]*PeerConnection, 0, len(t.conns))
-	for _, pc := range t.conns {
+	conns := slices.Collect(t.Connections())
+
+	var lastErr error
+	for _, pc := range conns {
 		// Exclude sender from broadcast to prevent echo (P2P-MED-6)
 		if pc.Peer != nil && pc.Peer.ID == msg.From {
 			continue
 		}
-		conns = append(conns, pc)
-	}
-	t.mu.RUnlock()
-
-	var lastErr error
-	for _, pc := range conns {
 		if err := pc.Send(msg); err != nil {
 			lastErr = err
 		}

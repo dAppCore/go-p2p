@@ -2,6 +2,7 @@ package node
 
 import (
 	"fmt"
+	"iter"
 	"sync"
 
 	"forge.lthn.ai/core/go-p2p/logging"
@@ -68,6 +69,20 @@ func (d *Dispatcher) RegisterHandler(intentID byte, handler IntentHandler) {
 	d.log.Debug("handler registered", logging.Fields{
 		"intent_id": fmt.Sprintf("0x%02X", intentID),
 	})
+}
+
+// Handlers returns an iterator over all registered intent handlers.
+func (d *Dispatcher) Handlers() iter.Seq2[byte, IntentHandler] {
+	return func(yield func(byte, IntentHandler) bool) {
+		d.mu.RLock()
+		defer d.mu.RUnlock()
+
+		for intentID, handler := range d.handlers {
+			if !yield(intentID, handler) {
+				return
+			}
+		}
+	}
 }
 
 // Dispatch routes a parsed UEPS packet through the threat circuit breaker
