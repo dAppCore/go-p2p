@@ -377,11 +377,7 @@ func (r *PeerRegistry) UpdateScore(id string, score float64) error {
 	}
 
 	// Clamp score to 0-100
-	if score < 0 {
-		score = 0
-	} else if score > 100 {
-		score = 100
-	}
+	score = max(0, min(score, 100))
 
 	peer.Score = score
 	r.rebuildKDTree()
