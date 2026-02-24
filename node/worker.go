@@ -3,6 +3,7 @@ package node
 import (
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"time"
@@ -130,7 +131,7 @@ func (w *Worker) handlePing(msg *Message) (*Message, error) {
 func (w *Worker) handleGetStats(msg *Message) (*Message, error) {
 	identity := w.node.GetIdentity()
 	if identity == nil {
-		return nil, fmt.Errorf("node identity not initialized")
+		return nil, errors.New("node identity not initialized")
 	}
 
 	stats := StatsPayload{
@@ -193,7 +194,7 @@ func convertMinerStats(miner MinerInstance, rawStats any) MinerStatsItem {
 // handleStartMiner starts a miner with the given profile.
 func (w *Worker) handleStartMiner(msg *Message) (*Message, error) {
 	if w.minerManager == nil {
-		return nil, fmt.Errorf("miner manager not configured")
+		return nil, errors.New("miner manager not configured")
 	}
 
 	var payload StartMinerPayload
@@ -203,7 +204,7 @@ func (w *Worker) handleStartMiner(msg *Message) (*Message, error) {
 
 	// Validate miner type is provided
 	if payload.MinerType == "" {
-		return nil, fmt.Errorf("miner type is required")
+		return nil, errors.New("miner type is required")
 	}
 
 	// Get the config from the profile or use the override
@@ -217,7 +218,7 @@ func (w *Worker) handleStartMiner(msg *Message) (*Message, error) {
 		}
 		config = profile
 	} else {
-		return nil, fmt.Errorf("no config provided and no profile manager configured")
+		return nil, errors.New("no config provided and no profile manager configured")
 	}
 
 	// Start the miner
@@ -240,7 +241,7 @@ func (w *Worker) handleStartMiner(msg *Message) (*Message, error) {
 // handleStopMiner stops a running miner.
 func (w *Worker) handleStopMiner(msg *Message) (*Message, error) {
 	if w.minerManager == nil {
-		return nil, fmt.Errorf("miner manager not configured")
+		return nil, errors.New("miner manager not configured")
 	}
 
 	var payload StopMinerPayload
@@ -263,7 +264,7 @@ func (w *Worker) handleStopMiner(msg *Message) (*Message, error) {
 // handleGetLogs returns console logs from a miner.
 func (w *Worker) handleGetLogs(msg *Message) (*Message, error) {
 	if w.minerManager == nil {
-		return nil, fmt.Errorf("miner manager not configured")
+		return nil, errors.New("miner manager not configured")
 	}
 
 	var payload GetLogsPayload
@@ -317,7 +318,7 @@ func (w *Worker) handleDeploy(conn *PeerConnection, msg *Message) (*Message, err
 	switch bundle.Type {
 	case BundleProfile:
 		if w.profileManager == nil {
-			return nil, fmt.Errorf("profile manager not configured")
+			return nil, errors.New("profile manager not configured")
 		}
 
 		// Decrypt and extract profile data

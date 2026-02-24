@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"iter"
 	"maps"
@@ -621,7 +622,7 @@ func (t *Transport) performHandshake(pc *PeerConnection) error {
 
 	identity := t.node.GetIdentity()
 	if identity == nil {
-		return fmt.Errorf("node identity not initialized")
+		return errors.New("node identity not initialized")
 	}
 
 	// Generate challenge for the server to prove it has the matching private key
@@ -689,10 +690,10 @@ func (t *Transport) performHandshake(pc *PeerConnection) error {
 
 	// Verify the server's response to our challenge
 	if len(ackPayload.ChallengeResponse) == 0 {
-		return fmt.Errorf("server did not provide challenge response")
+		return errors.New("server did not provide challenge response")
 	}
 	if !VerifyChallenge(challenge, ackPayload.ChallengeResponse, sharedSecret) {
-		return fmt.Errorf("challenge response verification failed: server may not have matching private key")
+		return errors.New("challenge response verification failed: server may not have matching private key")
 	}
 
 	// Store the shared secret for later use
