@@ -7,8 +7,9 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"maps"
 	"math"
-	"sort"
+	"slices"
 )
 
 // Portable storage signatures and version (9-byte header).
@@ -299,11 +300,7 @@ func EncodeStorage(s Section) ([]byte, error) {
 // encodeSection appends a section (entry count + entries) to buf.
 func encodeSection(buf []byte, s Section) ([]byte, error) {
 	// Sort keys for deterministic output.
-	keys := make([]string, 0, len(s))
-	for k := range s {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
+	keys := slices.Sorted(maps.Keys(s))
 
 	// Entry count as varint.
 	buf = append(buf, PackVarint(uint64(len(keys)))...)

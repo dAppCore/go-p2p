@@ -3,6 +3,7 @@ package node
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -106,7 +107,7 @@ func (c *Controller) sendRequest(peerID string, msg *Message, timeout time.Durat
 	case resp := <-respCh:
 		return resp, nil
 	case <-ctx.Done():
-		return nil, fmt.Errorf("request timeout")
+		return nil, errors.New("request timeout")
 	}
 }
 
@@ -114,7 +115,7 @@ func (c *Controller) sendRequest(peerID string, msg *Message, timeout time.Durat
 func (c *Controller) GetRemoteStats(peerID string) (*StatsPayload, error) {
 	identity := c.node.GetIdentity()
 	if identity == nil {
-		return nil, fmt.Errorf("node identity not initialized")
+		return nil, ErrIdentityNotInitialized
 	}
 
 	msg, err := NewMessage(MsgGetStats, identity.ID, peerID, nil)
@@ -139,11 +140,11 @@ func (c *Controller) GetRemoteStats(peerID string) (*StatsPayload, error) {
 func (c *Controller) StartRemoteMiner(peerID, minerType, profileID string, configOverride json.RawMessage) error {
 	identity := c.node.GetIdentity()
 	if identity == nil {
-		return fmt.Errorf("node identity not initialized")
+		return ErrIdentityNotInitialized
 	}
 
 	if minerType == "" {
-		return fmt.Errorf("miner type is required")
+		return errors.New("miner type is required")
 	}
 
 	payload := StartMinerPayload{
@@ -178,7 +179,7 @@ func (c *Controller) StartRemoteMiner(peerID, minerType, profileID string, confi
 func (c *Controller) StopRemoteMiner(peerID, minerName string) error {
 	identity := c.node.GetIdentity()
 	if identity == nil {
-		return fmt.Errorf("node identity not initialized")
+		return ErrIdentityNotInitialized
 	}
 
 	payload := StopMinerPayload{
@@ -211,7 +212,7 @@ func (c *Controller) StopRemoteMiner(peerID, minerName string) error {
 func (c *Controller) GetRemoteLogs(peerID, minerName string, lines int) ([]string, error) {
 	identity := c.node.GetIdentity()
 	if identity == nil {
-		return nil, fmt.Errorf("node identity not initialized")
+		return nil, ErrIdentityNotInitialized
 	}
 
 	payload := GetLogsPayload{
@@ -270,7 +271,7 @@ func (c *Controller) GetAllStats() map[string]*StatsPayload {
 func (c *Controller) PingPeer(peerID string) (float64, error) {
 	identity := c.node.GetIdentity()
 	if identity == nil {
-		return 0, fmt.Errorf("node identity not initialized")
+		return 0, ErrIdentityNotInitialized
 	}
 	sentAt := time.Now()
 

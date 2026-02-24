@@ -2,6 +2,7 @@ package node
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"iter"
 	"maps"
@@ -12,8 +13,8 @@ import (
 	"sync"
 	"time"
 
+	poindexter "forge.lthn.ai/Snider/Poindexter"
 	"forge.lthn.ai/core/go-p2p/logging"
-	"forge.lthn.ai/Snider/Poindexter"
 	"github.com/adrg/xdg"
 )
 
@@ -84,7 +85,7 @@ func validatePeerName(name string) error {
 		return fmt.Errorf("peer name too long (max %d characters)", PeerNameMaxLength)
 	}
 	if !peerNameRegex.MatchString(name) {
-		return fmt.Errorf("peer name contains invalid characters (use alphanumeric, hyphens, underscores, spaces)")
+		return errors.New("peer name contains invalid characters (use alphanumeric, hyphens, underscores, spaces)")
 	}
 	return nil
 }
@@ -243,7 +244,7 @@ func (r *PeerRegistry) AddPeer(peer *Peer) error {
 
 	if peer.ID == "" {
 		r.mu.Unlock()
-		return fmt.Errorf("peer ID is required")
+		return errors.New("peer ID is required")
 	}
 
 	// Validate peer name (P2P-LOW-3)
@@ -376,11 +377,7 @@ func (r *PeerRegistry) UpdateScore(id string, score float64) error {
 	}
 
 	// Clamp score to 0-100
-	if score < 0 {
-		score = 0
-	} else if score > 100 {
-		score = 100
-	}
+	score = max(0, min(score, 100))
 
 	peer.Score = score
 	r.rebuildKDTree()

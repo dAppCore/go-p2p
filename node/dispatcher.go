@@ -1,6 +1,7 @@
 package node
 
 import (
+	"errors"
 	"fmt"
 	"iter"
 	"sync"
@@ -136,8 +137,8 @@ var (
 
 	// ErrUnknownIntent is returned when no handler is registered for the
 	// packet's IntentID.
-	ErrUnknownIntent = fmt.Errorf("packet dropped: unknown intent")
+	ErrUnknownIntent = errors.New("packet dropped: unknown intent")
 
 	// ErrNilPacket is returned when a nil packet is passed to Dispatch.
-	ErrNilPacket = fmt.Errorf("dispatch: nil packet")
+	ErrNilPacket = errors.New("dispatch: nil packet")
 )

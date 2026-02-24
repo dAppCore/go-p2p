@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -134,7 +135,7 @@ func CreateMinerBundle(minerPath string, profileJSON []byte, name string, passwo
 func ExtractProfileBundle(bundle *Bundle, password string) ([]byte, error) {
 	// Verify checksum first
 	if calculateChecksum(bundle.Data) != bundle.Checksum {
-		return nil, fmt.Errorf("checksum mismatch - bundle may be corrupted")
+		return nil, errors.New("checksum mismatch - bundle may be corrupted")
 	}
 
 	// If it's unencrypted JSON, just return it
@@ -155,7 +156,7 @@ func ExtractProfileBundle(bundle *Bundle, password string) ([]byte, error) {
 func ExtractMinerBundle(bundle *Bundle, password string, destDir string) (string, []byte, error) {
 	// Verify checksum
 	if calculateChecksum(bundle.Data) != bundle.Checksum {
-		return "", nil, fmt.Errorf("checksum mismatch - bundle may be corrupted")
+		return "", nil, errors.New("checksum mismatch - bundle may be corrupted")
 	}
 
 	// Decrypt STIM format

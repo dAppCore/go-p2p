@@ -1,6 +1,7 @@
 package node
 
 import (
+	"errors"
 	"fmt"
 )
 
@@ -24,7 +25,7 @@ type ResponseHandler struct{}
 // 3. If response type matches expected (returns error if not)
 func (h *ResponseHandler) ValidateResponse(resp *Message, expectedType MessageType) error {
 	if resp == nil {
-		return fmt.Errorf("nil response")
+		return errors.New("nil response")
 	}
 
 	// Check for error response
