@@ -622,7 +622,7 @@ func (t *Transport) performHandshake(pc *PeerConnection) error {
 
 	identity := t.node.GetIdentity()
 	if identity == nil {
-		return errors.New("node identity not initialized")
+		return ErrIdentityNotInitialized
 	}
 
 	// Generate challenge for the server to prove it has the matching private key

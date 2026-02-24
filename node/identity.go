@@ -8,7 +8,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -174,7 +173,7 @@ func (n *NodeManager) DeriveSharedSecret(peerPubKeyBase64 string) ([]byte, error
 	defer n.mu.RUnlock()
 
 	if n.privateKey == nil {
-		return nil, errors.New("node identity not initialized")
+		return nil, ErrIdentityNotInitialized
 	}
 
 	// Load peer's public key

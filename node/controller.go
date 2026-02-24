@@ -115,7 +115,7 @@ func (c *Controller) sendRequest(peerID string, msg *Message, timeout time.Durat
 func (c *Controller) GetRemoteStats(peerID string) (*StatsPayload, error) {
 	identity := c.node.GetIdentity()
 	if identity == nil {
-		return nil, errors.New("node identity not initialized")
+		return nil, ErrIdentityNotInitialized
 	}
 
 	msg, err := NewMessage(MsgGetStats, identity.ID, peerID, nil)
@@ -140,7 +140,7 @@ func (c *Controller) GetRemoteStats(peerID string) (*StatsPayload, error) {
 func (c *Controller) StartRemoteMiner(peerID, minerType, profileID string, configOverride json.RawMessage) error {
 	identity := c.node.GetIdentity()
 	if identity == nil {
-		return errors.New("node identity not initialized")
+		return ErrIdentityNotInitialized
 	}
 
 	if minerType == "" {
@@ -179,7 +179,7 @@ func (c *Controller) StartRemoteMiner(peerID, minerType, profileID string, confi
 func (c *Controller) StopRemoteMiner(peerID, minerName string) error {
 	identity := c.node.GetIdentity()
 	if identity == nil {
-		return errors.New("node identity not initialized")
+		return ErrIdentityNotInitialized
 	}
 
 	payload := StopMinerPayload{
@@ -212,7 +212,7 @@ func (c *Controller) StopRemoteMiner(peerID, minerName string) error {
 func (c *Controller) GetRemoteLogs(peerID, minerName string, lines int) ([]string, error) {
 	identity := c.node.GetIdentity()
 	if identity == nil {
-		return nil, errors.New("node identity not initialized")
+		return nil, ErrIdentityNotInitialized
 	}
 
 	payload := GetLogsPayload{
@@ -271,7 +271,7 @@ func (c *Controller) GetAllStats() map[string]*StatsPayload {
 func (c *Controller) PingPeer(peerID string) (float64, error) {
 	identity := c.node.GetIdentity()
 	if identity == nil {
-		return 0, errors.New("node identity not initialized")
+		return 0, ErrIdentityNotInitialized
 	}
 	sentAt := time.Now()
 

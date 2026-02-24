@@ -131,7 +131,7 @@ func (w *Worker) handlePing(msg *Message) (*Message, error) {
 func (w *Worker) handleGetStats(msg *Message) (*Message, error) {
 	identity := w.node.GetIdentity()
 	if identity == nil {
-		return nil, errors.New("node identity not initialized")
+		return nil, ErrIdentityNotInitialized
 	}
 
 	stats := StatsPayload{
@@ -194,7 +194,7 @@ func convertMinerStats(miner MinerInstance, rawStats any) MinerStatsItem {
 // handleStartMiner starts a miner with the given profile.
 func (w *Worker) handleStartMiner(msg *Message) (*Message, error) {
 	if w.minerManager == nil {
-		return nil, errors.New("miner manager not configured")
+		return nil, ErrMinerManagerNotConfigured
 	}
 
 	var payload StartMinerPayload
@@ -241,7 +241,7 @@ func (w *Worker) handleStartMiner(msg *Message) (*Message, error) {
 // handleStopMiner stops a running miner.
 func (w *Worker) handleStopMiner(msg *Message) (*Message, error) {
 	if w.minerManager == nil {
-		return nil, errors.New("miner manager not configured")
+		return nil, ErrMinerManagerNotConfigured
 	}
 
 	var payload StopMinerPayload
@@ -264,7 +264,7 @@ func (w *Worker) handleStopMiner(msg *Message) (*Message, error) {
 // handleGetLogs returns console logs from a miner.
 func (w *Worker) handleGetLogs(msg *Message) (*Message, error) {
 	if w.minerManager == nil {
-		return nil, errors.New("miner manager not configured")
+		return nil, ErrMinerManagerNotConfigured
 	}
 
 	var payload GetLogsPayload
