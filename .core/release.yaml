@@ -1,0 +1,20 @@
+version: 1
+
+project:
+  name: go-p2p
+  repository: core/go-p2p
+
+publishers: []
+
+changelog:
+  include:
+    - feat
+    - fix
+    - perf
+    - refactor
+  exclude:
+    - chore
+    - docs
+    - style
+    - test
+    - ci
