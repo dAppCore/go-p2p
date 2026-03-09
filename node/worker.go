@@ -42,6 +42,7 @@ type Worker struct {
 	minerManager   MinerManager
 	profileManager ProfileManager
 	startTime      time.Time
+	DataDir        string // Base directory for deployments (defaults to xdg.DataHome)
 }
 
 // NewWorker creates a new Worker instance.
@@ -50,8 +51,10 @@ func NewWorker(node *NodeManager, transport *Transport) *Worker {
 		node:      node,
 		transport: transport,
 		startTime: time.Now(),
+		DataDir:   xdg.DataHome,
 	}
 }
+
 
 // SetMinerManager sets the miner manager for handling miner operations.
 func (w *Worker) SetMinerManager(manager MinerManager) {
@@ -350,8 +353,8 @@ func (w *Worker) handleDeploy(conn *PeerConnection, msg *Message) (*Message, err
 
 	case BundleMiner, BundleFull:
 		// Determine installation directory
-		// We use xdg.DataHome/lethean-desktop/miners/<bundle_name>
-		minersDir := filepath.Join(xdg.DataHome, "lethean-desktop", "miners")
+		// We use w.DataDir/lethean-desktop/miners/<bundle_name>
+		minersDir := filepath.Join(w.DataDir, "lethean-desktop", "miners")
 		installDir := filepath.Join(minersDir, payload.Name)
 
 		logging.Info("deploying miner bundle", logging.Fields{

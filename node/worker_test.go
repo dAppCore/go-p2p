@@ -25,7 +25,11 @@ func TestNewWorker(t *testing.T) {
 	cleanup := setupTestEnv(t)
 	defer cleanup()
 
-	nm, err := NewNodeManager()
+	dir := t.TempDir()
+	nm, err := NewNodeManagerWithPaths(
+		filepath.Join(dir, "private.key"),
+		filepath.Join(dir, "node.json"),
+	)
 	if err != nil {
 		t.Fatalf("failed to create node manager: %v", err)
 	}
@@ -40,6 +44,7 @@ func TestNewWorker(t *testing.T) {
 
 	transport := NewTransport(nm, pr, DefaultTransportConfig())
 	worker := NewWorker(nm, transport)
+	worker.DataDir = t.TempDir()
 
 	if worker == nil {
 		t.Fatal("NewWorker returned nil")
@@ -56,7 +61,11 @@ func TestWorker_SetMinerManager(t *testing.T) {
 	cleanup := setupTestEnv(t)
 	defer cleanup()
 
-	nm, err := NewNodeManager()
+	dir := t.TempDir()
+	nm, err := NewNodeManagerWithPaths(
+		filepath.Join(dir, "private.key"),
+		filepath.Join(dir, "node.json"),
+	)
 	if err != nil {
 		t.Fatalf("failed to create node manager: %v", err)
 	}
@@ -71,6 +80,7 @@ func TestWorker_SetMinerManager(t *testing.T) {
 
 	transport := NewTransport(nm, pr, DefaultTransportConfig())
 	worker := NewWorker(nm, transport)
+	worker.DataDir = t.TempDir()
 
 	mockManager := &mockMinerManager{}
 	worker.SetMinerManager(mockManager)
@@ -84,7 +94,11 @@ func TestWorker_SetProfileManager(t *testing.T) {
 	cleanup := setupTestEnv(t)
 	defer cleanup()
 
-	nm, err := NewNodeManager()
+	dir := t.TempDir()
+	nm, err := NewNodeManagerWithPaths(
+		filepath.Join(dir, "private.key"),
+		filepath.Join(dir, "node.json"),
+	)
 	if err != nil {
 		t.Fatalf("failed to create node manager: %v", err)
 	}
@@ -99,6 +113,7 @@ func TestWorker_SetProfileManager(t *testing.T) {
 
 	transport := NewTransport(nm, pr, DefaultTransportConfig())
 	worker := NewWorker(nm, transport)
+	worker.DataDir = t.TempDir()
 
 	mockProfile := &mockProfileManager{}
 	worker.SetProfileManager(mockProfile)
@@ -112,7 +127,11 @@ func TestWorker_HandlePing(t *testing.T) {
 	cleanup := setupTestEnv(t)
 	defer cleanup()
 
-	nm, err := NewNodeManager()
+	dir := t.TempDir()
+	nm, err := NewNodeManagerWithPaths(
+		filepath.Join(dir, "private.key"),
+		filepath.Join(dir, "node.json"),
+	)
 	if err != nil {
 		t.Fatalf("failed to create node manager: %v", err)
 	}
@@ -127,6 +146,7 @@ func TestWorker_HandlePing(t *testing.T) {
 
 	transport := NewTransport(nm, pr, DefaultTransportConfig())
 	worker := NewWorker(nm, transport)
+	worker.DataDir = t.TempDir()
 
 	// Create a ping message
 	identity := nm.GetIdentity()
@@ -171,7 +191,11 @@ func TestWorker_HandleGetStats(t *testing.T) {
 	cleanup := setupTestEnv(t)
 	defer cleanup()
 
-	nm, err := NewNodeManager()
+	dir := t.TempDir()
+	nm, err := NewNodeManagerWithPaths(
+		filepath.Join(dir, "private.key"),
+		filepath.Join(dir, "node.json"),
+	)
 	if err != nil {
 		t.Fatalf("failed to create node manager: %v", err)
 	}
@@ -186,6 +210,7 @@ func TestWorker_HandleGetStats(t *testing.T) {
 
 	transport := NewTransport(nm, pr, DefaultTransportConfig())
 	worker := NewWorker(nm, transport)
+	worker.DataDir = t.TempDir()
 
 	// Create a get_stats message
 	identity := nm.GetIdentity()
@@ -229,7 +254,11 @@ func TestWorker_HandleStartMiner_NoManager(t *testing.T) {
 	cleanup := setupTestEnv(t)
 	defer cleanup()
 
-	nm, err := NewNodeManager()
+	dir := t.TempDir()
+	nm, err := NewNodeManagerWithPaths(
+		filepath.Join(dir, "private.key"),
+		filepath.Join(dir, "node.json"),
+	)
 	if err != nil {
 		t.Fatalf("failed to create node manager: %v", err)
 	}
@@ -244,6 +273,7 @@ func TestWorker_HandleStartMiner_NoManager(t *testing.T) {
 
 	transport := NewTransport(nm, pr, DefaultTransportConfig())
 	worker := NewWorker(nm, transport)
+	worker.DataDir = t.TempDir()
 
 	// Create a start_miner message
 	identity := nm.GetIdentity()
@@ -267,7 +297,11 @@ func TestWorker_HandleStopMiner_NoManager(t *testing.T) {
 	cleanup := setupTestEnv(t)
 	defer cleanup()
 
-	nm, err := NewNodeManager()
+	dir := t.TempDir()
+	nm, err := NewNodeManagerWithPaths(
+		filepath.Join(dir, "private.key"),
+		filepath.Join(dir, "node.json"),
+	)
 	if err != nil {
 		t.Fatalf("failed to create node manager: %v", err)
 	}
@@ -282,6 +316,7 @@ func TestWorker_HandleStopMiner_NoManager(t *testing.T) {
 
 	transport := NewTransport(nm, pr, DefaultTransportConfig())
 	worker := NewWorker(nm, transport)
+	worker.DataDir = t.TempDir()
 
 	// Create a stop_miner message
 	identity := nm.GetIdentity()
@@ -305,7 +340,11 @@ func TestWorker_HandleGetLogs_NoManager(t *testing.T) {
 	cleanup := setupTestEnv(t)
 	defer cleanup()
 
-	nm, err := NewNodeManager()
+	dir := t.TempDir()
+	nm, err := NewNodeManagerWithPaths(
+		filepath.Join(dir, "private.key"),
+		filepath.Join(dir, "node.json"),
+	)
 	if err != nil {
 		t.Fatalf("failed to create node manager: %v", err)
 	}
@@ -320,6 +359,7 @@ func TestWorker_HandleGetLogs_NoManager(t *testing.T) {
 
 	transport := NewTransport(nm, pr, DefaultTransportConfig())
 	worker := NewWorker(nm, transport)
+	worker.DataDir = t.TempDir()
 
 	// Create a get_logs message
 	identity := nm.GetIdentity()
@@ -343,7 +383,11 @@ func TestWorker_HandleDeploy_Profile(t *testing.T) {
 	cleanup := setupTestEnv(t)
 	defer cleanup()
 
-	nm, err := NewNodeManager()
+	dir := t.TempDir()
+	nm, err := NewNodeManagerWithPaths(
+		filepath.Join(dir, "private.key"),
+		filepath.Join(dir, "node.json"),
+	)
 	if err != nil {
 		t.Fatalf("failed to create node manager: %v", err)
 	}
@@ -358,6 +402,7 @@ func TestWorker_HandleDeploy_Profile(t *testing.T) {
 
 	transport := NewTransport(nm, pr, DefaultTransportConfig())
 	worker := NewWorker(nm, transport)
+	worker.DataDir = t.TempDir()
 
 	// Create a deploy message for profile
 	identity := nm.GetIdentity()
@@ -385,7 +430,11 @@ func TestWorker_HandleDeploy_UnknownType(t *testing.T) {
 	cleanup := setupTestEnv(t)
 	defer cleanup()
 
-	nm, err := NewNodeManager()
+	dir := t.TempDir()
+	nm, err := NewNodeManagerWithPaths(
+		filepath.Join(dir, "private.key"),
+		filepath.Join(dir, "node.json"),
+	)
 	if err != nil {
 		t.Fatalf("failed to create node manager: %v", err)
 	}
@@ -400,6 +449,7 @@ func TestWorker_HandleDeploy_UnknownType(t *testing.T) {
 
 	transport := NewTransport(nm, pr, DefaultTransportConfig())
 	worker := NewWorker(nm, transport)
+	worker.DataDir = t.TempDir()
 
 	// Create a deploy message with unknown type
 	identity := nm.GetIdentity()
@@ -566,7 +616,11 @@ func TestWorker_HandleStartMiner_WithManager(t *testing.T) {
 	cleanup := setupTestEnv(t)
 	defer cleanup()
 
-	nm, err := NewNodeManager()
+	dir := t.TempDir()
+	nm, err := NewNodeManagerWithPaths(
+		filepath.Join(dir, "private.key"),
+		filepath.Join(dir, "node.json"),
+	)
 	if err != nil {
 		t.Fatalf("failed to create node manager: %v", err)
 	}
@@ -581,6 +635,7 @@ func TestWorker_HandleStartMiner_WithManager(t *testing.T) {
 
 	transport := NewTransport(nm, pr, DefaultTransportConfig())
 	worker := NewWorker(nm, transport)
+	worker.DataDir = t.TempDir()
 
 	mm := &mockMinerManager{
 		miners: []MinerInstance{},
@@ -733,7 +788,11 @@ func TestWorker_HandleStopMiner_WithManager(t *testing.T) {
 	cleanup := setupTestEnv(t)
 	defer cleanup()
 
-	nm, err := NewNodeManager()
+	dir := t.TempDir()
+	nm, err := NewNodeManagerWithPaths(
+		filepath.Join(dir, "private.key"),
+		filepath.Join(dir, "node.json"),
+	)
 	if err != nil {
 		t.Fatalf("failed to create node manager: %v", err)
 	}
@@ -746,6 +805,7 @@ func TestWorker_HandleStopMiner_WithManager(t *testing.T) {
 	}
 	transport := NewTransport(nm, pr, DefaultTransportConfig())
 	worker := NewWorker(nm, transport)
+	worker.DataDir = t.TempDir()
 	identity := nm.GetIdentity()
 
 	t.Run("Success", func(t *testing.T) {
@@ -795,7 +855,11 @@ func TestWorker_HandleGetLogs_WithManager(t *testing.T) {
 	cleanup := setupTestEnv(t)
 	defer cleanup()
 
-	nm, err := NewNodeManager()
+	dir := t.TempDir()
+	nm, err := NewNodeManagerWithPaths(
+		filepath.Join(dir, "private.key"),
+		filepath.Join(dir, "node.json"),
+	)
 	if err != nil {
 		t.Fatalf("failed to create node manager: %v", err)
 	}
@@ -808,6 +872,7 @@ func TestWorker_HandleGetLogs_WithManager(t *testing.T) {
 	}
 	transport := NewTransport(nm, pr, DefaultTransportConfig())
 	worker := NewWorker(nm, transport)
+	worker.DataDir = t.TempDir()
 	identity := nm.GetIdentity()
 
 	t.Run("Success", func(t *testing.T) {
@@ -900,7 +965,11 @@ func TestWorker_HandleGetStats_WithMinerManager(t *testing.T) {
 	cleanup := setupTestEnv(t)
 	defer cleanup()
 
-	nm, err := NewNodeManager()
+	dir := t.TempDir()
+	nm, err := NewNodeManagerWithPaths(
+		filepath.Join(dir, "private.key"),
+		filepath.Join(dir, "node.json"),
+	)
 	if err != nil {
 		t.Fatalf("failed to create node manager: %v", err)
 	}
@@ -913,6 +982,7 @@ func TestWorker_HandleGetStats_WithMinerManager(t *testing.T) {
 	}
 	transport := NewTransport(nm, pr, DefaultTransportConfig())
 	worker := NewWorker(nm, transport)
+	worker.DataDir = t.TempDir()
 	identity := nm.GetIdentity()
 
 	// Set miner manager with miners that have real stats
@@ -959,7 +1029,11 @@ func TestWorker_HandleMessage_UnknownType(t *testing.T) {
 	cleanup := setupTestEnv(t)
 	defer cleanup()
 
-	nm, err := NewNodeManager()
+	dir := t.TempDir()
+	nm, err := NewNodeManagerWithPaths(
+		filepath.Join(dir, "private.key"),
+		filepath.Join(dir, "node.json"),
+	)
 	if err != nil {
 		t.Fatalf("failed to create node manager: %v", err)
 	}
@@ -972,6 +1046,7 @@ func TestWorker_HandleMessage_UnknownType(t *testing.T) {
 	}
 	transport := NewTransport(nm, pr, DefaultTransportConfig())
 	worker := NewWorker(nm, transport)
+	worker.DataDir = t.TempDir()
 
 	identity := nm.GetIdentity()
 	msg, _ := NewMessage("unknown_type", "sender-id", identity.ID, nil)
@@ -984,7 +1059,11 @@ func TestWorker_HandleDeploy_ProfileWithManager(t *testing.T) {
 	cleanup := setupTestEnv(t)
 	defer cleanup()
 
-	nm, err := NewNodeManager()
+	dir := t.TempDir()
+	nm, err := NewNodeManagerWithPaths(
+		filepath.Join(dir, "private.key"),
+		filepath.Join(dir, "node.json"),
+	)
 	if err != nil {
 		t.Fatalf("failed to create node manager: %v", err)
 	}
@@ -997,6 +1076,7 @@ func TestWorker_HandleDeploy_ProfileWithManager(t *testing.T) {
 	}
 	transport := NewTransport(nm, pr, DefaultTransportConfig())
 	worker := NewWorker(nm, transport)
+	worker.DataDir = t.TempDir()
 
 	pm := &mockProfileManagerFull{profiles: make(map[string]any)}
 	worker.SetProfileManager(pm)
@@ -1037,7 +1117,11 @@ func TestWorker_HandleDeploy_ProfileSaveFails(t *testing.T) {
 	cleanup := setupTestEnv(t)
 	defer cleanup()
 
-	nm, err := NewNodeManager()
+	dir := t.TempDir()
+	nm, err := NewNodeManagerWithPaths(
+		filepath.Join(dir, "private.key"),
+		filepath.Join(dir, "node.json"),
+	)
 	if err != nil {
 		t.Fatalf("failed to create node manager: %v", err)
 	}
@@ -1050,6 +1134,7 @@ func TestWorker_HandleDeploy_ProfileSaveFails(t *testing.T) {
 	}
 	transport := NewTransport(nm, pr, DefaultTransportConfig())
 	worker := NewWorker(nm, transport)
+	worker.DataDir = t.TempDir()
 	worker.SetProfileManager(&mockProfileManagerFailing{})
 
 	identity := nm.GetIdentity()
@@ -1081,7 +1166,11 @@ func TestWorker_HandleDeploy_MinerBundle(t *testing.T) {
 	cleanup := setupTestEnv(t)
 	defer cleanup()
 
-	nm, err := NewNodeManager()
+	dir := t.TempDir()
+	nm, err := NewNodeManagerWithPaths(
+		filepath.Join(dir, "private.key"),
+		filepath.Join(dir, "node.json"),
+	)
 	if err != nil {
 		t.Fatalf("failed to create node manager: %v", err)
 	}
@@ -1094,6 +1183,7 @@ func TestWorker_HandleDeploy_MinerBundle(t *testing.T) {
 	}
 	transport := NewTransport(nm, pr, DefaultTransportConfig())
 	worker := NewWorker(nm, transport)
+	worker.DataDir = t.TempDir()
 	pm := &mockProfileManagerFull{profiles: make(map[string]any)}
 	worker.SetProfileManager(pm)
 
@@ -1143,7 +1233,11 @@ func TestWorker_HandleDeploy_FullBundle(t *testing.T) {
 	cleanup := setupTestEnv(t)
 	defer cleanup()
 
-	nm, err := NewNodeManager()
+	dir := t.TempDir()
+	nm, err := NewNodeManagerWithPaths(
+		filepath.Join(dir, "private.key"),
+		filepath.Join(dir, "node.json"),
+	)
 	if err != nil {
 		t.Fatalf("failed to create node manager: %v", err)
 	}
@@ -1156,6 +1250,7 @@ func TestWorker_HandleDeploy_FullBundle(t *testing.T) {
 	}
 	transport := NewTransport(nm, pr, DefaultTransportConfig())
 	worker := NewWorker(nm, transport)
+	worker.DataDir = t.TempDir()
 
 	identity := nm.GetIdentity()
 
@@ -1197,7 +1292,11 @@ func TestWorker_HandleDeploy_MinerBundle_WithProfileManager(t *testing.T) {
 	cleanup := setupTestEnv(t)
 	defer cleanup()
 
-	nm, err := NewNodeManager()
+	dir := t.TempDir()
+	nm, err := NewNodeManagerWithPaths(
+		filepath.Join(dir, "private.key"),
+		filepath.Join(dir, "node.json"),
+	)
 	if err != nil {
 		t.Fatalf("failed to create node manager: %v", err)
 	}
@@ -1210,6 +1309,7 @@ func TestWorker_HandleDeploy_MinerBundle_WithProfileManager(t *testing.T) {
 	}
 	transport := NewTransport(nm, pr, DefaultTransportConfig())
 	worker := NewWorker(nm, transport)
+	worker.DataDir = t.TempDir()
 
 	// Set a failing profile manager to exercise the warn-and-continue path
 	worker.SetProfileManager(&mockProfileManagerFailing{})
@@ -1256,11 +1356,16 @@ func TestWorker_HandleDeploy_InvalidPayload(t *testing.T) {
 	cleanup := setupTestEnv(t)
 	defer cleanup()
 
-	nm, _ := NewNodeManager()
+	dir := t.TempDir()
+	nm, _ := NewNodeManagerWithPaths(
+		filepath.Join(dir, "private.key"),
+		filepath.Join(dir, "node.json"),
+	)
 	nm.GenerateIdentity("test", RoleWorker)
 	pr, _ := NewPeerRegistryWithPath(t.TempDir() + "/peers.json")
 	transport := NewTransport(nm, pr, DefaultTransportConfig())
 	worker := NewWorker(nm, transport)
+	worker.DataDir = t.TempDir()
 	identity := nm.GetIdentity()
 
 	// Create a message with invalid payload
@@ -1284,6 +1389,7 @@ func TestWorker_HandleGetStats_NoIdentity(t *testing.T) {
 	pr, _ := NewPeerRegistryWithPath(t.TempDir() + "/peers.json")
 	transport := NewTransport(nm, pr, DefaultTransportConfig())
 	worker := NewWorker(nm, transport)
+	worker.DataDir = t.TempDir()
 
 	msg, _ := NewMessage(MsgGetStats, "sender-id", "target-id", nil)
 	_, err := worker.handleGetStats(msg)

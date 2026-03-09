@@ -112,26 +112,30 @@ func TestReadAndVerify_PayloadReadError(t *testing.T) {
 	assert.Equal(t, "connection reset", err.Error())
 }
 
-// TestReadAndVerify_PayloadReadError_EOF ensures that a clean EOF
-// (no payload bytes at all after 0xFF) is handled differently from
-// a hard I/O error — io.ReadAll treats io.EOF as success and returns
-// an empty slice, so the result should be an HMAC mismatch rather
-// than a raw read error.
+// TestReadAndVerify_PayloadReadError_EOF ensures that a truncated payload
+// (missing bytes after TagPayload) is handled as an I/O error (UnexpectedEOF)
+// because ReadAndVerify now uses io.ReadFull with the expected length prefix.
 func TestReadAndVerify_PayloadReadError_EOF(t *testing.T) {
 	payload := []byte("eof test")
 	builder := NewBuilder(0x20, payload)
 	frame, err := builder.MarshalAndSign(testSecret)
 	require.NoError(t, err)
 
-	// Truncate at 0xFF tag — the reader will see 0xFF then immediate
-	// EOF, which io.ReadAll treats as success with empty payload.
+	// Truncate at TagPayload tag + partial length — the reader will see 0xFF
+	// then EOF while trying to read the 2-byte length or the payload itself.
 	payloadTagIdx := bytes.IndexByte(frame, TagPayload)
 	require.NotEqual(t, -1, payloadTagIdx)
 
-	truncated := frame[:payloadTagIdx+1]
+	truncated := frame[:payloadTagIdx+1] // Only the tag, no length
 	_, err = ReadAndVerify(bufio.NewReader(bytes.NewReader(truncated)), testSecret)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "integrity violation")
+	assert.ErrorIs(t, err, io.EOF) // Failed reading length
+
+	truncatedWithLen := frame[:payloadTagIdx+3] // Tag + Length, but no payload
+	_, err = ReadAndVerify(bufio.NewReader(bytes.NewReader(truncatedWithLen)), testSecret)
+	require.Error(t, err)
+	// io.ReadFull returns io.EOF if no bytes are read at all before EOF.
+	assert.ErrorIs(t, err, io.EOF)
 }
 
 // TestWriteTLV_AllWritesSucceed confirms the happy path still works
@@ -141,8 +145,10 @@ func TestWriteTLV_AllWritesSucceed(t *testing.T) {
 	var buf bytes.Buffer
 	err := writeTLV(&buf, TagVersion, []byte{0x09})
 	require.NoError(t, err)
-	assert.Equal(t, []byte{TagVersion, 0x01, 0x09}, buf.Bytes())
+	// Now uses 2-byte big-endian length: 0x00 0x01
+	assert.Equal(t, []byte{TagVersion, 0x00, 0x01, 0x09}, buf.Bytes())
 }
+
 
 // TestWriteTLV_FailWriterTable runs the three failure scenarios in
 // a table-driven fashion for completeness.

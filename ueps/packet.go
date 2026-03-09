@@ -90,35 +90,36 @@ func (p *PacketBuilder) MarshalAndSign(sharedSecret []byte) ([]byte, error) {
 	}
 
 	// 4. Write Payload TLV (0xFF)
-	// Note: 0xFF length is variable. For simplicity in this specialized reader,
-	// we might handle 0xFF as "read until EOF" or use a varint length.
-	// Implementing standard 1-byte length for payload is risky if payload > 255.
-	// Assuming your spec allows >255 bytes, we handle 0xFF differently.
-	
-	buf.WriteByte(TagPayload)
-	// We don't write a 1-byte length for payload here assuming stream mode,
-	// but if strict TLV, we'd need a multi-byte length protocol.
-	// For this snippet, simply appending data:
-	buf.Write(p.Payload)
+	// Fixed: Now uses writeTLV which provides a 2-byte length prefix.
+	// This prevents the io.ReadAll DoS and allows multiple packets in a stream.
+	if err := writeTLV(buf, TagPayload, p.Payload); err != nil {
+		return nil, err
+	}
 
 	return buf.Bytes(), nil
 }
 
-// Helper to write a simple TLV
+// Helper to write a simple TLV.
+// Now uses 2-byte big-endian length (uint16) to support up to 64KB payloads.
 func writeTLV(w io.Writer, tag uint8, value []byte) error {
-	// Check strict length constraint (1 byte length = max 255 bytes)
-	if len(value) > 255 {
-		return errors.New("TLV value too large for 1-byte length header")
+	// Check length constraint (2 byte length = max 65535 bytes)
+	if len(value) > 65535 {
+		return errors.New("TLV value too large for 2-byte length header")
 	}
 
 	if _, err := w.Write([]byte{tag}); err != nil {
 		return err
 	}
-	if _, err := w.Write([]byte{uint8(len(value))}); err != nil {
+	
+	lenBuf := make([]byte, 2)
+	binary.BigEndian.PutUint16(lenBuf, uint16(len(value)))
+	if _, err := w.Write(lenBuf); err != nil {
 		return err
 	}
+	
 	if _, err := w.Write(value); err != nil {
 		return err
 	}
 	return nil
 }
+

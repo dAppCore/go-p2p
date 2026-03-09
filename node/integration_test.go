@@ -370,7 +370,7 @@ func TestIntegration_IdentityPersistenceAndReload(t *testing.T) {
 	assert.Equal(t, original.Role, reloaded.Role, "Role should persist")
 
 	// Verify the reloaded key can derive the same shared secret.
-	kp, err := stmfGenerateKeyPair()
+	kp, err := stmfGenerateKeyPair(t.TempDir())
 	require.NoError(t, err)
 
 	secret1, err := nm1.DeriveSharedSecret(kp)
@@ -385,8 +385,7 @@ func TestIntegration_IdentityPersistenceAndReload(t *testing.T) {
 
 // stmfGenerateKeyPair is a helper that generates a keypair and returns
 // the public key as base64 (for use in DeriveSharedSecret tests).
-func stmfGenerateKeyPair() (string, error) {
-	dir, _ := filepath.Abs("/tmp/stmf-test-" + time.Now().Format("20060102150405.000"))
+func stmfGenerateKeyPair(dir string) (string, error) {
 	nm, err := NewNodeManagerWithPaths(
 		filepath.Join(dir, "private.key"),
 		filepath.Join(dir, "node.json"),
@@ -399,6 +398,7 @@ func stmfGenerateKeyPair() (string, error) {
 	}
 	return nm.GetIdentity().PublicKey, nil
 }
+
 
 // TestIntegration_UEPSFullRoundTrip exercises a complete UEPS packet
 // lifecycle: build, sign, transmit (simulated), read, verify, dispatch.
