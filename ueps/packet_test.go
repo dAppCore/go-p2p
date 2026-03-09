@@ -112,10 +112,11 @@ func TestHMACVerification_TamperedHeader(t *testing.T) {
 		t.Fatalf("MarshalAndSign failed: %v", err)
 	}
 
-	// Tamper with the Version TLV value (byte index 2: tag=0, len=1, val=2)
+	// Tamper with the Version TLV value
+	// New Index: Tag (1 byte) + Length (2 bytes) = 3. Value is at index 3.
 	tampered := make([]byte, len(frame))
 	copy(tampered, frame)
-	tampered[2] = 0x01 // Change version from 0x09 to 0x01
+	tampered[3] = 0x01 // Change version from 0x09 to 0x01
 
 	_, err = ReadAndVerify(bufio.NewReader(bytes.NewReader(tampered)), testSecret)
 	if err == nil {
@@ -206,9 +207,8 @@ func TestMissingHMACTag(t *testing.T) {
 	binary.BigEndian.PutUint16(tsBuf, 0)
 	writeTLV(&buf, TagThreatScore, tsBuf)
 
-	// Skip HMAC TLV entirely — go straight to payload
-	buf.WriteByte(TagPayload)
-	buf.Write([]byte("some data"))
+	// Skip HMAC TLV entirely — go straight to payload (with length prefix now)
+	writeTLV(&buf, TagPayload, []byte("some data"))
 
 	_, err := ReadAndVerify(bufio.NewReader(bytes.NewReader(buf.Bytes())), testSecret)
 	if err == nil {
@@ -221,10 +221,10 @@ func TestMissingHMACTag(t *testing.T) {
 
 func TestWriteTLV_ValueTooLarge(t *testing.T) {
 	var buf bytes.Buffer
-	oversized := make([]byte, 256) // 1 byte over the 255 limit
+	oversized := make([]byte, 65536) // 1 byte over the 65535 limit
 	err := writeTLV(&buf, TagVersion, oversized)
 	if err == nil {
-		t.Fatal("Expected error for TLV value > 255 bytes")
+		t.Fatal("Expected error for TLV value > 65535 bytes")
 	}
 	if !strings.Contains(err.Error(), "TLV value too large") {
 		t.Errorf("Expected 'TLV value too large' error, got: %v", err)
@@ -250,7 +250,7 @@ func TestTruncatedPacket(t *testing.T) {
 		},
 		{
 			name:    "CutInFirstTLVValue",
-			cutAt:   2, // Tag + length, but missing value
+			cutAt:   2, // Tag + partial length
 			wantErr: "EOF",
 		},
 		{
@@ -301,12 +301,11 @@ func TestUnknownTLVTag(t *testing.T) {
 	mac.Write(payload)
 	signature := mac.Sum(nil)
 
-	// Assemble full frame: headers + unknown + HMAC TLV + 0xFF + payload
+	// Assemble full frame: headers + unknown + HMAC TLV + 0xFF + payload (with length!)
 	var frame bytes.Buffer
 	frame.Write(headerBuf.Bytes())
 	writeTLV(&frame, TagHMAC, signature)
-	frame.WriteByte(TagPayload)
-	frame.Write(payload)
+	writeTLV(&frame, TagPayload, payload)
 
 	parsed, err := ReadAndVerify(bufio.NewReader(bytes.NewReader(frame.Bytes())), testSecret)
 	if err != nil {
@@ -387,9 +386,10 @@ func TestWriteTLV_BoundaryLengths(t *testing.T) {
 	}{
 		{"Empty", 0, false},
 		{"OneByte", 1, false},
-		{"MaxValid", 255, false},
-		{"OneOver", 256, true},
-		{"WayOver", 1024, true},
+		{"OldMax", 255, false},
+		{"NewMax", 65535, false},
+		{"OneOver", 65536, true},
+		{"WayOver", 100000, true},
 	}
 
 	for _, tc := range tests {
@@ -406,6 +406,7 @@ func TestWriteTLV_BoundaryLengths(t *testing.T) {
 		})
 	}
 }
+
 
 // TestReadAndVerify_EmptyReader verifies behaviour on completely empty input.
 func TestReadAndVerify_EmptyReader(t *testing.T) {
