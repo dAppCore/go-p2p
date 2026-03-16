@@ -6,8 +6,9 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/binary"
-	"errors"
 	"io"
+
+	coreerr "forge.lthn.ai/core/go-log"
 )
 
 // ParsedPacket holds the verified data
@@ -92,7 +93,7 @@ func ReadAndVerify(r *bufio.Reader, sharedSecret []byte) (*ParsedPacket, error) 
 
 verify:
 	if len(signature) == 0 {
-		return nil, errors.New("UEPS packet missing HMAC signature")
+		return nil, coreerr.E("ueps.ReadAndVerify", "UEPS packet missing HMAC signature", nil)
 	}
 
 	// 5. Verify HMAC
@@ -103,7 +104,7 @@ verify:
 	expectedMAC := mac.Sum(nil)
 
 	if !hmac.Equal(signature, expectedMAC) {
-		return nil, errors.New("integrity violation: HMAC mismatch (ThreatScore +100)")
+		return nil, coreerr.E("ueps.ReadAndVerify", "integrity violation: HMAC mismatch (ThreatScore +100)", nil)
 	}
 
 	return &ParsedPacket{

@@ -3,10 +3,10 @@ package node
 import (
 	"context"
 	"encoding/json"
-	"errors"
-	"fmt"
 	"sync"
 	"time"
+
+	coreerr "forge.lthn.ai/core/go-log"
 
 	"forge.lthn.ai/core/go-p2p/logging"
 )
@@ -67,11 +67,11 @@ func (c *Controller) sendRequest(peerID string, msg *Message, timeout time.Durat
 	if c.transport.GetConnection(peerID) == nil {
 		peer := c.peers.GetPeer(peerID)
 		if peer == nil {
-			return nil, fmt.Errorf("peer not found: %s", peerID)
+			return nil, coreerr.E("Controller.sendRequest", "peer not found: "+peerID, nil)
 		}
 		conn, err := c.transport.Connect(peer)
 		if err != nil {
-			return nil, fmt.Errorf("failed to connect to peer: %w", err)
+			return nil, coreerr.E("Controller.sendRequest", "failed to connect to peer", err)
 		}
 		// Use the real peer ID after handshake (it may have changed)
 		actualPeerID = conn.Peer.ID
@@ -96,7 +96,7 @@ func (c *Controller) sendRequest(peerID string, msg *Message, timeout time.Durat
 
 	// Send the message
 	if err := c.transport.Send(actualPeerID, msg); err != nil {
-		return nil, fmt.Errorf("failed to send message: %w", err)
+		return nil, coreerr.E("Controller.sendRequest", "failed to send message", err)
 	}
 
 	// Wait for response
@@ -107,7 +107,7 @@ func (c *Controller) sendRequest(peerID string, msg *Message, timeout time.Durat
 	case resp := <-respCh:
 		return resp, nil
 	case <-ctx.Done():
-		return nil, errors.New("request timeout")
+		return nil, coreerr.E("Controller.sendRequest", "request timeout", nil)
 	}
 }
 
@@ -120,7 +120,7 @@ func (c *Controller) GetRemoteStats(peerID string) (*StatsPayload, error) {
 
 	msg, err := NewMessage(MsgGetStats, identity.ID, peerID, nil)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create message: %w", err)
+		return nil, coreerr.E("Controller.GetRemoteStats", "failed to create message", err)
 	}
 
 	resp, err := c.sendRequest(peerID, msg, 10*time.Second)
@@ -144,7 +144,7 @@ func (c *Controller) StartRemoteMiner(peerID, minerType, profileID string, confi
 	}
 
 	if minerType == "" {
-		return errors.New("miner type is required")
+		return coreerr.E("Controller.StartRemoteMiner", "miner type is required", nil)
 	}
 
 	payload := StartMinerPayload{
@@ -155,7 +155,7 @@ func (c *Controller) StartRemoteMiner(peerID, minerType, profileID string, confi
 
 	msg, err := NewMessage(MsgStartMiner, identity.ID, peerID, payload)
 	if err != nil {
-		return fmt.Errorf("failed to create message: %w", err)
+		return coreerr.E("Controller.StartRemoteMiner", "failed to create message", err)
 	}
 
 	resp, err := c.sendRequest(peerID, msg, 30*time.Second)
@@ -169,7 +169,7 @@ func (c *Controller) StartRemoteMiner(peerID, minerType, profileID string, confi
 	}
 
 	if !ack.Success {
-		return fmt.Errorf("miner start failed: %s", ack.Error)
+		return coreerr.E("Controller.StartRemoteMiner", "miner start failed: "+ack.Error, nil)
 	}
 
 	return nil
@@ -188,7 +188,7 @@ func (c *Controller) StopRemoteMiner(peerID, minerName string) error {
 
 	msg, err := NewMessage(MsgStopMiner, identity.ID, peerID, payload)
 	if err != nil {
-		return fmt.Errorf("failed to create message: %w", err)
+		return coreerr.E("Controller.StopRemoteMiner", "failed to create message", err)
 	}
 
 	resp, err := c.sendRequest(peerID, msg, 30*time.Second)
@@ -202,7 +202,7 @@ func (c *Controller) StopRemoteMiner(peerID, minerName string) error {
 	}
 
 	if !ack.Success {
-		return fmt.Errorf("miner stop failed: %s", ack.Error)
+		return coreerr.E("Controller.StopRemoteMiner", "miner stop failed: "+ack.Error, nil)
 	}
 
 	return nil
@@ -222,7 +222,7 @@ func (c *Controller) GetRemoteLogs(peerID, minerName string, lines int) ([]strin
 
 	msg, err := NewMessage(MsgGetLogs, identity.ID, peerID, payload)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create message: %w", err)
+		return nil, coreerr.E("Controller.GetRemoteLogs", "failed to create message", err)
 	}
 
 	resp, err := c.sendRequest(peerID, msg, 10*time.Second)
@@ -281,7 +281,7 @@ func (c *Controller) PingPeer(peerID string) (float64, error) {
 
 	msg, err := NewMessage(MsgPing, identity.ID, peerID, payload)
 	if err != nil {
-		return 0, fmt.Errorf("failed to create message: %w", err)
+		return 0, coreerr.E("Controller.PingPeer", "failed to create message", err)
 	}
 
 	resp, err := c.sendRequest(peerID, msg, 5*time.Second)
@@ -309,7 +309,7 @@ func (c *Controller) PingPeer(peerID string) (float64, error) {
 func (c *Controller) ConnectToPeer(peerID string) error {
 	peer := c.peers.GetPeer(peerID)
 	if peer == nil {
-		return fmt.Errorf("peer not found: %s", peerID)
+		return coreerr.E("Controller.ConnectToPeer", "peer not found: "+peerID, nil)
 	}
 
 	_, err := c.transport.Connect(peer)
@@ -320,7 +320,7 @@ func (c *Controller) ConnectToPeer(peerID string) error {
 func (c *Controller) DisconnectFromPeer(peerID string) error {
 	conn := c.transport.GetConnection(peerID)
 	if conn == nil {
-		return fmt.Errorf("peer not connected: %s", peerID)
+		return coreerr.E("Controller.DisconnectFromPeer", "peer not connected: "+peerID, nil)
 	}
 
 	return conn.Close()

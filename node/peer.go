@@ -2,11 +2,8 @@ package node
 
 import (
 	"encoding/json"
-	"errors"
-	"fmt"
 	"iter"
 	"maps"
-	"os"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -14,6 +11,8 @@ import (
 	"time"
 
 	poindexter "forge.lthn.ai/Snider/Poindexter"
+	coreio "forge.lthn.ai/core/go-io"
+	coreerr "forge.lthn.ai/core/go-log"
 	"forge.lthn.ai/core/go-p2p/logging"
 	"github.com/adrg/xdg"
 )
@@ -79,13 +78,13 @@ func validatePeerName(name string) error {
 		return nil // Empty names are allowed (optional field)
 	}
 	if len(name) < PeerNameMinLength {
-		return fmt.Errorf("peer name too short (min %d characters)", PeerNameMinLength)
+		return coreerr.E("validatePeerName", "peer name too short", nil)
 	}
 	if len(name) > PeerNameMaxLength {
-		return fmt.Errorf("peer name too long (max %d characters)", PeerNameMaxLength)
+		return coreerr.E("validatePeerName", "peer name too long", nil)
 	}
 	if !peerNameRegex.MatchString(name) {
-		return errors.New("peer name contains invalid characters (use alphanumeric, hyphens, underscores, spaces)")
+		return coreerr.E("validatePeerName", "peer name contains invalid characters (use alphanumeric, hyphens, underscores, spaces)", nil)
 	}
 	return nil
 }
@@ -123,7 +122,7 @@ var (
 func NewPeerRegistry() (*PeerRegistry, error) {
 	peersPath, err := xdg.ConfigFile("lethean-desktop/peers.json")
 	if err != nil {
-		return nil, fmt.Errorf("failed to get peers path: %w", err)
+		return nil, coreerr.E("PeerRegistry.New", "failed to get peers path", err)
 	}
 
 	return NewPeerRegistryWithPath(peersPath)
@@ -244,7 +243,7 @@ func (r *PeerRegistry) AddPeer(peer *Peer) error {
 
 	if peer.ID == "" {
 		r.mu.Unlock()
-		return errors.New("peer ID is required")
+		return coreerr.E("PeerRegistry.AddPeer", "peer ID is required", nil)
 	}
 
 	// Validate peer name (P2P-LOW-3)
@@ -255,7 +254,7 @@ func (r *PeerRegistry) AddPeer(peer *Peer) error {
 
 	if _, exists := r.peers[peer.ID]; exists {
 		r.mu.Unlock()
-		return fmt.Errorf("peer %s already exists", peer.ID)
+		return coreerr.E("PeerRegistry.AddPeer", "peer "+peer.ID+" already exists", nil)
 	}
 
 	// Set defaults
@@ -280,7 +279,7 @@ func (r *PeerRegistry) UpdatePeer(peer *Peer) error {
 
 	if _, exists := r.peers[peer.ID]; !exists {
 		r.mu.Unlock()
-		return fmt.Errorf("peer %s not found", peer.ID)
+		return coreerr.E("PeerRegistry.UpdatePeer", "peer "+peer.ID+" not found", nil)
 	}
 
 	r.peers[peer.ID] = peer
@@ -297,7 +296,7 @@ func (r *PeerRegistry) RemovePeer(id string) error {
 
 	if _, exists := r.peers[id]; !exists {
 		r.mu.Unlock()
-		return fmt.Errorf("peer %s not found", id)
+		return coreerr.E("PeerRegistry.RemovePeer", "peer "+id+" not found", nil)
 	}
 
 	delete(r.peers, id)
@@ -351,7 +350,7 @@ func (r *PeerRegistry) UpdateMetrics(id string, pingMS, geoKM float64, hops int)
 	peer, exists := r.peers[id]
 	if !exists {
 		r.mu.Unlock()
-		return fmt.Errorf("peer %s not found", id)
+		return coreerr.E("PeerRegistry.UpdateMetrics", "peer "+id+" not found", nil)
 	}
 
 	peer.PingMS = pingMS
@@ -373,7 +372,7 @@ func (r *PeerRegistry) UpdateScore(id string, score float64) error {
 	peer, exists := r.peers[id]
 	if !exists {
 		r.mu.Unlock()
-		return fmt.Errorf("peer %s not found", id)
+		return coreerr.E("PeerRegistry.UpdateScore", "peer "+id+" not found", nil)
 	}
 
 	// Clamp score to 0-100
@@ -656,8 +655,8 @@ func (r *PeerRegistry) scheduleSave() {
 func (r *PeerRegistry) saveNow() error {
 	// Ensure directory exists
 	dir := filepath.Dir(r.path)
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		return fmt.Errorf("failed to create peers directory: %w", err)
+	if err := coreio.Local.EnsureDir(dir); err != nil {
+		return coreerr.E("PeerRegistry.saveNow", "failed to create peers directory", err)
 	}
 
 	// Convert to slice for JSON
@@ -665,18 +664,18 @@ func (r *PeerRegistry) saveNow() error {
 
 	data, err := json.MarshalIndent(peers, "", "  ")
 	if err != nil {
-		return fmt.Errorf("failed to marshal peers: %w", err)
+		return coreerr.E("PeerRegistry.saveNow", "failed to marshal peers", err)
 	}
 
 	// Use atomic write pattern: write to temp file, then rename
 	tmpPath := r.path + ".tmp"
-	if err := os.WriteFile(tmpPath, data, 0644); err != nil {
-		return fmt.Errorf("failed to write peers temp file: %w", err)
+	if err := coreio.Local.Write(tmpPath, string(data)); err != nil {
+		return coreerr.E("PeerRegistry.saveNow", "failed to write peers temp file", err)
 	}
 
-	if err := os.Rename(tmpPath, r.path); err != nil {
-		os.Remove(tmpPath) // Clean up temp file
-		return fmt.Errorf("failed to rename peers file: %w", err)
+	if err := coreio.Local.Rename(tmpPath, r.path); err != nil {
+		coreio.Local.Delete(tmpPath) // Clean up temp file
+		return coreerr.E("PeerRegistry.saveNow", "failed to rename peers file", err)
 	}
 
 	return nil
@@ -718,14 +717,14 @@ func (r *PeerRegistry) save() error {
 
 // load reads peers from disk.
 func (r *PeerRegistry) load() error {
-	data, err := os.ReadFile(r.path)
+	content, err := coreio.Local.Read(r.path)
 	if err != nil {
-		return fmt.Errorf("failed to read peers: %w", err)
+		return coreerr.E("PeerRegistry.load", "failed to read peers", err)
 	}
 
 	var peers []*Peer
-	if err := json.Unmarshal(data, &peers); err != nil {
-		return fmt.Errorf("failed to unmarshal peers: %w", err)
+	if err := json.Unmarshal([]byte(content), &peers); err != nil {
+		return coreerr.E("PeerRegistry.load", "failed to unmarshal peers", err)
 	}
 
 	r.peers = make(map[string]*Peer)

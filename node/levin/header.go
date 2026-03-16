@@ -7,7 +7,8 @@ package levin
 
 import (
 	"encoding/binary"
-	"errors"
+
+	coreerr "forge.lthn.ai/core/go-log"
 )
 
 // HeaderSize is the exact byte length of a serialised Levin header.
@@ -42,8 +43,8 @@ const (
 
 // Sentinel errors returned by DecodeHeader.
 var (
-	ErrBadSignature  = errors.New("levin: bad signature")
-	ErrPayloadTooBig = errors.New("levin: payload exceeds maximum size")
+	ErrBadSignature  = coreerr.E("levin", "bad signature", nil)
+	ErrPayloadTooBig = coreerr.E("levin", "payload exceeds maximum size", nil)
 )
 
 // Header is the 33-byte packed header that prefixes every Levin message.

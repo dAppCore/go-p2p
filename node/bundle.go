@@ -6,12 +6,13 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
-	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
+
+	coreio "forge.lthn.ai/core/go-io"
+	coreerr "forge.lthn.ai/core/go-log"
 
 	"forge.lthn.ai/Snider/Borg/pkg/datanode"
 	"forge.lthn.ai/Snider/Borg/pkg/tim"
@@ -49,14 +50,14 @@ func CreateProfileBundle(profileJSON []byte, name string, password string) (*Bun
 	// Create a TIM with just the profile config
 	t, err := tim.New()
 	if err != nil {
-		return nil, fmt.Errorf("failed to create TIM: %w", err)
+		return nil, coreerr.E("CreateProfileBundle", "failed to create TIM", err)
 	}
 	t.Config = profileJSON
 
 	// Encrypt to STIM format
 	stimData, err := t.ToSigil(password)
 	if err != nil {
-		return nil, fmt.Errorf("failed to encrypt bundle: %w", err)
+		return nil, coreerr.E("CreateProfileBundle", "failed to encrypt bundle", err)
 	}
 
 	// Calculate checksum
@@ -85,29 +86,30 @@ func CreateProfileBundleUnencrypted(profileJSON []byte, name string) (*Bundle, e
 // CreateMinerBundle creates an encrypted bundle containing a miner binary and optional profile.
 func CreateMinerBundle(minerPath string, profileJSON []byte, name string, password string) (*Bundle, error) {
 	// Read miner binary
-	minerData, err := os.ReadFile(minerPath)
+	minerContent, err := coreio.Local.Read(minerPath)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read miner binary: %w", err)
+		return nil, coreerr.E("CreateMinerBundle", "failed to read miner binary", err)
 	}
+	minerData := []byte(minerContent)
 
 	// Create a tarball with the miner binary
 	tarData, err := createTarball(map[string][]byte{
 		filepath.Base(minerPath): minerData,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to create tarball: %w", err)
+		return nil, coreerr.E("CreateMinerBundle", "failed to create tarball", err)
 	}
 
 	// Create DataNode from tarball
 	dn, err := datanode.FromTar(tarData)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create datanode: %w", err)
+		return nil, coreerr.E("CreateMinerBundle", "failed to create datanode", err)
 	}
 
 	// Create TIM from DataNode
 	t, err := tim.FromDataNode(dn)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create TIM: %w", err)
+		return nil, coreerr.E("CreateMinerBundle", "failed to create TIM", err)
 	}
 
 	// Set profile as config if provided
@@ -118,7 +120,7 @@ func CreateMinerBundle(minerPath string, profileJSON []byte, name string, passwo
 	// Encrypt to STIM format
 	stimData, err := t.ToSigil(password)
 	if err != nil {
-		return nil, fmt.Errorf("failed to encrypt bundle: %w", err)
+		return nil, coreerr.E("CreateMinerBundle", "failed to encrypt bundle", err)
 	}
 
 	checksum := calculateChecksum(stimData)
@@ -135,7 +137,7 @@ func CreateMinerBundle(minerPath string, profileJSON []byte, name string, passwo
 func ExtractProfileBundle(bundle *Bundle, password string) ([]byte, error) {
 	// Verify checksum first
 	if calculateChecksum(bundle.Data) != bundle.Checksum {
-		return nil, errors.New("checksum mismatch - bundle may be corrupted")
+		return nil, coreerr.E("ExtractProfileBundle", "checksum mismatch - bundle may be corrupted", nil)
 	}
 
 	// If it's unencrypted JSON, just return it
@@ -146,7 +148,7 @@ func ExtractProfileBundle(bundle *Bundle, password string) ([]byte, error) {
 	// Decrypt STIM format
 	t, err := tim.FromSigil(bundle.Data, password)
 	if err != nil {
-		return nil, fmt.Errorf("failed to decrypt bundle: %w", err)
+		return nil, coreerr.E("ExtractProfileBundle", "failed to decrypt bundle", err)
 	}
 
 	return t.Config, nil
@@ -156,25 +158,25 @@ func ExtractProfileBundle(bundle *Bundle, password string) ([]byte, error) {
 func ExtractMinerBundle(bundle *Bundle, password string, destDir string) (string, []byte, error) {
 	// Verify checksum
 	if calculateChecksum(bundle.Data) != bundle.Checksum {
-		return "", nil, errors.New("checksum mismatch - bundle may be corrupted")
+		return "", nil, coreerr.E("ExtractMinerBundle", "checksum mismatch - bundle may be corrupted", nil)
 	}
 
 	// Decrypt STIM format
 	t, err := tim.FromSigil(bundle.Data, password)
 	if err != nil {
-		return "", nil, fmt.Errorf("failed to decrypt bundle: %w", err)
+		return "", nil, coreerr.E("ExtractMinerBundle", "failed to decrypt bundle", err)
 	}
 
 	// Convert rootfs to tarball and extract
 	tarData, err := t.RootFS.ToTar()
 	if err != nil {
-		return "", nil, fmt.Errorf("failed to convert rootfs to tar: %w", err)
+		return "", nil, coreerr.E("ExtractMinerBundle", "failed to convert rootfs to tar", err)
 	}
 
 	// Extract tarball to destination
 	minerPath, err := extractTarball(tarData, destDir)
 	if err != nil {
-		return "", nil, fmt.Errorf("failed to extract tarball: %w", err)
+		return "", nil, coreerr.E("ExtractMinerBundle", "failed to extract tarball", err)
 	}
 
 	return minerPath, t.Config, nil
@@ -254,11 +256,11 @@ func extractTarball(tarData []byte, destDir string) (string, error) {
 	// Ensure destDir is an absolute, clean path for security checks
 	absDestDir, err := filepath.Abs(destDir)
 	if err != nil {
-		return "", fmt.Errorf("failed to resolve destination directory: %w", err)
+		return "", coreerr.E("extractTarball", "failed to resolve destination directory", err)
 	}
 	absDestDir = filepath.Clean(absDestDir)
 
-	if err := os.MkdirAll(absDestDir, 0755); err != nil {
+	if err := coreio.Local.EnsureDir(absDestDir); err != nil {
 		return "", err
 	}
 
@@ -279,12 +281,12 @@ func extractTarball(tarData []byte, destDir string) (string, error) {
 
 		// Reject absolute paths
 		if filepath.IsAbs(cleanName) {
-			return "", fmt.Errorf("invalid tar entry: absolute path not allowed: %s", hdr.Name)
+			return "", coreerr.E("extractTarball", "invalid tar entry: absolute path not allowed: "+hdr.Name, nil)
 		}
 
 		// Reject paths that escape the destination directory
 		if strings.HasPrefix(cleanName, ".."+string(os.PathSeparator)) || cleanName == ".." {
-			return "", fmt.Errorf("invalid tar entry: path traversal attempt: %s", hdr.Name)
+			return "", coreerr.E("extractTarball", "invalid tar entry: path traversal attempt: "+hdr.Name, nil)
 		}
 
 		// Build the full path and verify it's within destDir
@@ -293,17 +295,17 @@ func extractTarball(tarData []byte, destDir string) (string, error) {
 
 		// Final security check: ensure the path is still within destDir
 		if !strings.HasPrefix(fullPath, absDestDir+string(os.PathSeparator)) && fullPath != absDestDir {
-			return "", fmt.Errorf("invalid tar entry: path escape attempt: %s", hdr.Name)
+			return "", coreerr.E("extractTarball", "invalid tar entry: path escape attempt: "+hdr.Name, nil)
 		}
 
 		switch hdr.Typeflag {
 		case tar.TypeDir:
-			if err := os.MkdirAll(fullPath, os.FileMode(hdr.Mode)); err != nil {
+			if err := coreio.Local.EnsureDir(fullPath); err != nil {
 				return "", err
 			}
 		case tar.TypeReg:
 			// Ensure parent directory exists
-			if err := os.MkdirAll(filepath.Dir(fullPath), 0755); err != nil {
+			if err := coreio.Local.EnsureDir(filepath.Dir(fullPath)); err != nil {
 				return "", err
 			}
 
@@ -321,8 +323,8 @@ func extractTarball(tarData []byte, destDir string) (string, error) {
 				return "", err
 			}
 			if written > maxFileSize {
-				os.Remove(fullPath)
-				return "", fmt.Errorf("file %s exceeds maximum size of %d bytes", hdr.Name, maxFileSize)
+				coreio.Local.Delete(fullPath)
+				return "", coreerr.E("extractTarball", "file "+hdr.Name+" exceeds maximum size", nil)
 			}
 
 			// Track first executable

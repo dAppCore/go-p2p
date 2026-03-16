@@ -1,10 +1,11 @@
 package node
 
 import (
-	"errors"
 	"fmt"
 	"iter"
 	"sync"
+
+	coreerr "forge.lthn.ai/core/go-log"
 
 	"forge.lthn.ai/core/go-p2p/logging"
 	"forge.lthn.ai/core/go-p2p/ueps"
@@ -133,12 +134,12 @@ func (d *Dispatcher) Dispatch(pkt *ueps.ParsedPacket) error {
 var (
 	// ErrThreatScoreExceeded is returned when a packet's ThreatScore exceeds
 	// the safety threshold.
-	ErrThreatScoreExceeded = fmt.Errorf("packet rejected: threat score exceeds safety threshold (%d)", ThreatScoreThreshold)
+	ErrThreatScoreExceeded = coreerr.E("Dispatcher.Dispatch", fmt.Sprintf("packet rejected: threat score exceeds safety threshold (%d)", ThreatScoreThreshold), nil)
 
 	// ErrUnknownIntent is returned when no handler is registered for the
 	// packet's IntentID.
-	ErrUnknownIntent = errors.New("packet dropped: unknown intent")
+	ErrUnknownIntent = coreerr.E("Dispatcher.Dispatch", "packet dropped: unknown intent", nil)
 
 	// ErrNilPacket is returned when a nil packet is passed to Dispatch.
-	ErrNilPacket = errors.New("dispatch: nil packet")
+	ErrNilPacket = coreerr.E("Dispatcher.Dispatch", "nil packet", nil)
 )

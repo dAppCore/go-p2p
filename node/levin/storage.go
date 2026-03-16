@@ -5,11 +5,12 @@ package levin
 
 import (
 	"encoding/binary"
-	"errors"
 	"fmt"
 	"maps"
 	"math"
 	"slices"
+
+	coreerr "forge.lthn.ai/core/go-log"
 )
 
 // Portable storage signatures and version (9-byte header).
@@ -40,12 +41,12 @@ const (
 
 // Sentinel errors for storage encoding and decoding.
 var (
-	ErrStorageBadSignature = errors.New("levin: bad storage signature")
-	ErrStorageTruncated    = errors.New("levin: truncated storage data")
-	ErrStorageBadVersion   = errors.New("levin: unsupported storage version")
-	ErrStorageNameTooLong  = errors.New("levin: entry name exceeds 255 bytes")
-	ErrStorageTypeMismatch = errors.New("levin: value type mismatch")
-	ErrStorageUnknownType  = errors.New("levin: unknown type tag")
+	ErrStorageBadSignature = coreerr.E("levin.storage", "bad storage signature", nil)
+	ErrStorageTruncated    = coreerr.E("levin.storage", "truncated storage data", nil)
+	ErrStorageBadVersion   = coreerr.E("levin.storage", "unsupported storage version", nil)
+	ErrStorageNameTooLong  = coreerr.E("levin.storage", "entry name exceeds 255 bytes", nil)
+	ErrStorageTypeMismatch = coreerr.E("levin.storage", "value type mismatch", nil)
+	ErrStorageUnknownType  = coreerr.E("levin.storage", "unknown type tag", nil)
 )
 
 // Section is an ordered map of named values forming a portable storage section.
@@ -393,7 +394,7 @@ func encodeValue(buf []byte, v Value) ([]byte, error) {
 		return encodeSection(buf, v.objectVal)
 
 	default:
-		return nil, fmt.Errorf("%w: 0x%02x", ErrStorageUnknownType, v.Type)
+		return nil, coreerr.E("levin.encodeValue", fmt.Sprintf("unknown type tag: 0x%02x", v.Type), ErrStorageUnknownType)
 	}
 }
 
@@ -440,7 +441,7 @@ func encodeArray(buf []byte, v Value) ([]byte, error) {
 		return buf, nil
 
 	default:
-		return nil, fmt.Errorf("%w: array of 0x%02x", ErrStorageUnknownType, elemType)
+		return nil, coreerr.E("levin.encodeArray", fmt.Sprintf("unknown type tag: array of 0x%02x", elemType), ErrStorageUnknownType)
 	}
 }
 
@@ -475,7 +476,7 @@ func DecodeStorage(data []byte) (Section, error) {
 func decodeSection(buf []byte) (Section, int, error) {
 	count, n, err := UnpackVarint(buf)
 	if err != nil {
-		return nil, 0, fmt.Errorf("section entry count: %w", err)
+		return nil, 0, coreerr.E("levin.decodeSection", "section entry count", err)
 	}
 	off := n
 
@@ -506,7 +507,7 @@ func decodeSection(buf []byte) (Section, int, error) {
 		// Value.
 		val, consumed, err := decodeValue(buf[off:], tag)
 		if err != nil {
-			return nil, 0, fmt.Errorf("field %q: %w", name, err)
+			return nil, 0, coreerr.E("levin.decodeSection", "field "+name, err)
 		}
 		off += consumed
 
@@ -612,7 +613,7 @@ func decodeValue(buf []byte, tag uint8) (Value, int, error) {
 		return Value{Type: TypeObject, objectVal: sec}, consumed, nil
 
 	default:
-		return Value{}, 0, fmt.Errorf("%w: 0x%02x", ErrStorageUnknownType, tag)
+		return Value{}, 0, coreerr.E("levin.decodeValue", fmt.Sprintf("unknown type tag: 0x%02x", tag), ErrStorageUnknownType)
 	}
 }
 
@@ -680,6 +681,6 @@ func decodeArray(buf []byte, tag uint8) (Value, int, error) {
 		return Value{Type: tag, objectArray: arr}, off, nil
 
 	default:
-		return Value{}, 0, fmt.Errorf("%w: array of 0x%02x", ErrStorageUnknownType, elemType)
+		return Value{}, 0, coreerr.E("levin.decodeArray", fmt.Sprintf("unknown type tag: array of 0x%02x", elemType), ErrStorageUnknownType)
 	}
 }

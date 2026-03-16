@@ -1,14 +1,14 @@
 package node
 
-import "errors"
+import coreerr "forge.lthn.ai/core/go-log"
 
 // Sentinel errors shared across the node package.
 var (
 	// ErrIdentityNotInitialized is returned when a node operation requires
 	// a node identity but none has been generated or loaded.
-	ErrIdentityNotInitialized = errors.New("node identity not initialized")
+	ErrIdentityNotInitialized = coreerr.E("node", "node identity not initialized", nil)
 
 	// ErrMinerManagerNotConfigured is returned when a miner operation is
 	// attempted but no MinerManager has been set on the Worker.
-	ErrMinerManagerNotConfigured = errors.New("miner manager not configured")
+	ErrMinerManagerNotConfigured = coreerr.E("node", "miner manager not configured", nil)
 )

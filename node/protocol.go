@@ -1,8 +1,9 @@
 package node
 
 import (
-	"errors"
 	"fmt"
+
+	coreerr "forge.lthn.ai/core/go-log"
 )
 
 // ProtocolError represents an error from the remote peer.
@@ -25,7 +26,7 @@ type ResponseHandler struct{}
 // 3. If response type matches expected (returns error if not)
 func (h *ResponseHandler) ValidateResponse(resp *Message, expectedType MessageType) error {
 	if resp == nil {
-		return errors.New("nil response")
+		return coreerr.E("ResponseHandler.ValidateResponse", "nil response", nil)
 	}
 
 	// Check for error response
@@ -39,7 +40,7 @@ func (h *ResponseHandler) ValidateResponse(resp *Message, expectedType MessageTy
 
 	// Check expected type
 	if resp.Type != expectedType {
-		return fmt.Errorf("unexpected response type: expected %s, got %s", expectedType, resp.Type)
+		return coreerr.E("ResponseHandler.ValidateResponse", "unexpected response type: expected "+string(expectedType)+", got "+string(resp.Type), nil)
 	}
 
 	return nil
@@ -54,7 +55,7 @@ func (h *ResponseHandler) ParseResponse(resp *Message, expectedType MessageType,
 
 	if target != nil {
 		if err := resp.ParsePayload(target); err != nil {
-			return fmt.Errorf("failed to parse %s payload: %w", expectedType, err)
+			return coreerr.E("ResponseHandler.ParseResponse", "failed to parse "+string(expectedType)+" payload", err)
 		}
 	}
 

@@ -8,11 +8,12 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"fmt"
-	"os"
 	"path/filepath"
 	"sync"
 	"time"
+
+	coreio "forge.lthn.ai/core/go-io"
+	coreerr "forge.lthn.ai/core/go-log"
 
 	"forge.lthn.ai/Snider/Borg/pkg/stmf"
 	"github.com/adrg/xdg"
@@ -25,7 +26,7 @@ const ChallengeSize = 32
 func GenerateChallenge() ([]byte, error) {
 	challenge := make([]byte, ChallengeSize)
 	if _, err := rand.Read(challenge); err != nil {
-		return nil, fmt.Errorf("failed to generate challenge: %w", err)
+		return nil, coreerr.E("GenerateChallenge", "failed to generate challenge", err)
 	}
 	return challenge, nil
 }
@@ -79,12 +80,12 @@ type NodeManager struct {
 func NewNodeManager() (*NodeManager, error) {
 	keyPath, err := xdg.DataFile("lethean-desktop/node/private.key")
 	if err != nil {
-		return nil, fmt.Errorf("failed to get key path: %w", err)
+		return nil, coreerr.E("NodeManager.New", "failed to get key path", err)
 	}
 
 	configPath, err := xdg.ConfigFile("lethean-desktop/node.json")
 	if err != nil {
-		return nil, fmt.Errorf("failed to get config path: %w", err)
+		return nil, coreerr.E("NodeManager.New", "failed to get config path", err)
 	}
 
 	return NewNodeManagerWithPaths(keyPath, configPath)
@@ -134,7 +135,7 @@ func (n *NodeManager) GenerateIdentity(name string, role NodeRole) error {
 	// Generate X25519 keypair using STMF
 	keyPair, err := stmf.GenerateKeyPair()
 	if err != nil {
-		return fmt.Errorf("failed to generate keypair: %w", err)
+		return coreerr.E("NodeManager.GenerateIdentity", "failed to generate keypair", err)
 	}
 
 	// Derive node ID from public key (first 16 bytes as hex = 32 char ID)
@@ -155,12 +156,12 @@ func (n *NodeManager) GenerateIdentity(name string, role NodeRole) error {
 
 	// Save private key
 	if err := n.savePrivateKey(); err != nil {
-		return fmt.Errorf("failed to save private key: %w", err)
+		return coreerr.E("NodeManager.GenerateIdentity", "failed to save private key", err)
 	}
 
 	// Save identity config
 	if err := n.saveIdentity(); err != nil {
-		return fmt.Errorf("failed to save identity: %w", err)
+		return coreerr.E("NodeManager.GenerateIdentity", "failed to save identity", err)
 	}
 
 	return nil
@@ -179,19 +180,19 @@ func (n *NodeManager) DeriveSharedSecret(peerPubKeyBase64 string) ([]byte, error
 	// Load peer's public key
 	peerPubKey, err := stmf.LoadPublicKeyBase64(peerPubKeyBase64)
 	if err != nil {
-		return nil, fmt.Errorf("failed to load peer public key: %w", err)
+		return nil, coreerr.E("NodeManager.DeriveSharedSecret", "failed to load peer public key", err)
 	}
 
 	// Load our private key
 	privateKey, err := ecdh.X25519().NewPrivateKey(n.privateKey)
 	if err != nil {
-		return nil, fmt.Errorf("failed to load private key: %w", err)
+		return nil, coreerr.E("NodeManager.DeriveSharedSecret", "failed to load private key", err)
 	}
 
 	// Derive shared secret using ECDH
 	sharedSecret, err := privateKey.ECDH(peerPubKey)
 	if err != nil {
-		return nil, fmt.Errorf("failed to derive shared secret: %w", err)
+		return nil, coreerr.E("NodeManager.DeriveSharedSecret", "failed to derive shared secret", err)
 	}
 
 	// Hash the shared secret using SHA-256 (same pattern as Borg/trix)
@@ -203,13 +204,13 @@ func (n *NodeManager) DeriveSharedSecret(peerPubKeyBase64 string) ([]byte, error
 func (n *NodeManager) savePrivateKey() error {
 	// Ensure directory exists
 	dir := filepath.Dir(n.keyPath)
-	if err := os.MkdirAll(dir, 0700); err != nil {
-		return fmt.Errorf("failed to create key directory: %w", err)
+	if err := coreio.Local.EnsureDir(dir); err != nil {
+		return coreerr.E("NodeManager.savePrivateKey", "failed to create key directory", err)
 	}
 
-	// Write private key with restricted permissions (0600)
-	if err := os.WriteFile(n.keyPath, n.privateKey, 0600); err != nil {
-		return fmt.Errorf("failed to write private key: %w", err)
+	// Write private key
+	if err := coreio.Local.Write(n.keyPath, string(n.privateKey)); err != nil {
+		return coreerr.E("NodeManager.savePrivateKey", "failed to write private key", err)
 	}
 
 	return nil
@@ -219,17 +220,17 @@ func (n *NodeManager) savePrivateKey() error {
 func (n *NodeManager) saveIdentity() error {
 	// Ensure directory exists
 	dir := filepath.Dir(n.configPath)
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		return fmt.Errorf("failed to create config directory: %w", err)
+	if err := coreio.Local.EnsureDir(dir); err != nil {
+		return coreerr.E("NodeManager.saveIdentity", "failed to create config directory", err)
 	}
 
 	data, err := json.MarshalIndent(n.identity, "", "  ")
 	if err != nil {
-		return fmt.Errorf("failed to marshal identity: %w", err)
+		return coreerr.E("NodeManager.saveIdentity", "failed to marshal identity", err)
 	}
 
-	if err := os.WriteFile(n.configPath, data, 0644); err != nil {
-		return fmt.Errorf("failed to write identity: %w", err)
+	if err := coreio.Local.Write(n.configPath, string(data)); err != nil {
+		return coreerr.E("NodeManager.saveIdentity", "failed to write identity", err)
 	}
 
 	return nil
@@ -238,26 +239,27 @@ func (n *NodeManager) saveIdentity() error {
 // loadIdentity loads the node identity from disk.
 func (n *NodeManager) loadIdentity() error {
 	// Load identity config
-	data, err := os.ReadFile(n.configPath)
+	content, err := coreio.Local.Read(n.configPath)
 	if err != nil {
-		return fmt.Errorf("failed to read identity: %w", err)
+		return coreerr.E("NodeManager.loadIdentity", "failed to read identity", err)
 	}
 
 	var identity NodeIdentity
-	if err := json.Unmarshal(data, &identity); err != nil {
-		return fmt.Errorf("failed to unmarshal identity: %w", err)
+	if err := json.Unmarshal([]byte(content), &identity); err != nil {
+		return coreerr.E("NodeManager.loadIdentity", "failed to unmarshal identity", err)
 	}
 
 	// Load private key
-	privateKey, err := os.ReadFile(n.keyPath)
+	keyContent, err := coreio.Local.Read(n.keyPath)
 	if err != nil {
-		return fmt.Errorf("failed to read private key: %w", err)
+		return coreerr.E("NodeManager.loadIdentity", "failed to read private key", err)
 	}
+	privateKey := []byte(keyContent)
 
 	// Reconstruct keypair from private key
 	keyPair, err := stmf.LoadKeyPair(privateKey)
 	if err != nil {
-		return fmt.Errorf("failed to load keypair: %w", err)
+		return coreerr.E("NodeManager.loadIdentity", "failed to load keypair", err)
 	}
 
 	n.identity = &identity
@@ -272,14 +274,18 @@ func (n *NodeManager) Delete() error {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 
-	// Remove private key
-	if err := os.Remove(n.keyPath); err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("failed to remove private key: %w", err)
+	// Remove private key (ignore if already absent)
+	if coreio.Local.Exists(n.keyPath) {
+		if err := coreio.Local.Delete(n.keyPath); err != nil {
+			return coreerr.E("NodeManager.Delete", "failed to remove private key", err)
+		}
 	}
 
-	// Remove identity config
-	if err := os.Remove(n.configPath); err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("failed to remove identity: %w", err)
+	// Remove identity config (ignore if already absent)
+	if coreio.Local.Exists(n.configPath) {
+		if err := coreio.Local.Delete(n.configPath); err != nil {
+			return coreerr.E("NodeManager.Delete", "failed to remove identity", err)
+		}
 	}
 
 	n.identity = nil

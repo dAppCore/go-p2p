@@ -5,7 +5,8 @@ package levin
 
 import (
 	"encoding/binary"
-	"errors"
+
+	coreerr "forge.lthn.ai/core/go-log"
 )
 
 // Size-mark bits occupying the two lowest bits of the first byte.
@@ -22,10 +23,10 @@ const (
 )
 
 // ErrVarintTruncated is returned when the buffer is too short.
-var ErrVarintTruncated = errors.New("levin: truncated varint")
+var ErrVarintTruncated = coreerr.E("levin", "truncated varint", nil)
 
 // ErrVarintOverflow is returned when the value is too large to encode.
-var ErrVarintOverflow = errors.New("levin: varint overflow")
+var ErrVarintOverflow = coreerr.E("levin", "varint overflow", nil)
 
 // PackVarint encodes v using the epee portable-storage varint scheme.
 // The low two bits of the first byte indicate the total encoded width;

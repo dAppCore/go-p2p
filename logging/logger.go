@@ -9,6 +9,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	coreerr "forge.lthn.ai/core/go-log"
 )
 
 // Level represents the severity of a log message.
@@ -278,6 +280,6 @@ func ParseLevel(s string) (Level, error) {
 	case "ERROR":
 		return LevelError, nil
 	default:
-		return LevelInfo, fmt.Errorf("unknown log level: %s", s)
+		return LevelInfo, coreerr.E("logging.ParseLevel", "unknown log level: "+s, nil)
 	}
 }

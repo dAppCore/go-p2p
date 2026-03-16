@@ -5,7 +5,6 @@ import (
 	"crypto/tls"
 	"encoding/base64"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"iter"
 	"maps"
@@ -15,6 +14,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	coreerr "forge.lthn.ai/core/go-log"
 
 	"forge.lthn.ai/Snider/Borg/pkg/smsg"
 	"forge.lthn.ai/core/go-p2p/logging"
@@ -289,7 +290,7 @@ func (t *Transport) Stop() error {
 		defer cancel()
 
 		if err := t.server.Shutdown(ctx); err != nil {
-			return fmt.Errorf("server shutdown error: %w", err)
+			return coreerr.E("Transport.Stop", "server shutdown error", err)
 		}
 	}
 
@@ -320,7 +321,7 @@ func (t *Transport) Connect(peer *Peer) (*PeerConnection, error) {
 	}
 	conn, _, err := dialer.Dial(u.String(), nil)
 	if err != nil {
-		return nil, fmt.Errorf("failed to connect to peer: %w", err)
+		return nil, coreerr.E("Transport.Connect", "failed to connect to peer", err)
 	}
 
 	pc := &PeerConnection{
@@ -335,7 +336,7 @@ func (t *Transport) Connect(peer *Peer) (*PeerConnection, error) {
 	// This also derives and stores the shared secret in pc.SharedSecret
 	if err := t.performHandshake(pc); err != nil {
 		conn.Close()
-		return nil, fmt.Errorf("handshake failed: %w", err)
+		return nil, coreerr.E("Transport.Connect", "handshake failed", err)
 	}
 
 	// Store connection using the real peer ID from handshake
@@ -368,7 +369,7 @@ func (t *Transport) Send(peerID string, msg *Message) error {
 	t.mu.RUnlock()
 
 	if !exists {
-		return fmt.Errorf("peer %s not connected", peerID)
+		return coreerr.E("Transport.Send", "peer "+peerID+" not connected", nil)
 	}
 
 	return pc.Send(msg)
@@ -628,7 +629,7 @@ func (t *Transport) performHandshake(pc *PeerConnection) error {
 	// Generate challenge for the server to prove it has the matching private key
 	challenge, err := GenerateChallenge()
 	if err != nil {
-		return fmt.Errorf("generate challenge: %w", err)
+		return coreerr.E("Transport.performHandshake", "generate challenge", err)
 	}
 
 	payload := HandshakePayload{
@@ -639,41 +640,41 @@ func (t *Transport) performHandshake(pc *PeerConnection) error {
 
 	msg, err := NewMessage(MsgHandshake, identity.ID, pc.Peer.ID, payload)
 	if err != nil {
-		return fmt.Errorf("create handshake message: %w", err)
+		return coreerr.E("Transport.performHandshake", "create handshake message", err)
 	}
 
 	// First message is unencrypted (peer needs our public key)
 	data, err := MarshalJSON(msg)
 	if err != nil {
-		return fmt.Errorf("marshal handshake message: %w", err)
+		return coreerr.E("Transport.performHandshake", "marshal handshake message", err)
 	}
 
 	if err := pc.Conn.WriteMessage(websocket.TextMessage, data); err != nil {
-		return fmt.Errorf("send handshake: %w", err)
+		return coreerr.E("Transport.performHandshake", "send handshake", err)
 	}
 
 	// Wait for ack
 	_, ackData, err := pc.Conn.ReadMessage()
 	if err != nil {
-		return fmt.Errorf("read handshake ack: %w", err)
+		return coreerr.E("Transport.performHandshake", "read handshake ack", err)
 	}
 
 	var ackMsg Message
 	if err := json.Unmarshal(ackData, &ackMsg); err != nil {
-		return fmt.Errorf("unmarshal handshake ack: %w", err)
+		return coreerr.E("Transport.performHandshake", "unmarshal handshake ack", err)
 	}
 
 	if ackMsg.Type != MsgHandshakeAck {
-		return fmt.Errorf("expected handshake_ack, got %s", ackMsg.Type)
+		return coreerr.E("Transport.performHandshake", "expected handshake_ack, got "+string(ackMsg.Type), nil)
 	}
 
 	var ackPayload HandshakeAckPayload
 	if err := ackMsg.ParsePayload(&ackPayload); err != nil {
-		return fmt.Errorf("parse handshake ack payload: %w", err)
+		return coreerr.E("Transport.performHandshake", "parse handshake ack payload", err)
 	}
 
 	if !ackPayload.Accepted {
-		return fmt.Errorf("handshake rejected: %s", ackPayload.Reason)
+		return coreerr.E("Transport.performHandshake", "handshake rejected: "+ackPayload.Reason, nil)
 	}
 
 	// Update peer with the received identity info
@@ -685,15 +686,15 @@ func (t *Transport) performHandshake(pc *PeerConnection) error {
 	// Verify challenge response - derive shared secret first using the peer's public key
 	sharedSecret, err := t.node.DeriveSharedSecret(pc.Peer.PublicKey)
 	if err != nil {
-		return fmt.Errorf("derive shared secret for challenge verification: %w", err)
+		return coreerr.E("Transport.performHandshake", "derive shared secret for challenge verification", err)
 	}
 
 	// Verify the server's response to our challenge
 	if len(ackPayload.ChallengeResponse) == 0 {
-		return errors.New("server did not provide challenge response")
+		return coreerr.E("Transport.performHandshake", "server did not provide challenge response", nil)
 	}
 	if !VerifyChallenge(challenge, ackPayload.ChallengeResponse, sharedSecret) {
-		return errors.New("challenge response verification failed: server may not have matching private key")
+		return coreerr.E("Transport.performHandshake", "challenge response verification failed: server may not have matching private key", nil)
 	}
 
 	// Store the shared secret for later use
@@ -840,7 +841,7 @@ func (pc *PeerConnection) Send(msg *Message) error {
 
 	// Set write deadline to prevent blocking forever
 	if err := pc.Conn.SetWriteDeadline(time.Now().Add(10 * time.Second)); err != nil {
-		return fmt.Errorf("failed to set write deadline: %w", err)
+		return coreerr.E("PeerConnection.Send", "failed to set write deadline", err)
 	}
 	defer pc.Conn.SetWriteDeadline(time.Time{}) // Reset deadline after send
 

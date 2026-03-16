@@ -5,8 +5,9 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/binary"
-	"errors"
 	"io"
+
+	coreerr "forge.lthn.ai/core/go-log"
 )
 
 // TLV Types
@@ -104,7 +105,7 @@ func (p *PacketBuilder) MarshalAndSign(sharedSecret []byte) ([]byte, error) {
 func writeTLV(w io.Writer, tag uint8, value []byte) error {
 	// Check length constraint (2 byte length = max 65535 bytes)
 	if len(value) > 65535 {
-		return errors.New("TLV value too large for 2-byte length header")
+		return coreerr.E("ueps.writeTLV", "TLV value too large for 2-byte length header", nil)
 	}
 
 	if _, err := w.Write([]byte{tag}); err != nil {
