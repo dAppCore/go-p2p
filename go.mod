@@ -4,8 +4,8 @@ go 1.26.0
 
 require (
 	forge.lthn.ai/Snider/Borg v0.3.1
-	forge.lthn.ai/Snider/Poindexter v0.0.2
-	forge.lthn.ai/core/go-io v0.1.3
+	forge.lthn.ai/Snider/Poindexter v0.0.3
+	forge.lthn.ai/core/go-io v0.1.5
 	forge.lthn.ai/core/go-log v0.0.4
 	github.com/adrg/xdg v0.5.3
 	github.com/google/uuid v1.6.0
@@ -14,7 +14,7 @@ require (
 )
 
 require (
-	forge.lthn.ai/Snider/Enchantrix v0.0.4 // indirect
+	forge.lthn.ai/Snider/Enchantrix v0.0.5 // indirect
 	github.com/ProtonMail/go-crypto v1.4.0 // indirect
 	github.com/cloudflare/circl v1.6.3 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
