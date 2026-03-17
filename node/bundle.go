@@ -311,7 +311,7 @@ func extractTarball(tarData []byte, destDir string) (string, error) {
 
 			f, err := os.OpenFile(fullPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, os.FileMode(hdr.Mode))
 			if err != nil {
-				return "", err
+				return "", coreerr.E("extractTarball", "failed to create file "+hdr.Name, err)
 			}
 
 			// Limit file size to prevent decompression bombs (100MB max per file)
@@ -320,7 +320,7 @@ func extractTarball(tarData []byte, destDir string) (string, error) {
 			written, err := io.Copy(f, limitedReader)
 			f.Close()
 			if err != nil {
-				return "", err
+				return "", coreerr.E("extractTarball", "failed to write file "+hdr.Name, err)
 			}
 			if written > maxFileSize {
 				coreio.Local.Delete(fullPath)
