@@ -309,6 +309,9 @@ func extractTarball(tarData []byte, destDir string) (string, error) {
 				return "", err
 			}
 
+			// os.OpenFile is used deliberately here instead of coreio.Local.Create/Write
+			// because coreio hardcodes file permissions (0644) and we need to preserve
+			// the tar header's mode bits — executable binaries require 0755.
 			f, err := os.OpenFile(fullPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, os.FileMode(hdr.Mode))
 			if err != nil {
 				return "", err
