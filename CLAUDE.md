@@ -80,6 +80,8 @@ type ProfileManager interface {
 - Licence: EUPL-1.2 — new files need `// SPDX-License-Identifier: EUPL-1.2`
 - Security-first: do not weaken HMAC, challenge-response, Zip Slip defence, or rate limiting
 - Use `logging` package only — no `fmt.Println` or `log.Printf` in library code
+- Error handling: use `coreerr.E()` from `go-log` — never `fmt.Errorf` or `errors.New` in library code
+- File I/O: use `coreio.Local` from `go-io` — never `os.ReadFile`/`os.WriteFile` in library code (exception: `os.OpenFile` for streaming writes where `coreio` lacks support)
 - Hot-path debug logging uses sampling pattern: `if counter.Add(1)%interval == 0`
 
 ### Transport test helper
