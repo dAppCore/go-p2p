@@ -4,8 +4,8 @@ forge.lthn.ai/Snider/Enchantrix v0.0.5 h1:Yam0z+3AOvCUCHAMP68Ty8qHr2e4MMs7j2FjMM
 forge.lthn.ai/Snider/Enchantrix v0.0.5/go.mod h1:/YcjKMNpC4Ze/fz7zbTx3djN0CJmSM83YiR2KaMK6zQ=
 forge.lthn.ai/Snider/Poindexter v0.0.3 h1:cx5wRhuLRKBM8riIZyNVAT2a8rwRhn1dodFBktocsVE=
 forge.lthn.ai/Snider/Poindexter v0.0.3/go.mod h1:ddzGia98k3HKkR0gl58IDzqz+MmgW2cQJOCNLfuWPpo=
-forge.lthn.ai/core/go-io v0.1.6 h1:RByYeP829HFqR2yLg5iBM5dGHKzPFYc+udl/Y1DZIRs=
-forge.lthn.ai/core/go-io v0.1.6/go.mod h1:3MSuQZuzhCi6aefECQ/LxhM8ooVLam1KgEvgeEjYZVc=
+forge.lthn.ai/core/go-io v0.1.7 h1:Tdb6sqh+zz1lsGJaNX9RFWM6MJ/RhSAyxfulLXrJsbk=
+forge.lthn.ai/core/go-io v0.1.7/go.mod h1:8lRLFk4Dnp5cR/Cyzh9WclD5566TbpdRgwcH7UZLWn4=
 forge.lthn.ai/core/go-log v0.0.4 h1:KTuCEPgFmuM8KJfnyQ8vPOU1Jg654W74h8IJvfQMfv0=
 forge.lthn.ai/core/go-log v0.0.4/go.mod h1:r14MXKOD3LF/sI8XUJQhRk/SZHBE7jAFVuCfgkXoZPw=
 github.com/ProtonMail/go-crypto v1.4.0 h1:Zq/pbM3F5DFgJiMouxEdSVY44MVoQNEKp5d5QxIQceQ=

@@ -5,7 +5,7 @@ go 1.26.0
 require (
 	forge.lthn.ai/Snider/Borg v0.3.1
 	forge.lthn.ai/Snider/Poindexter v0.0.3
-	forge.lthn.ai/core/go-io v0.1.6
+	forge.lthn.ai/core/go-io v0.1.7
 	forge.lthn.ai/core/go-log v0.0.4
 	github.com/adrg/xdg v0.5.3
 	github.com/google/uuid v1.6.0
