@@ -1,6 +1,6 @@
 package node
 
-import coreerr "forge.lthn.ai/core/go-log"
+import coreerr "dappco.re/go/core/log"
 
 // Sentinel errors shared across the node package.
 var (
