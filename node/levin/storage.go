@@ -10,7 +10,7 @@ import (
 	"math"
 	"slices"
 
-	coreerr "forge.lthn.ai/core/go-log"
+	coreerr "dappco.re/go/core/log"
 )
 
 // Portable storage signatures and version (9-byte header).

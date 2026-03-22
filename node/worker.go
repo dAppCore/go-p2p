@@ -6,9 +6,9 @@ import (
 	"path/filepath"
 	"time"
 
-	coreerr "forge.lthn.ai/core/go-log"
+	coreerr "dappco.re/go/core/log"
 
-	"forge.lthn.ai/core/go-p2p/logging"
+	"dappco.re/go/core/p2p/logging"
 	"github.com/adrg/xdg"
 )
 

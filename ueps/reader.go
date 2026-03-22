@@ -8,7 +8,7 @@ import (
 	"encoding/binary"
 	"io"
 
-	coreerr "forge.lthn.ai/core/go-log"
+	coreerr "dappco.re/go/core/log"
 )
 
 // ParsedPacket holds the verified data

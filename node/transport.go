@@ -15,10 +15,10 @@ import (
 	"sync/atomic"
 	"time"
 
-	coreerr "forge.lthn.ai/core/go-log"
+	coreerr "dappco.re/go/core/log"
+	"dappco.re/go/core/p2p/logging"
 
 	"forge.lthn.ai/Snider/Borg/pkg/smsg"
-	"forge.lthn.ai/core/go-p2p/logging"
 	"github.com/gorilla/websocket"
 )
 

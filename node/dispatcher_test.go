@@ -6,7 +6,7 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"forge.lthn.ai/core/go-p2p/ueps"
+	"dappco.re/go/core/p2p/ueps"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

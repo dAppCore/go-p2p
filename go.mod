@@ -1,12 +1,12 @@
-module forge.lthn.ai/core/go-p2p
+module dappco.re/go/core/p2p
 
 go 1.26.0
 
 require (
+	dappco.re/go/core/io v0.2.0
+	dappco.re/go/core/log v0.1.0
 	forge.lthn.ai/Snider/Borg v0.3.1
 	forge.lthn.ai/Snider/Poindexter v0.0.3
-	forge.lthn.ai/core/go-io v0.1.7
-	forge.lthn.ai/core/go-log v0.0.4
 	github.com/adrg/xdg v0.5.3
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/websocket v1.5.3
@@ -14,7 +14,8 @@ require (
 )
 
 require (
-	forge.lthn.ai/Snider/Enchantrix v0.0.5 // indirect
+	forge.lthn.ai/Snider/Enchantrix v0.0.4 // indirect
+	forge.lthn.ai/core/go-log v0.0.4 // indirect
 	github.com/ProtonMail/go-crypto v1.4.0 // indirect
 	github.com/cloudflare/circl v1.6.3 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
