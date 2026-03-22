@@ -6,7 +6,7 @@ package levin
 import (
 	"encoding/binary"
 
-	coreerr "forge.lthn.ai/core/go-log"
+	coreerr "dappco.re/go/core/log"
 )
 
 // Size-mark bits occupying the two lowest bits of the first byte.

@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	coreerr "forge.lthn.ai/core/go-log"
+	coreerr "dappco.re/go/core/log"
 )
 
 // Level represents the severity of a log message.

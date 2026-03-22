@@ -3,7 +3,7 @@ package node
 import (
 	"fmt"
 
-	coreerr "forge.lthn.ai/core/go-log"
+	coreerr "dappco.re/go/core/log"
 )
 
 // ProtocolError represents an error from the remote peer.

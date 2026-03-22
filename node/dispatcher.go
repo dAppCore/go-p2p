@@ -5,10 +5,10 @@ import (
 	"iter"
 	"sync"
 
-	coreerr "forge.lthn.ai/core/go-log"
+	coreerr "dappco.re/go/core/log"
 
-	"forge.lthn.ai/core/go-p2p/logging"
-	"forge.lthn.ai/core/go-p2p/ueps"
+	"dappco.re/go/core/p2p/logging"
+	"dappco.re/go/core/p2p/ueps"
 )
 
 // ThreatScoreThreshold is the maximum allowable threat score. Packets exceeding
