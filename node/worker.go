@@ -26,7 +26,7 @@ type MinerInstance interface {
 	GetName() string
 	GetType() string
 	GetStats() (any, error)
-	GetConsoleHistory(lines int) []string
+	GetConsoleHistorySince(lines int, since time.Time) []string
 }
 
 // ProfileManager interface for profile operations.
@@ -54,7 +54,6 @@ func NewWorker(node *NodeManager, transport *Transport) *Worker {
 		DataDir:   xdg.DataHome,
 	}
 }
-
 
 // SetMinerManager sets the miner manager for handling miner operations.
 func (w *Worker) SetMinerManager(manager MinerManager) {
@@ -286,7 +285,12 @@ func (w *Worker) handleGetLogs(msg *Message) (*Message, error) {
 		return nil, coreerr.E("Worker.handleGetLogs", "miner not found: "+payload.MinerName, nil)
 	}
 
-	lines := miner.GetConsoleHistory(payload.Lines)
+	var since time.Time
+	if payload.Since > 0 {
+		since = time.UnixMilli(payload.Since)
+	}
+
+	lines := miner.GetConsoleHistorySince(payload.Lines, since)
 
 	logs := LogsPayload{
 		MinerName: payload.MinerName,
