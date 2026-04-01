@@ -51,9 +51,8 @@ const (
 	PeerAuthAllowlist
 )
 
-// Peer name validation constants
+// Peer name validation constants.
 const (
-	PeerNameMinLength = 1
 	PeerNameMaxLength = 64
 )
 
@@ -72,11 +71,12 @@ func safeKeyPrefix(key string) string {
 }
 
 // validatePeerName checks if a peer name is valid.
-// Peer names must be 1-64 characters, start and end with alphanumeric,
-// and contain only alphanumeric, hyphens, underscores, and spaces.
+// Empty names are permitted. Non-empty names must be 1-64 characters,
+// start and end with alphanumeric, and contain only alphanumeric,
+// hyphens, underscores, and spaces.
 func validatePeerName(name string) error {
-	if len(name) < PeerNameMinLength {
-		return coreerr.E("validatePeerName", "peer name too short", nil)
+	if name == "" {
+		return nil
 	}
 	if len(name) > PeerNameMaxLength {
 		return coreerr.E("validatePeerName", "peer name too long", nil)
