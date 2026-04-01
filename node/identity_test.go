@@ -74,6 +74,25 @@ func TestNodeIdentity(t *testing.T) {
 		}
 	})
 
+	t.Run("PrivateKeyPermissions", func(t *testing.T) {
+		nm, cleanup := setupTestNodeManager(t)
+		defer cleanup()
+
+		err := nm.GenerateIdentity("permission-test", RoleDual)
+		if err != nil {
+			t.Fatalf("failed to generate identity: %v", err)
+		}
+
+		info, err := os.Stat(nm.keyPath)
+		if err != nil {
+			t.Fatalf("failed to stat private key: %v", err)
+		}
+
+		if got := info.Mode().Perm(); got != 0600 {
+			t.Fatalf("expected private key permissions 0600, got %04o", got)
+		}
+	})
+
 	t.Run("LoadExistingIdentity", func(t *testing.T) {
 		tmpDir, err := os.MkdirTemp("", "node-load-test")
 		if err != nil {

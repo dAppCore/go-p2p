@@ -8,6 +8,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"os"
 	"path/filepath"
 	"sync"
 	"time"
@@ -208,9 +209,12 @@ func (n *NodeManager) savePrivateKey() error {
 		return coreerr.E("NodeManager.savePrivateKey", "failed to create key directory", err)
 	}
 
-	// Write private key
+	// Write private key and then tighten permissions explicitly.
 	if err := coreio.Local.Write(n.keyPath, string(n.privateKey)); err != nil {
 		return coreerr.E("NodeManager.savePrivateKey", "failed to write private key", err)
+	}
+	if err := os.Chmod(n.keyPath, 0600); err != nil {
+		return coreerr.E("NodeManager.savePrivateKey", "failed to set private key permissions", err)
 	}
 
 	return nil
