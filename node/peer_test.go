@@ -389,6 +389,39 @@ func TestPeerRegistry_Persistence(t *testing.T) {
 	}
 }
 
+func TestPeerRegistry_AllowlistPersistence(t *testing.T) {
+	tmpDir, _ := os.MkdirTemp("", "allowlist-persist-test")
+	defer os.RemoveAll(tmpDir)
+
+	peersPath := filepath.Join(tmpDir, "peers.json")
+
+	pr1, err := NewPeerRegistryWithPath(peersPath)
+	if err != nil {
+		t.Fatalf("failed to create first registry: %v", err)
+	}
+
+	key := "allowlist-key-1234567890"
+	pr1.AllowPublicKey(key)
+
+	if err := pr1.Close(); err != nil {
+		t.Fatalf("failed to close first registry: %v", err)
+	}
+
+	pr2, err := NewPeerRegistryWithPath(peersPath)
+	if err != nil {
+		t.Fatalf("failed to create second registry: %v", err)
+	}
+
+	if !pr2.IsPublicKeyAllowed(key) {
+		t.Fatal("expected allowlisted key to survive reload")
+	}
+
+	keys := pr2.ListAllowedPublicKeys()
+	if !slices.Contains(keys, key) {
+		t.Fatalf("expected allowlisted key to be listed after reload, got %v", keys)
+	}
+}
+
 // --- Security Feature Tests ---
 
 func TestPeerRegistry_AuthMode(t *testing.T) {
