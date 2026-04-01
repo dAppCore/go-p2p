@@ -75,9 +75,6 @@ func safeKeyPrefix(key string) string {
 // Peer names must be 1-64 characters, start and end with alphanumeric,
 // and contain only alphanumeric, hyphens, underscores, and spaces.
 func validatePeerName(name string) error {
-	if name == "" {
-		return nil // Empty names are allowed (optional field)
-	}
 	if len(name) < PeerNameMinLength {
 		return coreerr.E("validatePeerName", "peer name too short", nil)
 	}

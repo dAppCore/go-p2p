@@ -543,7 +543,7 @@ func TestPeerRegistry_PeerNameValidation(t *testing.T) {
 		peerName  string
 		shouldErr bool
 	}{
-		{"empty name allowed", "", false},
+		{"empty name rejected", "", true},
 		{"single char", "A", false},
 		{"simple name", "MyPeer", false},
 		{"name with hyphen", "my-peer", false},
@@ -697,7 +697,7 @@ func TestValidatePeerName(t *testing.T) {
 		peerName  string
 		shouldErr bool
 	}{
-		{"empty allowed", "", false},
+		{"empty rejected", "", true},
 		{"single alphanumeric", "A", false},
 		{"simple alphanumeric", "TestPeer", false},
 		{"with hyphens", "test-peer", false},
