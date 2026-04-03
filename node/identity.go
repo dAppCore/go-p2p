@@ -109,6 +109,48 @@ func NewNodeManagerWithPaths(keyPath, configPath string) (*NodeManager, error) {
 	return nm, nil
 }
 
+// LoadOrCreateIdentity loads the node identity from the default XDG paths or
+// generates a new dual-role identity when none exists yet.
+func LoadOrCreateIdentity() (*NodeManager, error) {
+	keyPath, err := xdg.DataFile("lethean-desktop/node/private.key")
+	if err != nil {
+		return nil, coreerr.E("LoadOrCreateIdentity", "failed to get key path", err)
+	}
+
+	configPath, err := xdg.ConfigFile("lethean-desktop/node.json")
+	if err != nil {
+		return nil, coreerr.E("LoadOrCreateIdentity", "failed to get config path", err)
+	}
+
+	return LoadOrCreateIdentityWithPaths(keyPath, configPath)
+}
+
+// LoadOrCreateIdentityWithPaths loads an existing identity from the supplied
+// paths or creates a new dual-role identity if no persisted identity exists.
+// The generated identity name falls back to the host name, then a stable
+// project-specific default if the host name cannot be determined.
+func LoadOrCreateIdentityWithPaths(keyPath, configPath string) (*NodeManager, error) {
+	nm, err := NewNodeManagerWithPaths(keyPath, configPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if nm.HasIdentity() {
+		return nm, nil
+	}
+
+	name, err := os.Hostname()
+	if err != nil || name == "" {
+		name = "lethean-node"
+	}
+
+	if err := nm.GenerateIdentity(name, RoleDual); err != nil {
+		return nil, coreerr.E("LoadOrCreateIdentityWithPaths", "failed to generate identity", err)
+	}
+
+	return nm, nil
+}
+
 // HasIdentity returns true if a node identity has been initialized.
 func (n *NodeManager) HasIdentity() bool {
 	n.mu.RLock()

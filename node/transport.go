@@ -76,10 +76,20 @@ func NewMessageDeduplicator(ttl time.Duration) *MessageDeduplicator {
 
 // IsDuplicate checks if a message ID has been seen recently
 func (d *MessageDeduplicator) IsDuplicate(msgID string) bool {
-	d.mu.RLock()
-	_, exists := d.seen[msgID]
-	d.mu.RUnlock()
-	return exists
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	seenAt, exists := d.seen[msgID]
+	if !exists {
+		return false
+	}
+
+	if d.ttl > 0 && time.Since(seenAt) > d.ttl {
+		delete(d.seen, msgID)
+		return false
+	}
+
+	return true
 }
 
 // Mark records a message ID as seen

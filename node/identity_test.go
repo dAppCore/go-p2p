@@ -215,6 +215,47 @@ func TestNodeIdentity(t *testing.T) {
 			t.Error("should not have identity after delete")
 		}
 	})
+
+	t.Run("LoadOrCreateIdentityWithPaths", func(t *testing.T) {
+		tmpDir, err := os.MkdirTemp("", "node-load-or-create-test")
+		if err != nil {
+			t.Fatalf("failed to create temp dir: %v", err)
+		}
+		defer os.RemoveAll(tmpDir)
+
+		keyPath := filepath.Join(tmpDir, "private.key")
+		configPath := filepath.Join(tmpDir, "node.json")
+
+		nm, err := LoadOrCreateIdentityWithPaths(keyPath, configPath)
+		if err != nil {
+			t.Fatalf("failed to load or create identity: %v", err)
+		}
+
+		if !nm.HasIdentity() {
+			t.Fatal("expected identity to be initialised")
+		}
+
+		identity := nm.GetIdentity()
+		if identity == nil {
+			t.Fatal("identity should not be nil")
+		}
+
+		if identity.Name == "" {
+			t.Error("identity name should be populated")
+		}
+
+		if identity.Role != RoleDual {
+			t.Errorf("expected default role dual, got %s", identity.Role)
+		}
+
+		if _, err := os.Stat(keyPath); err != nil {
+			t.Fatalf("expected private key to be persisted: %v", err)
+		}
+
+		if _, err := os.Stat(configPath); err != nil {
+			t.Fatalf("expected identity config to be persisted: %v", err)
+		}
+	})
 }
 
 func TestNodeRoles(t *testing.T) {
