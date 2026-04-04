@@ -8,6 +8,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"os"
 	"path/filepath"
 	"sync"
 	"time"
@@ -103,6 +104,48 @@ func NewNodeManagerWithPaths(keyPath, configPath string) (*NodeManager, error) {
 	if err := nm.loadIdentity(); err != nil {
 		// Identity doesn't exist yet, that's ok
 		return nm, nil
+	}
+
+	return nm, nil
+}
+
+// LoadOrCreateIdentity loads the node identity from the default XDG paths or
+// generates a new dual-role identity when none exists yet.
+func LoadOrCreateIdentity() (*NodeManager, error) {
+	keyPath, err := xdg.DataFile("lethean-desktop/node/private.key")
+	if err != nil {
+		return nil, coreerr.E("LoadOrCreateIdentity", "failed to get key path", err)
+	}
+
+	configPath, err := xdg.ConfigFile("lethean-desktop/node.json")
+	if err != nil {
+		return nil, coreerr.E("LoadOrCreateIdentity", "failed to get config path", err)
+	}
+
+	return LoadOrCreateIdentityWithPaths(keyPath, configPath)
+}
+
+// LoadOrCreateIdentityWithPaths loads an existing identity from the supplied
+// paths or creates a new dual-role identity if no persisted identity exists.
+// The generated identity name falls back to the host name, then a stable
+// project-specific default if the host name cannot be determined.
+func LoadOrCreateIdentityWithPaths(keyPath, configPath string) (*NodeManager, error) {
+	nm, err := NewNodeManagerWithPaths(keyPath, configPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if nm.HasIdentity() {
+		return nm, nil
+	}
+
+	name, err := os.Hostname()
+	if err != nil || name == "" {
+		name = "lethean-node"
+	}
+
+	if err := nm.GenerateIdentity(name, RoleDual); err != nil {
+		return nil, coreerr.E("LoadOrCreateIdentityWithPaths", "failed to generate identity", err)
 	}
 
 	return nm, nil
@@ -208,9 +251,12 @@ func (n *NodeManager) savePrivateKey() error {
 		return coreerr.E("NodeManager.savePrivateKey", "failed to create key directory", err)
 	}
 
-	// Write private key
+	// Write private key and then tighten permissions explicitly.
 	if err := coreio.Local.Write(n.keyPath, string(n.privateKey)); err != nil {
 		return coreerr.E("NodeManager.savePrivateKey", "failed to write private key", err)
+	}
+	if err := os.Chmod(n.keyPath, 0600); err != nil {
+		return coreerr.E("NodeManager.savePrivateKey", "failed to set private key permissions", err)
 	}
 
 	return nil

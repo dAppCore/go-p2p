@@ -210,6 +210,11 @@ func (c *Controller) StopRemoteMiner(peerID, minerName string) error {
 
 // GetRemoteLogs requests console logs from a remote miner.
 func (c *Controller) GetRemoteLogs(peerID, minerName string, lines int) ([]string, error) {
+	return c.GetRemoteLogsSince(peerID, minerName, lines, time.Time{})
+}
+
+// GetRemoteLogsSince requests console logs from a remote miner after a point in time.
+func (c *Controller) GetRemoteLogsSince(peerID, minerName string, lines int, since time.Time) ([]string, error) {
 	identity := c.node.GetIdentity()
 	if identity == nil {
 		return nil, ErrIdentityNotInitialized
@@ -219,10 +224,13 @@ func (c *Controller) GetRemoteLogs(peerID, minerName string, lines int) ([]strin
 		MinerName: minerName,
 		Lines:     lines,
 	}
+	if !since.IsZero() {
+		payload.Since = since.UnixMilli()
+	}
 
 	msg, err := NewMessage(MsgGetLogs, identity.ID, peerID, payload)
 	if err != nil {
-		return nil, coreerr.E("Controller.GetRemoteLogs", "failed to create message", err)
+		return nil, coreerr.E("Controller.GetRemoteLogsSince", "failed to create message", err)
 	}
 
 	resp, err := c.sendRequest(peerID, msg, 10*time.Second)

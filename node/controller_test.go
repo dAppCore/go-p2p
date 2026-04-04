@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -514,6 +515,40 @@ type mockMinerFull struct {
 func (m *mockMinerFull) GetName() string        { return m.name }
 func (m *mockMinerFull) GetType() string        { return m.minerType }
 func (m *mockMinerFull) GetStats() (any, error) { return m.stats, nil }
+func (m *mockMinerFull) GetConsoleHistorySince(lines int, since time.Time) []string {
+	if since.IsZero() {
+		if lines >= len(m.consoleHistory) {
+			return m.consoleHistory
+		}
+		return m.consoleHistory[:lines]
+	}
+
+	filtered := make([]string, 0, len(m.consoleHistory))
+	for _, line := range m.consoleHistory {
+		if lineAfter(line, since) {
+			filtered = append(filtered, line)
+		}
+	}
+	if lines >= len(filtered) {
+		return filtered
+	}
+	return filtered[:lines]
+}
+
+func lineAfter(line string, since time.Time) bool {
+	start := strings.IndexByte(line, '[')
+	end := strings.IndexByte(line, ']')
+	if start != 0 || end <= start+1 {
+		return true
+	}
+
+	ts, err := time.Parse("2006-01-02 15:04:05", line[start+1:end])
+	if err != nil {
+		return true
+	}
+	return ts.After(since) || ts.Equal(since)
+}
+
 func (m *mockMinerFull) GetConsoleHistory(lines int) []string {
 	if lines >= len(m.consoleHistory) {
 		return m.consoleHistory
@@ -614,6 +649,20 @@ func TestController_GetRemoteLogs_LimitedLines(t *testing.T) {
 	lines, err := controller.GetRemoteLogs(serverID, "running-miner", 1)
 	require.NoError(t, err, "GetRemoteLogs with limited lines should succeed")
 	assert.Len(t, lines, 1, "should return only 1 line")
+}
+
+func TestController_GetRemoteLogsSince(t *testing.T) {
+	controller, _, tp := setupControllerPairWithMiner(t)
+	serverID := tp.ServerNode.GetIdentity().ID
+
+	since, err := time.Parse("2006-01-02 15:04:05", "2026-02-20 10:00:01")
+	require.NoError(t, err)
+
+	lines, err := controller.GetRemoteLogsSince(serverID, "running-miner", 10, since)
+	require.NoError(t, err, "GetRemoteLogsSince should succeed")
+	require.Len(t, lines, 2, "should return only log lines on or after the requested timestamp")
+	assert.Contains(t, lines[0], "connected to pool")
+	assert.Contains(t, lines[1], "new job received")
 }
 
 func TestController_GetRemoteLogs_NoIdentity(t *testing.T) {

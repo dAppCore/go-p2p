@@ -98,7 +98,7 @@ The `Transport` manages a WebSocket server (gorilla/websocket) and outbound conn
 | Timeout | −3.0 (floored at 0) |
 | Default (new peer) | 50.0 |
 
-**Peer name validation**: Names must be 1–64 characters, start and end with an alphanumeric character, and contain only alphanumeric, hyphen, underscore, or space characters.
+**Peer name validation**: Empty names are permitted. Non-empty names must be 1–64 characters, start and end with an alphanumeric character, and contain only alphanumeric, hyphen, underscore, or space characters.
 
 ### message.go — Protocol Messages
 

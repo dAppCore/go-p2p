@@ -159,6 +159,17 @@ func TestMessageDeduplicator(t *testing.T) {
 		}
 	})
 
+	t.Run("ExpiredEntriesAreNotDuplicates", func(t *testing.T) {
+		d := NewMessageDeduplicator(25 * time.Millisecond)
+		d.Mark("msg-expired")
+
+		time.Sleep(40 * time.Millisecond)
+
+		if d.IsDuplicate("msg-expired") {
+			t.Error("expired message should not remain a duplicate")
+		}
+	})
+
 	t.Run("ConcurrentAccess", func(t *testing.T) {
 		d := NewMessageDeduplicator(5 * time.Minute)
 		var wg sync.WaitGroup

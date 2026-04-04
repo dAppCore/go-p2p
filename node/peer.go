@@ -51,9 +51,8 @@ const (
 	PeerAuthAllowlist
 )
 
-// Peer name validation constants
+// Peer name validation constants.
 const (
-	PeerNameMinLength = 1
 	PeerNameMaxLength = 64
 )
 
@@ -72,14 +71,12 @@ func safeKeyPrefix(key string) string {
 }
 
 // validatePeerName checks if a peer name is valid.
-// Peer names must be 1-64 characters, start and end with alphanumeric,
-// and contain only alphanumeric, hyphens, underscores, and spaces.
+// Empty names are permitted. Non-empty names must be 1-64 characters,
+// start and end with alphanumeric, and contain only alphanumeric,
+// hyphens, underscores, and spaces.
 func validatePeerName(name string) error {
 	if name == "" {
-		return nil // Empty names are allowed (optional field)
-	}
-	if len(name) < PeerNameMinLength {
-		return coreerr.E("validatePeerName", "peer name too short", nil)
+		return nil
 	}
 	if len(name) > PeerNameMaxLength {
 		return coreerr.E("validatePeerName", "peer name too long", nil)
@@ -101,6 +98,7 @@ type PeerRegistry struct {
 	authMode           PeerAuthMode    // How to handle unknown peers
 	allowedPublicKeys  map[string]bool // Allowlist of public keys (when authMode is Allowlist)
 	allowedPublicKeyMu sync.RWMutex    // Protects allowedPublicKeys
+	allowlistPath      string          // Sidecar file for persisted allowlist keys
 
 	// Debounce disk writes
 	dirty        bool          // Whether there are unsaved changes
@@ -135,6 +133,7 @@ func NewPeerRegistryWithPath(peersPath string) (*PeerRegistry, error) {
 	pr := &PeerRegistry{
 		peers:             make(map[string]*Peer),
 		path:              peersPath,
+		allowlistPath:     peersPath + ".allowlist.json",
 		stopChan:          make(chan struct{}),
 		authMode:          PeerAuthOpen, // Default to open for backward compatibility
 		allowedPublicKeys: make(map[string]bool),
@@ -144,7 +143,12 @@ func NewPeerRegistryWithPath(peersPath string) (*PeerRegistry, error) {
 	if err := pr.load(); err != nil {
 		// No existing peers, that's ok
 		pr.rebuildKDTree()
-		return pr, nil
+	}
+
+	// Load any persisted allowlist entries. This is best effort so that a
+	// missing or corrupt sidecar does not block peer registry startup.
+	if err := pr.loadAllowedPublicKeys(); err != nil {
+		logging.Warn("failed to load peer allowlist", logging.Fields{"error": err})
 	}
 
 	pr.rebuildKDTree()
@@ -169,17 +173,25 @@ func (r *PeerRegistry) GetAuthMode() PeerAuthMode {
 // AllowPublicKey adds a public key to the allowlist.
 func (r *PeerRegistry) AllowPublicKey(publicKey string) {
 	r.allowedPublicKeyMu.Lock()
-	defer r.allowedPublicKeyMu.Unlock()
 	r.allowedPublicKeys[publicKey] = true
+	r.allowedPublicKeyMu.Unlock()
 	logging.Debug("public key added to allowlist", logging.Fields{"key": safeKeyPrefix(publicKey)})
+
+	if err := r.saveAllowedPublicKeys(); err != nil {
+		logging.Warn("failed to persist peer allowlist", logging.Fields{"error": err})
+	}
 }
 
 // RevokePublicKey removes a public key from the allowlist.
 func (r *PeerRegistry) RevokePublicKey(publicKey string) {
 	r.allowedPublicKeyMu.Lock()
-	defer r.allowedPublicKeyMu.Unlock()
 	delete(r.allowedPublicKeys, publicKey)
+	r.allowedPublicKeyMu.Unlock()
 	logging.Debug("public key removed from allowlist", logging.Fields{"key": safeKeyPrefix(publicKey)})
+
+	if err := r.saveAllowedPublicKeys(); err != nil {
+		logging.Warn("failed to persist peer allowlist", logging.Fields{"error": err})
+	}
 }
 
 // IsPublicKeyAllowed checks if a public key is in the allowlist.
@@ -703,6 +715,72 @@ func (r *PeerRegistry) Close() error {
 		err := r.saveNow()
 		r.mu.RUnlock()
 		return err
+	}
+
+	return nil
+}
+
+// saveAllowedPublicKeys persists the allowlist to disk immediately.
+// It keeps the allowlist in a separate sidecar file so peer persistence remains
+// backwards compatible with the existing peers.json array format.
+func (r *PeerRegistry) saveAllowedPublicKeys() error {
+	r.allowedPublicKeyMu.RLock()
+	keys := make([]string, 0, len(r.allowedPublicKeys))
+	for key := range r.allowedPublicKeys {
+		keys = append(keys, key)
+	}
+	r.allowedPublicKeyMu.RUnlock()
+
+	slices.Sort(keys)
+
+	dir := filepath.Dir(r.allowlistPath)
+	if err := coreio.Local.EnsureDir(dir); err != nil {
+		return coreerr.E("PeerRegistry.saveAllowedPublicKeys", "failed to create allowlist directory", err)
+	}
+
+	data, err := json.MarshalIndent(keys, "", "  ")
+	if err != nil {
+		return coreerr.E("PeerRegistry.saveAllowedPublicKeys", "failed to marshal allowlist", err)
+	}
+
+	tmpPath := r.allowlistPath + ".tmp"
+	if err := coreio.Local.Write(tmpPath, string(data)); err != nil {
+		return coreerr.E("PeerRegistry.saveAllowedPublicKeys", "failed to write allowlist temp file", err)
+	}
+
+	if err := coreio.Local.Rename(tmpPath, r.allowlistPath); err != nil {
+		coreio.Local.Delete(tmpPath)
+		return coreerr.E("PeerRegistry.saveAllowedPublicKeys", "failed to rename allowlist file", err)
+	}
+
+	return nil
+}
+
+// loadAllowedPublicKeys loads the allowlist from disk.
+func (r *PeerRegistry) loadAllowedPublicKeys() error {
+	if !coreio.Local.Exists(r.allowlistPath) {
+		return nil
+	}
+
+	content, err := coreio.Local.Read(r.allowlistPath)
+	if err != nil {
+		return coreerr.E("PeerRegistry.loadAllowedPublicKeys", "failed to read allowlist", err)
+	}
+
+	var keys []string
+	if err := json.Unmarshal([]byte(content), &keys); err != nil {
+		return coreerr.E("PeerRegistry.loadAllowedPublicKeys", "failed to unmarshal allowlist", err)
+	}
+
+	r.allowedPublicKeyMu.Lock()
+	defer r.allowedPublicKeyMu.Unlock()
+
+	r.allowedPublicKeys = make(map[string]bool, len(keys))
+	for _, key := range keys {
+		if key == "" {
+			continue
+		}
+		r.allowedPublicKeys[key] = true
 	}
 
 	return nil
