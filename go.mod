@@ -15,7 +15,7 @@ require (
 
 require (
 	forge.lthn.ai/Snider/Enchantrix v0.0.4 // indirect
-	forge.lthn.ai/core/go-log v0.0.4 // indirect
+	dappco.re/go/core/log v0.0.4 // indirect
 	github.com/ProtonMail/go-crypto v1.4.0 // indirect
 	github.com/cloudflare/circl v1.6.3 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
