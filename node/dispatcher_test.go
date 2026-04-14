@@ -344,3 +344,60 @@ func TestDispatcher_IntentConstants(t *testing.T) {
 	assert.Equal(t, byte(0x30), IntentRehab)
 	assert.Equal(t, byte(0xFF), IntentCustom)
 }
+
+// TestDispatcher_Handlers_Good verifies that the Handlers iterator yields
+// every registered handler keyed by intent ID.
+func TestDispatcher_Handlers_Good(t *testing.T) {
+	d := NewDispatcher()
+
+	d.RegisterHandler(IntentHandshake, func(pkt *ueps.ParsedPacket) error { return nil })
+	d.RegisterHandler(IntentCompute, func(pkt *ueps.ParsedPacket) error { return nil })
+	d.RegisterHandler(IntentRehab, func(pkt *ueps.ParsedPacket) error { return nil })
+
+	seen := make(map[byte]bool)
+	for id, handler := range d.Handlers() {
+		if handler == nil {
+			t.Errorf("handler for intent 0x%02X is nil", id)
+		}
+		seen[id] = true
+	}
+
+	expected := []byte{IntentHandshake, IntentCompute, IntentRehab}
+	if len(seen) != len(expected) {
+		t.Errorf("expected %d handlers, got %d", len(expected), len(seen))
+	}
+	for _, id := range expected {
+		if !seen[id] {
+			t.Errorf("expected handler for intent 0x%02X in iterator output", id)
+		}
+	}
+}
+
+// TestDispatcher_Handlers_Bad verifies early termination and the empty-registry
+// case so the iterator cannot deadlock or misreport state.
+func TestDispatcher_Handlers_Bad(t *testing.T) {
+	d := NewDispatcher()
+
+	// Empty dispatcher yields nothing.
+	var emptyCount int
+	for range d.Handlers() {
+		emptyCount++
+	}
+	if emptyCount != 0 {
+		t.Errorf("empty dispatcher should yield 0 handlers, got %d", emptyCount)
+	}
+
+	// Early termination must stop the iterator promptly.
+	d.RegisterHandler(IntentHandshake, func(pkt *ueps.ParsedPacket) error { return nil })
+	d.RegisterHandler(IntentCompute, func(pkt *ueps.ParsedPacket) error { return nil })
+	d.RegisterHandler(IntentRehab, func(pkt *ueps.ParsedPacket) error { return nil })
+
+	var stopped int
+	for range d.Handlers() {
+		stopped++
+		break
+	}
+	if stopped != 1 {
+		t.Errorf("iterator should stop after first break, got %d", stopped)
+	}
+}

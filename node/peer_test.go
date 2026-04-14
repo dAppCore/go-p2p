@@ -995,3 +995,205 @@ func TestPeerRegistry_ScheduleSave_TimerFires(t *testing.T) {
 
 	pr.Close()
 }
+
+// TestPeerRegistry_MarkSeen_Good verifies that MarkSeen refreshes LastSeen for
+// an existing peer. This covers the happy path of RFC §3.3's documented
+// registry.MarkSeen(peerID) behaviour.
+func TestPeerRegistry_MarkSeen_Good(t *testing.T) {
+	pr, cleanup := setupTestPeerRegistry(t)
+	defer cleanup()
+
+	peer := &Peer{ID: "seen-peer", Name: "Seen"}
+	if err := pr.AddPeer(peer); err != nil {
+		t.Fatalf("add peer: %v", err)
+	}
+
+	// Rewind LastSeen under the registry lock so MarkSeen's timestamp update
+	// is observable.
+	pr.mu.Lock()
+	pr.peers["seen-peer"].LastSeen = time.Time{}
+	pr.mu.Unlock()
+
+	before := time.Now()
+	pr.MarkSeen("seen-peer")
+	after := time.Now()
+
+	updated := pr.GetPeer("seen-peer")
+	if updated == nil {
+		t.Fatal("peer should still exist after MarkSeen")
+	}
+	if updated.LastSeen.IsZero() {
+		t.Fatal("LastSeen should be populated after MarkSeen")
+	}
+	if updated.LastSeen.Before(before) || updated.LastSeen.After(after) {
+		t.Errorf("LastSeen %v not in [%v, %v]", updated.LastSeen, before, after)
+	}
+}
+
+// TestPeerRegistry_MarkSeen_Bad verifies MarkSeen is a safe no-op for peers
+// that are not registered.
+func TestPeerRegistry_MarkSeen_Bad(t *testing.T) {
+	pr, cleanup := setupTestPeerRegistry(t)
+	defer cleanup()
+
+	// Must not panic or mutate any state.
+	pr.MarkSeen("never-added")
+
+	if pr.Count() != 0 {
+		t.Errorf("registry should still be empty, got %d peers", pr.Count())
+	}
+}
+
+// TestPeerRegistry_FindNearby_Good covers the RFC §3.3 documented
+// FindNearby(lat, lon, hopCount, maxResults) operation when coordinates are
+// populated.
+func TestPeerRegistry_FindNearby_Good(t *testing.T) {
+	pr, cleanup := setupTestPeerRegistry(t)
+	defer cleanup()
+
+	// Three peers at varying coordinates and hop counts. peer-near is the
+	// closest match to (0, 0, 1).
+	peers := []*Peer{
+		{ID: "peer-far", Name: "Far", Latitude: 40.0, Longitude: 40.0, Hops: 8},
+		{ID: "peer-near", Name: "Near", Latitude: 0.5, Longitude: 0.5, Hops: 1},
+		{ID: "peer-mid", Name: "Mid", Latitude: 5.0, Longitude: 5.0, Hops: 3},
+	}
+	for _, p := range peers {
+		if err := pr.AddPeer(p); err != nil {
+			t.Fatalf("add peer %s: %v", p.ID, err)
+		}
+	}
+
+	results, err := pr.FindNearby(0, 0, 1, 2)
+	if err != nil {
+		t.Fatalf("FindNearby: %v", err)
+	}
+	if len(results) != 2 {
+		t.Fatalf("expected 2 results, got %d", len(results))
+	}
+	if results[0].ID != "peer-near" {
+		t.Errorf("closest peer should be peer-near, got %s", results[0].ID)
+	}
+	if results[1].ID != "peer-mid" {
+		t.Errorf("second closest should be peer-mid, got %s", results[1].ID)
+	}
+
+	// Copy semantics: mutating a returned peer must not mutate the registry.
+	results[0].Name = "mutated"
+	original := pr.GetPeer("peer-near")
+	if original == nil || original.Name != "Near" {
+		t.Errorf("registry peer should not be mutated through FindNearby copy")
+	}
+}
+
+// TestPeerRegistry_FindNearby_Bad verifies FindNearby's edge cases: empty
+// registry, non-positive maxResults, and fallback to GeoKM when coordinates
+// are absent.
+func TestPeerRegistry_FindNearby_Bad(t *testing.T) {
+	pr, cleanup := setupTestPeerRegistry(t)
+	defer cleanup()
+
+	// Empty registry returns an empty slice, no error.
+	results, err := pr.FindNearby(0, 0, 0, 5)
+	if err != nil {
+		t.Fatalf("empty registry should not error: %v", err)
+	}
+	if len(results) != 0 {
+		t.Errorf("empty registry should return no results, got %d", len(results))
+	}
+
+	// Non-positive maxResults returns an empty slice, no error.
+	if err := pr.AddPeer(&Peer{ID: "peer-a"}); err != nil {
+		t.Fatalf("add peer: %v", err)
+	}
+	results, err = pr.FindNearby(0, 0, 0, 0)
+	if err != nil {
+		t.Fatalf("maxResults=0 should not error: %v", err)
+	}
+	if len(results) != 0 {
+		t.Errorf("maxResults=0 should return no results, got %d", len(results))
+	}
+
+	// Peers without coordinates fall back to GeoKM distance. Compared to a
+	// distant peer, the closer GeoKM wins.
+	prFallback, cleanupFallback := setupTestPeerRegistry(t)
+	defer cleanupFallback()
+	if err := prFallback.AddPeer(&Peer{ID: "peer-close", GeoKM: 5}); err != nil {
+		t.Fatalf("add peer-close: %v", err)
+	}
+	if err := prFallback.AddPeer(&Peer{ID: "peer-distant", GeoKM: 500}); err != nil {
+		t.Fatalf("add peer-distant: %v", err)
+	}
+	results, err = prFallback.FindNearby(0, 0, 0, 2)
+	if err != nil {
+		t.Fatalf("FindNearby: %v", err)
+	}
+	if len(results) != 2 {
+		t.Fatalf("expected 2 results, got %d", len(results))
+	}
+	if results[0].ID != "peer-close" {
+		t.Errorf("closest fallback peer should be peer-close, got %s", results[0].ID)
+	}
+}
+
+// TestPeerRegistry_PeersByScore_Good verifies that the iterator returned by
+// PeersByScore emits peers in descending score order and yields copies rather
+// than live pointers.
+func TestPeerRegistry_PeersByScore_Good(t *testing.T) {
+	pr, cleanup := setupTestPeerRegistry(t)
+	defer cleanup()
+
+	peers := []*Peer{
+		{ID: "score-low", Score: 10},
+		{ID: "score-high", Score: 95},
+		{ID: "score-mid", Score: 55},
+	}
+	for _, p := range peers {
+		if err := pr.AddPeer(p); err != nil {
+			t.Fatalf("add peer %s: %v", p.ID, err)
+		}
+	}
+
+	collected := slices.Collect(pr.PeersByScore())
+	if len(collected) != 3 {
+		t.Fatalf("expected 3 peers, got %d", len(collected))
+	}
+	if collected[0].ID != "score-high" {
+		t.Errorf("first peer should be score-high, got %s", collected[0].ID)
+	}
+	if collected[2].ID != "score-low" {
+		t.Errorf("last peer should be score-low, got %s", collected[2].ID)
+	}
+
+	// Mutating the copy must not reach the registry.
+	collected[0].Score = 0
+	registry := pr.GetPeer("score-high")
+	if registry == nil || registry.Score != 95 {
+		t.Errorf("registry score should remain 95 after mutation, got %v", registry)
+	}
+}
+
+// TestPeerRegistry_PeersByScore_Bad covers early-termination: stopping the
+// iterator must not deadlock or yield more peers than requested.
+func TestPeerRegistry_PeersByScore_Bad(t *testing.T) {
+	pr, cleanup := setupTestPeerRegistry(t)
+	defer cleanup()
+
+	for i, score := range []float64{10, 20, 30, 40} {
+		p := &Peer{ID: "score-" + string(rune('a'+i)), Score: score}
+		if err := pr.AddPeer(p); err != nil {
+			t.Fatalf("add peer %s: %v", p.ID, err)
+		}
+	}
+
+	var count int
+	for range pr.PeersByScore() {
+		count++
+		if count == 2 {
+			break
+		}
+	}
+	if count != 2 {
+		t.Errorf("expected iterator to stop at 2, got %d", count)
+	}
+}
