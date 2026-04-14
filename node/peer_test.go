@@ -664,6 +664,40 @@ func TestPeerRegistry_GetPeersByScore(t *testing.T) {
 	if sorted[2].ID != "low-score" {
 		t.Errorf("third peer should be low-score, got %s", sorted[2].ID)
 	}
+
+	// Returned peers should be copies, not live pointers into the registry.
+	sorted[0].Name = "mutated"
+	if original := pr.GetPeer("high-score"); original == nil || original.Name != "High" {
+		t.Fatalf("registry peer should not be mutated through GetPeersByScore copy")
+	}
+}
+
+func TestPeerRegistry_OptimalPeerRebuildsAfterScoreChange(t *testing.T) {
+	pr, cleanup := setupTestPeerRegistry(t)
+	defer cleanup()
+
+	peers := []*Peer{
+		{ID: "peer-a", Name: "Peer A", PingMS: 10, Hops: 1, GeoKM: 5, Score: 80},
+		{ID: "peer-b", Name: "Peer B", PingMS: 10, Hops: 1, GeoKM: 5, Score: 90},
+	}
+
+	for _, p := range peers {
+		if err := pr.AddPeer(p); err != nil {
+			t.Fatalf("failed to add peer %s: %v", p.ID, err)
+		}
+	}
+
+	if got := pr.SelectOptimalPeer(); got == nil || got.ID != "peer-b" {
+		t.Fatalf("expected peer-b to be optimal initially, got %#v", got)
+	}
+
+	for range 5 {
+		pr.RecordFailure("peer-b")
+	}
+
+	if got := pr.SelectOptimalPeer(); got == nil || got.ID != "peer-a" {
+		t.Fatalf("expected peer-a to become optimal after score changes, got %#v", got)
+	}
 }
 
 // --- Additional coverage tests for peer.go ---

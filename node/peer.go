@@ -407,24 +407,36 @@ func (r *PeerRegistry) UpdateScore(id string, score float64) error {
 // SetConnected updates a peer's connection state.
 func (r *PeerRegistry) SetConnected(id string, connected bool) {
 	r.mu.Lock()
-	defer r.mu.Unlock()
+	peer, exists := r.peers[id]
+	if !exists {
+		r.mu.Unlock()
+		return
+	}
 
-	if peer, exists := r.peers[id]; exists {
-		peer.Connected = connected
-		if connected {
-			peer.LastSeen = time.Now()
-		}
+	peer.Connected = connected
+	if connected {
+		peer.LastSeen = time.Now()
+	}
+	r.mu.Unlock()
+
+	if connected {
+		r.save()
 	}
 }
 
 // MarkSeen updates a peer's LastSeen timestamp.
 func (r *PeerRegistry) MarkSeen(id string) {
 	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	if peer, exists := r.peers[id]; exists {
-		peer.LastSeen = time.Now()
+	peer, exists := r.peers[id]
+	if !exists {
+		r.mu.Unlock()
+		return
 	}
+
+	peer.LastSeen = time.Now()
+	r.mu.Unlock()
+
+	r.save()
 }
 
 // Score adjustment constants
@@ -448,7 +460,9 @@ func (r *PeerRegistry) RecordSuccess(id string) {
 
 	peer.Score = min(peer.Score+ScoreSuccessIncrement, ScoreMaximum)
 	peer.LastSeen = time.Now()
+	r.rebuildKDTree()
 	r.mu.Unlock()
+
 	r.save()
 }
 
@@ -462,8 +476,11 @@ func (r *PeerRegistry) RecordFailure(id string) {
 	}
 
 	peer.Score = max(peer.Score-ScoreFailureDecrement, ScoreMinimum)
+	peer.LastSeen = time.Now()
 	newScore := peer.Score
+	r.rebuildKDTree()
 	r.mu.Unlock()
+
 	r.save()
 
 	logging.Debug("peer score decreased", logging.Fields{
@@ -483,8 +500,11 @@ func (r *PeerRegistry) RecordTimeout(id string) {
 	}
 
 	peer.Score = max(peer.Score-ScoreTimeoutDecrement, ScoreMinimum)
+	peer.LastSeen = time.Now()
 	newScore := peer.Score
+	r.rebuildKDTree()
 	r.mu.Unlock()
+
 	r.save()
 
 	logging.Debug("peer score decreased", logging.Fields{
@@ -499,7 +519,11 @@ func (r *PeerRegistry) GetPeersByScore() []*Peer {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
-	peers := slices.Collect(maps.Values(r.peers))
+	peers := make([]*Peer, 0, len(r.peers))
+	for _, peer := range r.peers {
+		peerCopy := *peer
+		peers = append(peers, &peerCopy)
+	}
 
 	// Sort by score descending
 	slices.SortFunc(peers, func(a, b *Peer) int {
