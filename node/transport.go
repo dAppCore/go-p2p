@@ -830,11 +830,6 @@ func (t *Transport) keepalive(pc *PeerConnection) {
 
 // removeConnection removes and cleans up a connection.
 func (t *Transport) removeConnection(pc *PeerConnection) {
-	t.mu.Lock()
-	delete(t.conns, pc.Peer.ID)
-	t.mu.Unlock()
-
-	t.registry.SetConnected(pc.Peer.ID, false)
 	pc.Close()
 }
 
@@ -855,13 +850,21 @@ func (pc *PeerConnection) Send(msg *Message) error {
 	}
 	defer pc.Conn.SetWriteDeadline(time.Time{}) // Reset deadline after send
 
-	return pc.Conn.WriteMessage(websocket.BinaryMessage, data)
+	if err := pc.Conn.WriteMessage(websocket.BinaryMessage, data); err != nil {
+		return err
+	}
+
+	pc.LastActivity = time.Now()
+	return nil
 }
 
 // Close closes the connection.
 func (pc *PeerConnection) Close() error {
 	var err error
 	pc.closeOnce.Do(func() {
+		if pc.transport != nil {
+			pc.transport.dropConnection(pc)
+		}
 		err = pc.Conn.Close()
 	})
 	return err
@@ -902,6 +905,10 @@ func (pc *PeerConnection) GracefulClose(reason string, code int) error {
 					pc.Send(msg)
 				}
 			}
+		}
+
+		if pc.transport != nil {
+			pc.transport.dropConnection(pc)
 		}
 
 		// Close the underlying connection
@@ -954,4 +961,22 @@ func (t *Transport) ConnectedPeers() int {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
 	return len(t.conns)
+}
+
+// dropConnection removes a peer connection from the transport registry and
+// marks the peer as disconnected. It is safe to call multiple times.
+func (t *Transport) dropConnection(pc *PeerConnection) {
+	if t == nil || pc == nil || pc.Peer == nil {
+		return
+	}
+
+	t.mu.Lock()
+	if existing, ok := t.conns[pc.Peer.ID]; ok && existing == pc {
+		delete(t.conns, pc.Peer.ID)
+	}
+	t.mu.Unlock()
+
+	if t.registry != nil {
+		t.registry.SetConnected(pc.Peer.ID, false)
+	}
 }

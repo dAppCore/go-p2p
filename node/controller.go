@@ -2,7 +2,6 @@ package node
 
 import (
 	"context"
-	"encoding/json"
 	"sync"
 	"time"
 
@@ -137,7 +136,7 @@ func (c *Controller) GetRemoteStats(peerID string) (*StatsPayload, error) {
 }
 
 // StartRemoteMiner requests a remote peer to start a miner with a given profile.
-func (c *Controller) StartRemoteMiner(peerID, minerType, profileID string, configOverride json.RawMessage) error {
+func (c *Controller) StartRemoteMiner(peerID, minerType, profileID string, configOverride RawMessage) error {
 	identity := c.node.GetIdentity()
 	if identity == nil {
 		return ErrIdentityNotInitialized

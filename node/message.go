@@ -8,6 +8,10 @@ import (
 	"github.com/google/uuid"
 )
 
+// RawMessage preserves JSON payload bytes without decoding them eagerly.
+// It is an alias of json.RawMessage so existing JSON semantics are preserved.
+type RawMessage = json.RawMessage
+
 // Protocol version constants
 const (
 	// ProtocolVersion is the current protocol version
@@ -59,9 +63,9 @@ const (
 type Message struct {
 	ID        string          `json:"id"` // UUID
 	Type      MessageType     `json:"type"`
-	From      string          `json:"from"` // Sender node ID
-	To        string          `json:"to"`   // Recipient node ID (empty for broadcast)
-	Timestamp time.Time       `json:"ts"`
+	From      string          `json:"from"`      // Sender node ID
+	To        string          `json:"to"`        // Recipient node ID (empty for broadcast)
+	Timestamp time.Time       `json:"timestamp"` // When the message was created
 	Payload   json.RawMessage `json:"payload"`
 	ReplyTo   string          `json:"replyTo,omitempty"` // ID of message being replied to
 }
@@ -135,9 +139,9 @@ type PongPayload struct {
 
 // StartMinerPayload requests starting a miner.
 type StartMinerPayload struct {
-	MinerType string          `json:"minerType"` // Required: miner type (e.g., "xmrig", "tt-miner")
-	ProfileID string          `json:"profileId,omitempty"`
-	Config    json.RawMessage `json:"config,omitempty"` // Override profile config
+	MinerType string     `json:"minerType"` // Required: miner type (e.g., "xmrig", "tt-miner")
+	ProfileID string     `json:"profileId,omitempty"`
+	Config    RawMessage `json:"config,omitempty"` // Override profile config
 }
 
 // StopMinerPayload requests stopping a miner.
@@ -148,21 +152,28 @@ type StopMinerPayload struct {
 // MinerAckPayload acknowledges a miner start/stop operation.
 type MinerAckPayload struct {
 	Success   bool   `json:"success"`
+	Name      string `json:"name,omitempty"`
 	MinerName string `json:"minerName,omitempty"`
 	Error     string `json:"error,omitempty"`
 }
 
 // MinerStatsItem represents stats for a single miner.
 type MinerStatsItem struct {
-	Name       string  `json:"name"`
-	Type       string  `json:"type"`
-	Hashrate   float64 `json:"hashrate"`
-	Shares     int     `json:"shares"`
-	Rejected   int     `json:"rejected"`
-	Uptime     int     `json:"uptime"` // Seconds
-	Pool       string  `json:"pool"`
-	Algorithm  string  `json:"algorithm"`
-	CPUThreads int     `json:"cpuThreads,omitempty"`
+	Name         string  `json:"name"`
+	Type         string  `json:"type"`
+	IsRunning    bool    `json:"running,omitempty"`
+	Hashrate     float64 `json:"hashrate"`
+	SharedCount  int     `json:"shares,omitempty"`
+	InvalidCount int     `json:"invalid,omitempty"`
+	Temperature  float64 `json:"temp,omitempty"`
+	Uptime       int64   `json:"uptime"`
+
+	// Legacy fields kept for existing callers and tests.
+	Shares     int    `json:"sharesLegacy,omitempty"`
+	Rejected   int    `json:"rejectedLegacy,omitempty"`
+	Pool       string `json:"pool,omitempty"`
+	Algorithm  string `json:"algorithm,omitempty"`
+	CPUThreads int    `json:"cpuThreads,omitempty"`
 }
 
 // StatsPayload contains miner statistics.
@@ -189,10 +200,11 @@ type LogsPayload struct {
 
 // DeployPayload contains a deployment bundle.
 type DeployPayload struct {
-	BundleType string `json:"type"`     // "profile" | "miner" | "full"
-	Data       []byte `json:"data"`     // STIM-encrypted bundle
-	Checksum   string `json:"checksum"` // SHA-256 of Data
-	Name       string `json:"name"`     // Profile or miner name
+	Bundle     *Bundle `json:"bundle,omitempty"`
+	BundleType string  `json:"type,omitempty"`     // "profile" | "miner" | "full"
+	Data       []byte  `json:"data,omitempty"`     // STIM-encrypted bundle
+	Checksum   string  `json:"checksum,omitempty"` // SHA-256 of Data
+	Name       string  `json:"name,omitempty"`     // Profile or miner name
 }
 
 // DeployAckPayload acknowledges a deployment.
@@ -211,12 +223,18 @@ type ErrorPayload struct {
 
 // Common error codes
 const (
-	ErrCodeUnknown         = 1000
-	ErrCodeInvalidMessage  = 1001
-	ErrCodeUnauthorized    = 1002
-	ErrCodeNotFound        = 1003
-	ErrCodeOperationFailed = 1004
-	ErrCodeTimeout         = 1005
+	ErrCodeUnknown         = 0
+	ErrCodeNotFound        = 1
+	ErrCodeAlreadyRunning  = 2
+	ErrCodeNotRunning      = 3
+	ErrCodeOperationFailed = 4
+	ErrCodeInvalidConfig   = 5
+	ErrCodeAuthFailed      = 6
+
+	// Backward-compatible aliases retained for older callers.
+	ErrCodeInvalidMessage = ErrCodeUnknown
+	ErrCodeUnauthorized   = ErrCodeAuthFailed
+	ErrCodeTimeout        = ErrCodeOperationFailed
 )
 
 // NewErrorMessage creates an error response message.

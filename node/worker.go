@@ -26,6 +26,10 @@ type MinerInstance interface {
 	GetName() string
 	GetType() string
 	GetStats() (any, error)
+	GetConsoleHistory(lines int) []string
+}
+
+type historicalMinerInstance interface {
 	GetConsoleHistorySince(lines int, since time.Time) []string
 }
 
@@ -164,8 +168,11 @@ func (w *Worker) handleGetStats(msg *Message) (*Message, error) {
 // convertMinerStats converts miner stats to the protocol format.
 func convertMinerStats(miner MinerInstance, rawStats any) MinerStatsItem {
 	item := MinerStatsItem{
-		Name: miner.GetName(),
-		Type: miner.GetType(),
+		Name:         miner.GetName(),
+		Type:         miner.GetType(),
+		IsRunning:    true,
+		SharedCount:  0,
+		InvalidCount: 0,
 	}
 
 	// Try to extract common fields from the stats
@@ -174,12 +181,25 @@ func convertMinerStats(miner MinerInstance, rawStats any) MinerStatsItem {
 			item.Hashrate = hashrate
 		}
 		if shares, ok := statsMap["shares"].(int); ok {
+			item.SharedCount = shares
+			item.Shares = shares
+		}
+		if shares, ok := statsMap["sharedCount"].(int); ok {
+			item.SharedCount = shares
 			item.Shares = shares
 		}
 		if rejected, ok := statsMap["rejected"].(int); ok {
+			item.InvalidCount = rejected
 			item.Rejected = rejected
 		}
+		if invalid, ok := statsMap["invalid"].(int); ok {
+			item.InvalidCount = invalid
+			item.Rejected = invalid
+		}
 		if uptime, ok := statsMap["uptime"].(int); ok {
+			item.Uptime = int64(uptime)
+		}
+		if uptime, ok := statsMap["uptime"].(int64); ok {
 			item.Uptime = uptime
 		}
 		if pool, ok := statsMap["pool"].(string); ok {
@@ -187,6 +207,15 @@ func convertMinerStats(miner MinerInstance, rawStats any) MinerStatsItem {
 		}
 		if algorithm, ok := statsMap["algorithm"].(string); ok {
 			item.Algorithm = algorithm
+		}
+		if temp, ok := statsMap["temp"].(float64); ok {
+			item.Temperature = temp
+		}
+		if temp, ok := statsMap["temperature"].(float64); ok {
+			item.Temperature = temp
+		}
+		if running, ok := statsMap["running"].(bool); ok {
+			item.IsRunning = running
 		}
 	}
 
@@ -235,6 +264,7 @@ func (w *Worker) handleStartMiner(msg *Message) (*Message, error) {
 
 	ack := MinerAckPayload{
 		Success:   true,
+		Name:      miner.GetName(),
 		MinerName: miner.GetName(),
 	}
 	return msg.Reply(MsgMinerAck, ack)
@@ -254,6 +284,7 @@ func (w *Worker) handleStopMiner(msg *Message) (*Message, error) {
 	err := w.minerManager.StopMiner(payload.MinerName)
 	ack := MinerAckPayload{
 		Success:   err == nil,
+		Name:      payload.MinerName,
 		MinerName: payload.MinerName,
 	}
 	if err != nil {
@@ -290,7 +321,7 @@ func (w *Worker) handleGetLogs(msg *Message) (*Message, error) {
 		since = time.UnixMilli(payload.Since)
 	}
 
-	lines := miner.GetConsoleHistorySince(payload.Lines, since)
+	lines := getMinerConsoleHistory(miner, payload.Lines, since)
 
 	logs := LogsPayload{
 		MinerName: payload.MinerName,
@@ -301,6 +332,18 @@ func (w *Worker) handleGetLogs(msg *Message) (*Message, error) {
 	return msg.Reply(MsgLogs, logs)
 }
 
+func getMinerConsoleHistory(miner MinerInstance, lines int, since time.Time) []string {
+	if since.IsZero() {
+		return miner.GetConsoleHistory(lines)
+	}
+
+	if hist, ok := miner.(historicalMinerInstance); ok {
+		return hist.GetConsoleHistorySince(lines, since)
+	}
+
+	return miner.GetConsoleHistory(lines)
+}
+
 // handleDeploy handles deployment of profiles or miner bundles.
 func (w *Worker) handleDeploy(conn *PeerConnection, msg *Message) (*Message, error) {
 	var payload DeployPayload
@@ -308,12 +351,23 @@ func (w *Worker) handleDeploy(conn *PeerConnection, msg *Message) (*Message, err
 		return nil, coreerr.E("Worker.handleDeploy", "invalid deploy payload", err)
 	}
 
-	// Reconstruct Bundle object from payload
-	bundle := &Bundle{
-		Type:     BundleType(payload.BundleType),
-		Name:     payload.Name,
-		Data:     payload.Data,
-		Checksum: payload.Checksum,
+	// Reconstruct Bundle object from payload, preferring the structured bundle
+	// when present but retaining legacy fields for backward compatibility.
+	bundle := payload.Bundle
+	if bundle == nil {
+		bundle = &Bundle{
+			Type:     BundleType(payload.BundleType),
+			Name:     payload.Name,
+			Data:     payload.Data,
+			Checksum: payload.Checksum,
+		}
+	} else {
+		if bundle.Name == "" {
+			bundle.Name = payload.Name
+		}
+		if bundle.Type == "" {
+			bundle.Type = BundleType(payload.BundleType)
+		}
 	}
 
 	// Use shared secret as password (base64 encoded)

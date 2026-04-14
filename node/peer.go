@@ -27,6 +27,8 @@ type Peer struct {
 	Role      NodeRole  `json:"role"`
 	AddedAt   time.Time `json:"addedAt"`
 	LastSeen  time.Time `json:"lastSeen"`
+	Latitude  float64   `json:"latitude,omitempty"`
+	Longitude float64   `json:"longitude,omitempty"`
 
 	// Poindexter metrics (updated dynamically)
 	PingMS float64 `json:"pingMs"` // Latency in milliseconds
@@ -118,7 +120,11 @@ var (
 )
 
 // NewPeerRegistry creates a new PeerRegistry, loading existing peers if available.
-func NewPeerRegistry() (*PeerRegistry, error) {
+func NewPeerRegistry(paths ...string) (*PeerRegistry, error) {
+	if len(paths) > 0 && paths[0] != "" {
+		return NewPeerRegistryWithPath(paths[0])
+	}
+
 	peersPath, err := xdg.ConfigFile("lethean-desktop/peers.json")
 	if err != nil {
 		return nil, coreerr.E("PeerRegistry.New", "failed to get peers path", err)
@@ -411,6 +417,16 @@ func (r *PeerRegistry) SetConnected(id string, connected bool) {
 	}
 }
 
+// MarkSeen updates a peer's LastSeen timestamp.
+func (r *PeerRegistry) MarkSeen(id string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if peer, exists := r.peers[id]; exists {
+		peer.LastSeen = time.Now()
+	}
+}
+
 // Score adjustment constants
 const (
 	ScoreSuccessIncrement = 1.0   // Increment for successful interaction
@@ -562,6 +578,63 @@ func (r *PeerRegistry) SelectNearestPeers(n int) []*Peer {
 	}
 
 	return peers
+}
+
+// FindNearby returns peers closest to the supplied coordinates and hop count.
+// It prefers explicit peer coordinates when available, but falls back to the
+// existing distance metrics so older registry entries still participate.
+func (r *PeerRegistry) FindNearby(latitude, longitude float64, hopCount, maxResults int) ([]*Peer, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	if maxResults <= 0 || len(r.peers) == 0 {
+		return []*Peer{}, nil
+	}
+
+	type scoredPeer struct {
+		peer  *Peer
+		score float64
+	}
+
+	scored := make([]scoredPeer, 0, len(r.peers))
+	for _, peer := range r.peers {
+		deltaLat := peer.Latitude - latitude
+		deltaLon := peer.Longitude - longitude
+
+		// If coordinates were never recorded, fall back to the coarse GeoKM
+		// distance already maintained by the registry.
+		coordDistance := deltaLat*deltaLat + deltaLon*deltaLon
+		if peer.Latitude == 0 && peer.Longitude == 0 {
+			coordDistance = peer.GeoKM * peer.GeoKM
+		}
+
+		hopDelta := float64(peer.Hops - hopCount)
+		combined := coordDistance + hopDelta*hopDelta
+		scored = append(scored, scoredPeer{
+			peer:  peer,
+			score: combined,
+		})
+	}
+
+	slices.SortFunc(scored, func(a, b scoredPeer) int {
+		switch {
+		case a.score < b.score:
+			return -1
+		case a.score > b.score:
+			return 1
+		default:
+			return 0
+		}
+	})
+
+	limit := min(maxResults, len(scored))
+	out := make([]*Peer, 0, limit)
+	for i := 0; i < limit; i++ {
+		peerCopy := *scored[i].peer
+		out = append(out, &peerCopy)
+	}
+
+	return out, nil
 }
 
 // GetConnectedPeers returns all currently connected peers.
