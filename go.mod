@@ -3,8 +3,8 @@ module dappco.re/go/p2p
 go 1.26.0
 
 require (
-	dappco.re/go/io v0.2.0
-	dappco.re/go/log v0.1.0
+	dappco.re/go/io v0.8.0-alpha.1
+	dappco.re/go/log v0.8.0-alpha.1
 	forge.lthn.ai/Snider/Borg v0.3.1
 	forge.lthn.ai/Snider/Poindexter v0.0.3
 	github.com/adrg/xdg v0.5.3
@@ -14,7 +14,7 @@ require (
 
 require (
 	forge.lthn.ai/Snider/Enchantrix v0.0.4 // indirect
-	forge.lthn.ai/core/go-log v0.0.4 // indirect
+	dappco.re/go/log v0.8.0-alpha.1 // indirect
 	github.com/ProtonMail/go-crypto v1.4.0 // indirect
 	github.com/cloudflare/circl v1.6.3 // indirect
 	github.com/klauspost/compress v1.18.4 // indirect
