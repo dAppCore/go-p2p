@@ -4,18 +4,19 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"path/filepath"
+	"reflect"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"dappco.re/go/core/p2p/ueps"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 // ============================================================================
@@ -38,14 +39,27 @@ func TestIntegration_FullNodeLifecycle(t *testing.T) {
 
 	controllerIdentity := controllerNM.GetIdentity()
 	workerIdentity := workerNM.GetIdentity()
-	require.NotNil(t, controllerIdentity, "controller identity should be initialised")
-	require.NotNil(t, workerIdentity, "worker identity should be initialised")
-	assert.NotEmpty(t, controllerIdentity.ID, "controller ID should be non-empty")
-	assert.NotEmpty(t, workerIdentity.ID, "worker ID should be non-empty")
-	assert.NotEqual(t, controllerIdentity.ID, workerIdentity.ID,
-		"two independently generated identities must differ")
-	assert.Equal(t, RoleController, controllerIdentity.Role)
-	assert.Equal(t, RoleWorker, workerIdentity.Role)
+	if controllerIdentity == nil {
+		t.Fatal("expected non-nil")
+	}
+	if workerIdentity == nil {
+		t.Fatal("expected non-nil")
+	}
+	if len(controllerIdentity.ID) == 0 {
+		t.Fatal("expected non-empty")
+	}
+	if len(workerIdentity.ID) == 0 {
+		t.Fatal("expected non-empty")
+	}
+	if reflect.DeepEqual(controllerIdentity.ID, workerIdentity.ID) {
+		t.Fatalf("did not want %v", workerIdentity.ID)
+	}
+	if !reflect.DeepEqual(RoleController, controllerIdentity.Role) {
+		t.Fatalf("want %v, got %v", RoleController, controllerIdentity.Role)
+	}
+	if !reflect.DeepEqual(RoleWorker, workerIdentity.Role) {
+		t.Fatalf("want %v, got %v", RoleWorker, workerIdentity.Role)
+	}
 
 	// ----------------------------------------------------------------
 	// Step 2: Set up transports, registries, worker, and controller
@@ -102,7 +116,9 @@ func TestIntegration_FullNodeLifecycle(t *testing.T) {
 		Address: workerAddr,
 		Role:    RoleWorker,
 	}
-	require.NoError(t, controllerReg.AddPeer(workerPeer))
+	if err := controllerReg.AddPeer(workerPeer); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 
 	// Create the controller (registers handleResponse on the transport).
 	controller := NewController(controllerNM, controllerReg, controllerTransport)
@@ -111,48 +127,84 @@ func TestIntegration_FullNodeLifecycle(t *testing.T) {
 	// Step 3: WebSocket handshake (challenge-response)
 	// ----------------------------------------------------------------
 	pc, err := controllerTransport.Connect(workerPeer)
-	require.NoError(t, err, "handshake should succeed")
-	require.NotNil(t, pc, "peer connection should be returned")
-	assert.NotEmpty(t, pc.SharedSecret, "shared secret should be derived after handshake")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if pc == nil {
+		t.Fatal("expected non-nil")
+	}
+	if len(pc.SharedSecret) == 0 {
+		t.Fatal("expected non-empty")
+	}
 
 	// Allow server-side goroutines to register the connection.
 	time.Sleep(100 * time.Millisecond)
 
-	assert.Equal(t, 1, controllerTransport.ConnectedPeers(),
-		"controller should have 1 connected peer")
-	assert.Equal(t, 1, workerTransport.ConnectedPeers(),
-		"worker should have 1 connected peer")
+	if !reflect.DeepEqual(1, controllerTransport.ConnectedPeers()) {
+		t.Fatalf("want %v, got %v", 1, controllerTransport.ConnectedPeers())
+	}
+	if !reflect.DeepEqual(1, workerTransport.ConnectedPeers()) {
+		t.Fatalf("want %v, got %v", 1, workerTransport.ConnectedPeers())
+	}
 
 	// Verify the peer's real identity is stored.
 	serverPeerID := workerNM.GetIdentity().ID
 	conn := controllerTransport.GetConnection(serverPeerID)
-	require.NotNil(t, conn, "controller should hold a connection keyed by server's real ID")
-	assert.Equal(t, "integration-worker", conn.Peer.Name)
+	if conn == nil {
+		t.Fatal("expected non-nil")
+	}
+	if !reflect.DeepEqual("integration-worker", conn.Peer.Name) {
+		t.Fatalf("want %v, got %v", "integration-worker", conn.Peer.Name)
+	}
 
 	// ----------------------------------------------------------------
 	// Step 4: Encrypted message exchange — Ping/Pong
 	// ----------------------------------------------------------------
 	rtt, err := controller.PingPeer(serverPeerID)
-	require.NoError(t, err, "PingPeer should succeed")
-	assert.Greater(t, rtt, 0.0, "RTT should be positive")
-	assert.Less(t, rtt, 1000.0, "RTT on loopback should be well under 1s")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !(rtt > 0.0) {
+		t.Fatalf("expected %v to be greater than %v", rtt, 0.0)
+	}
+	if !(rtt < 1000.0) {
+		t.Fatalf("expected %v to be less than %v", rtt, 1000.0)
+	}
 
 	// Verify registry metrics were updated.
 	peerAfterPing := controllerReg.GetPeer(serverPeerID)
-	require.NotNil(t, peerAfterPing)
-	assert.Greater(t, peerAfterPing.PingMS, 0.0, "PingMS should be updated")
+	if peerAfterPing == nil {
+		t.Fatal("expected non-nil")
+	}
+	if !(peerAfterPing.PingMS > 0.0) {
+		t.Fatalf("expected %v to be greater than %v", peerAfterPing.PingMS, 0.0)
+	}
 
 	// ----------------------------------------------------------------
 	// Step 5: Encrypted message exchange — GetRemoteStats
 	// ----------------------------------------------------------------
 	stats, err := controller.GetRemoteStats(serverPeerID)
-	require.NoError(t, err, "GetRemoteStats should succeed")
-	require.NotNil(t, stats)
-	assert.Equal(t, workerIdentity.ID, stats.NodeID)
-	assert.Equal(t, "integration-worker", stats.NodeName)
-	assert.Len(t, stats.Miners, 1, "worker should report 1 miner")
-	assert.Equal(t, "integration-miner", stats.Miners[0].Name)
-	assert.Equal(t, 5000.0, stats.Miners[0].Hashrate)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if stats == nil {
+		t.Fatal("expected non-nil")
+	}
+	if !reflect.DeepEqual(workerIdentity.ID, stats.NodeID) {
+		t.Fatalf("want %v, got %v", workerIdentity.ID, stats.NodeID)
+	}
+	if !reflect.DeepEqual("integration-worker", stats.NodeName) {
+		t.Fatalf("want %v, got %v", "integration-worker", stats.NodeName)
+	}
+	if len(stats.Miners) != 1 {
+		t.Fatalf("want len %v, got %v", 1, len(stats.Miners))
+	}
+	if !reflect.DeepEqual("integration-miner", stats.Miners[0].Name) {
+		t.Fatalf("want %v, got %v", "integration-miner", stats.Miners[0].Name)
+	}
+	if !reflect.DeepEqual(5000.0, stats.Miners[0].Hashrate) {
+		t.Fatalf("want %v, got %v", 5000.0, stats.Miners[0].Hashrate)
+	}
 
 	// ----------------------------------------------------------------
 	// Step 6: UEPS packet routing via the Dispatcher
@@ -175,36 +227,59 @@ func TestIntegration_FullNodeLifecycle(t *testing.T) {
 	// 6a. Handshake intent.
 	pb := ueps.NewBuilder(IntentHandshake, []byte("hello-from-controller"))
 	wireData, err := pb.MarshalAndSign(sharedSecret)
-	require.NoError(t, err, "MarshalAndSign should succeed")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 
 	parsed, err := ueps.ReadAndVerify(bufio.NewReader(bytes.NewReader(wireData)), sharedSecret)
-	require.NoError(t, err, "ReadAndVerify should succeed")
-	require.NoError(t, dispatcher.Dispatch(parsed), "dispatch handshake should succeed")
-	assert.Equal(t, int32(1), handshakeReceived.Load())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if err := dispatcher.Dispatch(parsed); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !reflect.DeepEqual(int32(1), handshakeReceived.Load()) {
+		t.Fatalf("want %v, got %v", int32(1), handshakeReceived.Load())
+	}
 
 	// 6b. Compute intent.
 	pb2 := ueps.NewBuilder(IntentCompute, []byte(`{"job":"mine-block-42"}`))
 	wireData2, err := pb2.MarshalAndSign(sharedSecret)
-	require.NoError(t, err)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 
 	parsed2, err := ueps.ReadAndVerify(bufio.NewReader(bytes.NewReader(wireData2)), sharedSecret)
-	require.NoError(t, err)
-	require.NoError(t, dispatcher.Dispatch(parsed2))
-	assert.Equal(t, int32(1), computeReceived.Load())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if err := dispatcher.Dispatch(parsed2); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !reflect.DeepEqual(int32(1), computeReceived.Load()) {
+		t.Fatalf("want %v, got %v", int32(1), computeReceived.Load())
+	}
 
 	// 6c. High-threat packet should be rejected by the circuit breaker.
 	pb3 := ueps.NewBuilder(IntentCompute, []byte("hostile"))
 	pb3.Header.ThreatScore = ThreatScoreThreshold + 1
 	wireData3, err := pb3.MarshalAndSign(sharedSecret)
-	require.NoError(t, err)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 
 	parsed3, err := ueps.ReadAndVerify(bufio.NewReader(bytes.NewReader(wireData3)), sharedSecret)
-	require.NoError(t, err)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 	err = dispatcher.Dispatch(parsed3)
-	assert.ErrorIs(t, err, ErrThreatScoreExceeded,
-		"high-threat packet should be dropped by circuit breaker")
+	if !errors.Is(err, ErrThreatScoreExceeded) {
+		t.Fatalf("expected error %v, got %v", ErrThreatScoreExceeded, err)
+	}
 	// Compute handler should NOT have been called again.
-	assert.Equal(t, int32(1), computeReceived.Load())
+	if !reflect.DeepEqual(int32(1), computeReceived.Load()) {
+		t.Fatalf("want %v, got %v", int32(1), computeReceived.Load())
+	}
 
 	// ----------------------------------------------------------------
 	// Step 7: Graceful shutdown
@@ -221,11 +296,19 @@ func TestIntegration_FullNodeLifecycle(t *testing.T) {
 
 	select {
 	case msg := <-disconnectReceived:
-		assert.Equal(t, MsgDisconnect, msg.Type)
+		if !reflect.DeepEqual(MsgDisconnect, msg.Type) {
+			t.Fatalf("want %v, got %v", MsgDisconnect, msg.Type)
+		}
 		var payload DisconnectPayload
-		require.NoError(t, msg.ParsePayload(&payload))
-		assert.Equal(t, "integration test complete", payload.Reason)
-		assert.Equal(t, DisconnectNormal, payload.Code)
+		if err := msg.ParsePayload(&payload); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !reflect.DeepEqual("integration test complete", payload.Reason) {
+			t.Fatalf("want %v, got %v", "integration test complete", payload.Reason)
+		}
+		if !reflect.DeepEqual(DisconnectNormal, payload.Code) {
+			t.Fatalf("want %v, got %v", DisconnectNormal, payload.Code)
+		}
 	case <-time.After(3 * time.Second):
 		t.Error("timeout waiting for disconnect message on the worker side")
 	}
@@ -234,8 +317,9 @@ func TestIntegration_FullNodeLifecycle(t *testing.T) {
 	time.Sleep(200 * time.Millisecond)
 
 	// After graceful close, the controller should have 0 peers.
-	assert.Equal(t, 0, controllerTransport.ConnectedPeers(),
-		"controller should have 0 peers after graceful close")
+	if !reflect.DeepEqual(0, controllerTransport.ConnectedPeers()) {
+		t.Fatalf("want %v, got %v", 0, controllerTransport.ConnectedPeers())
+	}
 }
 
 // TestIntegration_SharedSecretAgreement verifies that two independently created
@@ -248,14 +332,21 @@ func TestIntegration_SharedSecretAgreement(t *testing.T) {
 	pubKeyB := nodeB.GetIdentity().PublicKey
 
 	secretFromA, err := nodeA.DeriveSharedSecret(pubKeyB)
-	require.NoError(t, err)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 
 	secretFromB, err := nodeB.DeriveSharedSecret(pubKeyA)
-	require.NoError(t, err)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 
-	assert.Equal(t, secretFromA, secretFromB,
-		"both nodes should derive identical shared secrets via ECDH")
-	assert.Equal(t, 32, len(secretFromA), "shared secret should be 32 bytes")
+	if !reflect.DeepEqual(secretFromA, secretFromB) {
+		t.Fatalf("want %v, got %v", secretFromA, secretFromB)
+	}
+	if !reflect.DeepEqual(32, len(secretFromA)) {
+		t.Fatalf("want %v, got %v", 32, len(secretFromA))
+	}
 }
 
 // TestIntegration_TwoNodeBidirectionalMessages verifies that both nodes
@@ -266,20 +357,34 @@ func TestIntegration_TwoNodeBidirectionalMessages(t *testing.T) {
 
 	// Controller -> Worker: Ping
 	rtt, err := controller.PingPeer(serverID)
-	require.NoError(t, err)
-	assert.Greater(t, rtt, 0.0)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !(rtt > 0.0) {
+		t.Fatalf("expected %v to be greater than %v", rtt, 0.0)
+	}
 
 	// Controller -> Worker: GetStats
 	stats, err := controller.GetRemoteStats(serverID)
-	require.NoError(t, err)
-	require.NotNil(t, stats)
-	assert.NotEmpty(t, stats.NodeID)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if stats == nil {
+		t.Fatal("expected non-nil")
+	}
+	if len(stats.NodeID) == 0 {
+		t.Fatal("expected non-empty")
+	}
 
 	// Verify multiple sequential round-trips work.
-	for i := range 5 {
+	for range 5 {
 		rtt, err := controller.PingPeer(serverID)
-		require.NoError(t, err, "sequential ping %d should succeed", i)
-		assert.Greater(t, rtt, 0.0)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !(rtt > 0.0) {
+			t.Fatalf("expected %v to be greater than %v", rtt, 0.0)
+		}
 	}
 }
 
@@ -305,15 +410,20 @@ func TestIntegration_MultiPeerTopology(t *testing.T) {
 			Address: addr,
 			Role:    RoleWorker,
 		}
-		require.NoError(t, controllerReg.AddPeer(peer))
+		if err := controllerReg.AddPeer(peer); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
 
 		_, err := controllerTransport.Connect(peer)
-		require.NoError(t, err, "connecting to worker %d should succeed", i)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
 	}
 
 	time.Sleep(100 * time.Millisecond)
-	assert.Equal(t, numWorkers, controllerTransport.ConnectedPeers(),
-		"controller should be connected to all workers")
+	if !reflect.DeepEqual(numWorkers, controllerTransport.ConnectedPeers()) {
+		t.Fatalf("want %v, got %v", numWorkers, controllerTransport.ConnectedPeers())
+	}
 
 	controller := NewController(controllerNM, controllerReg, controllerTransport)
 
@@ -332,13 +442,19 @@ func TestIntegration_MultiPeerTopology(t *testing.T) {
 	wg.Wait()
 
 	for i := range numWorkers {
-		require.NoError(t, errs[i], "ping to worker %d should succeed", i)
-		assert.Greater(t, results[i], 0.0, "RTT for worker %d should be positive", i)
+		if err := errs[i]; err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !(results[i] > 0.0) {
+			t.Fatalf("expected %v to be greater than %v", results[i], 0.0)
+		}
 	}
 
 	// Fetch stats from all workers in parallel.
 	allStats := controller.GetAllStats()
-	assert.Len(t, allStats, numWorkers, "should get stats from all workers")
+	if len(allStats) != numWorkers {
+		t.Fatalf("want len %v, got %v", numWorkers, len(allStats))
+	}
 }
 
 // TestIntegration_IdentityPersistenceAndReload verifies that a node identity
@@ -350,37 +466,64 @@ func TestIntegration_IdentityPersistenceAndReload(t *testing.T) {
 
 	// Create and persist identity.
 	nm1, err := NewNodeManagerWithPaths(keyPath, configPath)
-	require.NoError(t, err)
-	require.NoError(t, nm1.GenerateIdentity("persistent-node", RoleDual))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if err := nm1.GenerateIdentity("persistent-node", RoleDual); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 
 	original := nm1.GetIdentity()
-	require.NotNil(t, original)
+	if original == nil {
+		t.Fatal("expected non-nil")
+	}
 
 	// Reload from disk.
 	nm2, err := NewNodeManagerWithPaths(keyPath, configPath)
-	require.NoError(t, err)
-	require.True(t, nm2.HasIdentity(), "identity should be loaded from disk")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !(nm2.HasIdentity()) {
+		t.Fatal("expected true")
+	}
 
 	reloaded := nm2.GetIdentity()
-	require.NotNil(t, reloaded)
+	if reloaded == nil {
+		t.Fatal("expected non-nil")
+	}
 
-	assert.Equal(t, original.ID, reloaded.ID, "ID should persist")
-	assert.Equal(t, original.Name, reloaded.Name, "Name should persist")
-	assert.Equal(t, original.PublicKey, reloaded.PublicKey, "PublicKey should persist")
-	assert.Equal(t, original.Role, reloaded.Role, "Role should persist")
+	if !reflect.DeepEqual(original.ID, reloaded.ID) {
+		t.Fatalf("want %v, got %v", original.ID, reloaded.ID)
+	}
+	if !reflect.DeepEqual(original.Name, reloaded.Name) {
+		t.Fatalf("want %v, got %v", original.Name, reloaded.Name)
+	}
+	if !reflect.DeepEqual(original.PublicKey, reloaded.PublicKey) {
+		t.Fatalf("want %v, got %v", original.PublicKey, reloaded.PublicKey)
+	}
+	if !reflect.DeepEqual(original.Role, reloaded.Role) {
+		t.Fatalf("want %v, got %v", original.Role, reloaded.Role)
+	}
 
 	// Verify the reloaded key can derive the same shared secret.
 	kp, err := stmfGenerateKeyPair(t.TempDir())
-	require.NoError(t, err)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 
 	secret1, err := nm1.DeriveSharedSecret(kp)
-	require.NoError(t, err)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 
 	secret2, err := nm2.DeriveSharedSecret(kp)
-	require.NoError(t, err)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 
-	assert.Equal(t, secret1, secret2,
-		"shared secrets derived from original and reloaded keys should match")
+	if !reflect.DeepEqual(secret1, secret2) {
+		t.Fatalf("want %v, got %v", secret1, secret2)
+	}
 }
 
 // stmfGenerateKeyPair is a helper that generates a keypair and returns
@@ -399,7 +542,6 @@ func stmfGenerateKeyPair(dir string) (string, error) {
 	return nm.GetIdentity().PublicKey, nil
 }
 
-
 // TestIntegration_UEPSFullRoundTrip exercises a complete UEPS packet
 // lifecycle: build, sign, transmit (simulated), read, verify, dispatch.
 func TestIntegration_UEPSFullRoundTrip(t *testing.T) {
@@ -408,8 +550,12 @@ func TestIntegration_UEPSFullRoundTrip(t *testing.T) {
 
 	bPubKey := nodeB.GetIdentity().PublicKey
 	sharedSecret, err := nodeA.DeriveSharedSecret(bPubKey)
-	require.NoError(t, err, "shared secret derivation should succeed")
-	require.Len(t, sharedSecret, 32, "shared secret should be 32 bytes (SHA-256)")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(sharedSecret) != 32 {
+		t.Fatalf("want len %v, got %v", 32, len(sharedSecret))
+	}
 
 	// Build and sign a UEPS packet.
 	payload := []byte(`{"intent":"compute","job_id":"block-99"}`)
@@ -417,38 +563,61 @@ func TestIntegration_UEPSFullRoundTrip(t *testing.T) {
 	pb.Header.ThreatScore = 100
 
 	wireData, err := pb.MarshalAndSign(sharedSecret)
-	require.NoError(t, err)
-	require.NotEmpty(t, wireData)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(wireData) == 0 {
+		t.Fatal("expected non-empty")
+	}
 
 	// Node B derives the same shared secret from A's public key.
 	aPubKey := nodeA.GetIdentity().PublicKey
 	sharedSecretB, err := nodeB.DeriveSharedSecret(aPubKey)
-	require.NoError(t, err)
-	assert.Equal(t, sharedSecret, sharedSecretB,
-		"both sides should derive the same shared secret via ECDH")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !reflect.DeepEqual(sharedSecret, sharedSecretB) {
+		t.Fatalf("want %v, got %v", sharedSecret, sharedSecretB)
+	}
 
 	parsed, err := ueps.ReadAndVerify(
 		bufio.NewReader(bytes.NewReader(wireData)),
 		sharedSecretB,
 	)
-	require.NoError(t, err, "ReadAndVerify should succeed with the matching shared secret")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 
-	assert.Equal(t, byte(0x09), parsed.Header.Version)
-	assert.Equal(t, IntentCompute, parsed.Header.IntentID)
-	assert.Equal(t, uint16(100), parsed.Header.ThreatScore)
-	assert.Equal(t, payload, parsed.Payload)
+	if !reflect.DeepEqual(byte(0x09), parsed.Header.Version) {
+		t.Fatalf("want %v, got %v", byte(0x09), parsed.Header.Version)
+	}
+	if !reflect.DeepEqual(IntentCompute, parsed.Header.IntentID) {
+		t.Fatalf("want %v, got %v", IntentCompute, parsed.Header.IntentID)
+	}
+	if !reflect.DeepEqual(uint16(100), parsed.Header.ThreatScore) {
+		t.Fatalf("want %v, got %v", uint16(100), parsed.Header.ThreatScore)
+	}
+	if !reflect.DeepEqual(payload, parsed.Payload) {
+		t.Fatalf("want %v, got %v", payload, parsed.Payload)
+	}
 
 	// Dispatch through the dispatcher.
 	dispatcher := NewDispatcher()
 	var dispatched bool
 	dispatcher.RegisterHandler(IntentCompute, func(pkt *ueps.ParsedPacket) error {
 		dispatched = true
-		assert.Equal(t, payload, pkt.Payload)
+		if !reflect.DeepEqual(payload, pkt.Payload) {
+			t.Fatalf("want %v, got %v", payload, pkt.Payload)
+		}
 		return nil
 	})
 
-	require.NoError(t, dispatcher.Dispatch(parsed))
-	assert.True(t, dispatched, "handler should have been called")
+	if err := dispatcher.Dispatch(parsed); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !(dispatched) {
+		t.Fatal("expected true")
+	}
 }
 
 // TestIntegration_UEPSIntegrityFailure verifies that a tampered UEPS packet
@@ -459,11 +628,15 @@ func TestIntegration_UEPSIntegrityFailure(t *testing.T) {
 
 	bPubKey := nodeB.GetIdentity().PublicKey
 	sharedSecret, err := nodeA.DeriveSharedSecret(bPubKey)
-	require.NoError(t, err)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 
 	pb := ueps.NewBuilder(IntentHandshake, []byte("legitimate data"))
 	wireData, err := pb.MarshalAndSign(sharedSecret)
-	require.NoError(t, err)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 
 	// Tamper with the payload (last bytes).
 	tampered := make([]byte, len(wireData))
@@ -472,14 +645,20 @@ func TestIntegration_UEPSIntegrityFailure(t *testing.T) {
 
 	aPubKey := nodeA.GetIdentity().PublicKey
 	sharedSecretB, err := nodeB.DeriveSharedSecret(aPubKey)
-	require.NoError(t, err)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 
 	_, err = ueps.ReadAndVerify(
 		bufio.NewReader(bytes.NewReader(tampered)),
 		sharedSecretB,
 	)
-	assert.Error(t, err, "tampered packet should fail HMAC verification")
-	assert.Contains(t, err.Error(), "HMAC mismatch")
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !strings.Contains(err.Error(), "HMAC mismatch") {
+		t.Fatalf("expected %q to contain %q", err.Error(), "HMAC mismatch")
+	}
 }
 
 // TestIntegration_AllowlistHandshakeRejection verifies that a peer not in the
@@ -515,8 +694,12 @@ func TestIntegration_AllowlistHandshakeRejection(t *testing.T) {
 	controllerReg.AddPeer(peer)
 
 	_, err := controllerTransport.Connect(peer)
-	require.Error(t, err, "connection should be rejected by allowlist")
-	assert.Contains(t, err.Error(), "rejected")
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !strings.Contains(err.Error(), "rejected") {
+		t.Fatalf("expected %q to contain %q", err.Error(), "rejected")
+	}
 }
 
 // TestIntegration_AllowlistHandshakeAccepted verifies that an allowlisted
@@ -557,8 +740,12 @@ func TestIntegration_AllowlistHandshakeAccepted(t *testing.T) {
 	controllerReg.AddPeer(peer)
 
 	pc, err := controllerTransport.Connect(peer)
-	require.NoError(t, err, "allowlisted peer should connect successfully")
-	assert.NotEmpty(t, pc.SharedSecret)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(pc.SharedSecret) == 0 {
+		t.Fatal("expected non-empty")
+	}
 }
 
 // TestIntegration_DispatcherWithRealUEPSPackets builds real UEPS packets
@@ -595,18 +782,28 @@ func TestIntegration_DispatcherWithRealUEPSPackets(t *testing.T) {
 		t.Run(intent.name, func(t *testing.T) {
 			pb := ueps.NewBuilder(intent.id, []byte(intent.payload))
 			wireData, err := pb.MarshalAndSign(sharedSecret)
-			require.NoError(t, err)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
 
 			parsed, err := ueps.ReadAndVerify(
 				bufio.NewReader(bytes.NewReader(wireData)),
 				sharedSecret,
 			)
-			require.NoError(t, err)
-			require.NoError(t, dispatcher.Dispatch(parsed))
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if err := dispatcher.Dispatch(parsed); err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
 
 			val, ok := results.Load(intent.id)
-			require.True(t, ok, "handler for %s should have been called", intent.name)
-			assert.Equal(t, intent.payload, val)
+			if !(ok) {
+				t.Fatal("expected true")
+			}
+			if !reflect.DeepEqual(intent.payload, val) {
+				t.Fatalf("want %v, got %v", intent.payload, val)
+			}
 		})
 	}
 }
@@ -636,26 +833,50 @@ func TestIntegration_MessageSerialiseDeserialise(t *testing.T) {
 		},
 		Uptime: 86400,
 	})
-	require.NoError(t, err)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 	original.ReplyTo = "parent-msg-id-12345"
 
 	encrypted, err := tp.Client.encryptMessage(original, pc.SharedSecret)
-	require.NoError(t, err)
-	require.NotEmpty(t, encrypted)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(encrypted) == 0 {
+		t.Fatal("expected non-empty")
+	}
 
 	decrypted, err := tp.Client.decryptMessage(encrypted, pc.SharedSecret)
-	require.NoError(t, err)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 
-	assert.Equal(t, original.ID, decrypted.ID)
-	assert.Equal(t, original.Type, decrypted.Type)
-	assert.Equal(t, original.From, decrypted.From)
-	assert.Equal(t, original.To, decrypted.To)
-	assert.Equal(t, original.ReplyTo, decrypted.ReplyTo)
+	if !reflect.DeepEqual(original.ID, decrypted.ID) {
+		t.Fatalf("want %v, got %v", original.ID, decrypted.ID)
+	}
+	if !reflect.DeepEqual(original.Type, decrypted.Type) {
+		t.Fatalf("want %v, got %v", original.Type, decrypted.Type)
+	}
+	if !reflect.DeepEqual(original.From, decrypted.From) {
+		t.Fatalf("want %v, got %v", original.From, decrypted.From)
+	}
+	if !reflect.DeepEqual(original.To, decrypted.To) {
+		t.Fatalf("want %v, got %v", original.To, decrypted.To)
+	}
+	if !reflect.DeepEqual(original.ReplyTo, decrypted.ReplyTo) {
+		t.Fatalf("want %v, got %v", original.ReplyTo, decrypted.ReplyTo)
+	}
 
 	var originalStats, decryptedStats StatsPayload
-	require.NoError(t, json.Unmarshal(original.Payload, &originalStats))
-	require.NoError(t, json.Unmarshal(decrypted.Payload, &decryptedStats))
-	assert.Equal(t, originalStats, decryptedStats)
+	if err := json.Unmarshal(original.Payload, &originalStats); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if err := json.Unmarshal(decrypted.Payload, &decryptedStats); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !reflect.DeepEqual(originalStats, decryptedStats) {
+		t.Fatalf("want %v, got %v", originalStats, decryptedStats)
+	}
 }
 
 // TestIntegration_GetRemoteStats_EndToEnd tests the full stats retrieval flow
@@ -674,9 +895,19 @@ func TestIntegration_GetRemoteStats_EndToEnd(t *testing.T) {
 	serverID := tp.ServerNode.GetIdentity().ID
 
 	stats, err := controller.GetRemoteStats(serverID)
-	require.NoError(t, err, "GetRemoteStats should succeed end-to-end")
-	require.NotNil(t, stats)
-	assert.Equal(t, serverID, stats.NodeID)
-	assert.Equal(t, "server", stats.NodeName)
-	assert.GreaterOrEqual(t, stats.Uptime, int64(0))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if stats == nil {
+		t.Fatal("expected non-nil")
+	}
+	if !reflect.DeepEqual(serverID, stats.NodeID) {
+		t.Fatalf("want %v, got %v", serverID, stats.NodeID)
+	}
+	if !reflect.DeepEqual("server", stats.NodeName) {
+		t.Fatalf("want %v, got %v", "server", stats.NodeName)
+	}
+	if !(stats.Uptime >= int64(0)) {
+		t.Fatalf("expected %v to be greater than or equal to %v", stats.Uptime, int64(0))
+	}
 }

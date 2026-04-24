@@ -5,14 +5,15 @@ package levin
 
 import (
 	"encoding/binary"
+	"errors"
+	"reflect"
 	"testing"
-
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 func TestHeaderSizeIs33(t *testing.T) {
-	assert.Equal(t, 33, HeaderSize)
+	if !reflect.DeepEqual(33, HeaderSize) {
+		t.Fatalf("want %v, got %v", 33, HeaderSize)
+	}
 }
 
 func TestEncodeHeader_KnownValues(t *testing.T) {
@@ -30,30 +31,44 @@ func TestEncodeHeader_KnownValues(t *testing.T) {
 
 	// Verify signature at offset 0.
 	sig := binary.LittleEndian.Uint64(buf[0:8])
-	assert.Equal(t, Signature, sig)
+	if !reflect.DeepEqual(Signature, sig) {
+		t.Fatalf("want %v, got %v", Signature, sig)
+	}
 
 	// Verify payload size at offset 8.
 	ps := binary.LittleEndian.Uint64(buf[8:16])
-	assert.Equal(t, uint64(256), ps)
+	if !reflect.DeepEqual(uint64(256), ps) {
+		t.Fatalf("want %v, got %v", uint64(256), ps)
+	}
 
 	// Verify expect-response at offset 16.
-	assert.Equal(t, byte(0x01), buf[16])
+	if !reflect.DeepEqual(byte(0x01), buf[16]) {
+		t.Fatalf("want %v, got %v", byte(0x01), buf[16])
+	}
 
 	// Verify command at offset 17.
 	cmd := binary.LittleEndian.Uint32(buf[17:21])
-	assert.Equal(t, CommandHandshake, cmd)
+	if !reflect.DeepEqual(CommandHandshake, cmd) {
+		t.Fatalf("want %v, got %v", CommandHandshake, cmd)
+	}
 
 	// Verify return code at offset 21.
 	rc := int32(binary.LittleEndian.Uint32(buf[21:25]))
-	assert.Equal(t, ReturnOK, rc)
+	if !reflect.DeepEqual(ReturnOK, rc) {
+		t.Fatalf("want %v, got %v", ReturnOK, rc)
+	}
 
 	// Verify flags at offset 25.
 	flags := binary.LittleEndian.Uint32(buf[25:29])
-	assert.Equal(t, uint32(0), flags)
+	if !reflect.DeepEqual(uint32(0), flags) {
+		t.Fatalf("want %v, got %v", uint32(0), flags)
+	}
 
 	// Verify protocol version at offset 29.
 	pv := binary.LittleEndian.Uint32(buf[29:33])
-	assert.Equal(t, uint32(0), pv)
+	if !reflect.DeepEqual(uint32(0), pv) {
+		t.Fatalf("want %v, got %v", uint32(0), pv)
+	}
 }
 
 func TestEncodeHeader_ExpectResponseFalse(t *testing.T) {
@@ -65,7 +80,9 @@ func TestEncodeHeader_ExpectResponseFalse(t *testing.T) {
 		ReturnCode:     ReturnOK,
 	}
 	buf := EncodeHeader(h)
-	assert.Equal(t, byte(0x00), buf[16])
+	if !reflect.DeepEqual(byte(0x00), buf[16]) {
+		t.Fatalf("want %v, got %v", byte(0x00), buf[16])
+	}
 }
 
 func TestEncodeHeader_NegativeReturnCode(t *testing.T) {
@@ -78,7 +95,9 @@ func TestEncodeHeader_NegativeReturnCode(t *testing.T) {
 	}
 	buf := EncodeHeader(h)
 	rc := int32(binary.LittleEndian.Uint32(buf[21:25]))
-	assert.Equal(t, ReturnErrFormat, rc)
+	if !reflect.DeepEqual(ReturnErrFormat, rc) {
+		t.Fatalf("want %v, got %v", ReturnErrFormat, rc)
+	}
 }
 
 func TestDecodeHeader_RoundTrip(t *testing.T) {
@@ -94,15 +113,31 @@ func TestDecodeHeader_RoundTrip(t *testing.T) {
 
 	buf := EncodeHeader(original)
 	decoded, err := DecodeHeader(buf)
-	require.NoError(t, err)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 
-	assert.Equal(t, original.Signature, decoded.Signature)
-	assert.Equal(t, original.PayloadSize, decoded.PayloadSize)
-	assert.Equal(t, original.ExpectResponse, decoded.ExpectResponse)
-	assert.Equal(t, original.Command, decoded.Command)
-	assert.Equal(t, original.ReturnCode, decoded.ReturnCode)
-	assert.Equal(t, original.Flags, decoded.Flags)
-	assert.Equal(t, original.ProtocolVersion, decoded.ProtocolVersion)
+	if !reflect.DeepEqual(original.Signature, decoded.Signature) {
+		t.Fatalf("want %v, got %v", original.Signature, decoded.Signature)
+	}
+	if !reflect.DeepEqual(original.PayloadSize, decoded.PayloadSize) {
+		t.Fatalf("want %v, got %v", original.PayloadSize, decoded.PayloadSize)
+	}
+	if !reflect.DeepEqual(original.ExpectResponse, decoded.ExpectResponse) {
+		t.Fatalf("want %v, got %v", original.ExpectResponse, decoded.ExpectResponse)
+	}
+	if !reflect.DeepEqual(original.Command, decoded.Command) {
+		t.Fatalf("want %v, got %v", original.Command, decoded.Command)
+	}
+	if !reflect.DeepEqual(original.ReturnCode, decoded.ReturnCode) {
+		t.Fatalf("want %v, got %v", original.ReturnCode, decoded.ReturnCode)
+	}
+	if !reflect.DeepEqual(original.Flags, decoded.Flags) {
+		t.Fatalf("want %v, got %v", original.Flags, decoded.Flags)
+	}
+	if !reflect.DeepEqual(original.ProtocolVersion, decoded.ProtocolVersion) {
+		t.Fatalf("want %v, got %v", original.ProtocolVersion, decoded.ProtocolVersion)
+	}
 }
 
 func TestDecodeHeader_AllCommands(t *testing.T) {
@@ -126,8 +161,12 @@ func TestDecodeHeader_AllCommands(t *testing.T) {
 		}
 		buf := EncodeHeader(h)
 		decoded, err := DecodeHeader(buf)
-		require.NoError(t, err)
-		assert.Equal(t, cmd, decoded.Command)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !reflect.DeepEqual(cmd, decoded.Command) {
+			t.Fatalf("want %v, got %v", cmd, decoded.Command)
+		}
 	}
 }
 
@@ -139,8 +178,12 @@ func TestDecodeHeader_BadSignature(t *testing.T) {
 	}
 	buf := EncodeHeader(h)
 	_, err := DecodeHeader(buf)
-	require.Error(t, err)
-	assert.ErrorIs(t, err, ErrBadSignature)
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !errors.Is(err, ErrBadSignature) {
+		t.Fatalf("expected error %v, got %v", ErrBadSignature, err)
+	}
 }
 
 func TestDecodeHeader_PayloadTooBig(t *testing.T) {
@@ -151,8 +194,12 @@ func TestDecodeHeader_PayloadTooBig(t *testing.T) {
 	}
 	buf := EncodeHeader(h)
 	_, err := DecodeHeader(buf)
-	require.Error(t, err)
-	assert.ErrorIs(t, err, ErrPayloadTooBig)
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !errors.Is(err, ErrPayloadTooBig) {
+		t.Fatalf("expected error %v, got %v", ErrPayloadTooBig, err)
+	}
 }
 
 func TestDecodeHeader_MaxPayloadExact(t *testing.T) {
@@ -163,6 +210,10 @@ func TestDecodeHeader_MaxPayloadExact(t *testing.T) {
 	}
 	buf := EncodeHeader(h)
 	decoded, err := DecodeHeader(buf)
-	require.NoError(t, err)
-	assert.Equal(t, MaxPayloadSize, decoded.PayloadSize)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !reflect.DeepEqual(MaxPayloadSize, decoded.PayloadSize) {
+		t.Fatalf("want %v, got %v", MaxPayloadSize, decoded.PayloadSize)
+	}
 }

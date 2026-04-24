@@ -4,12 +4,11 @@
 package levin
 
 import (
+	"errors"
 	"net"
+	"reflect"
 	"testing"
 	"time"
-
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 func TestConnection_RoundTrip(t *testing.T) {
@@ -29,16 +28,34 @@ func TestConnection_RoundTrip(t *testing.T) {
 	}()
 
 	h, data, err := receiver.ReadPacket()
-	require.NoError(t, err)
-	require.NoError(t, <-errCh)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if err := <-errCh; err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 
-	assert.Equal(t, cmd, h.Command)
-	assert.True(t, h.ExpectResponse)
-	assert.Equal(t, FlagRequest, h.Flags)
-	assert.Equal(t, LevinProtocolVersion, h.ProtocolVersion)
-	assert.Equal(t, Signature, h.Signature)
-	assert.Equal(t, uint64(len(payload)), h.PayloadSize)
-	assert.Equal(t, payload, data)
+	if !reflect.DeepEqual(cmd, h.Command) {
+		t.Fatalf("want %v, got %v", cmd, h.Command)
+	}
+	if !(h.ExpectResponse) {
+		t.Fatal("expected true")
+	}
+	if !reflect.DeepEqual(FlagRequest, h.Flags) {
+		t.Fatalf("want %v, got %v", FlagRequest, h.Flags)
+	}
+	if !reflect.DeepEqual(LevinProtocolVersion, h.ProtocolVersion) {
+		t.Fatalf("want %v, got %v", LevinProtocolVersion, h.ProtocolVersion)
+	}
+	if !reflect.DeepEqual(Signature, h.Signature) {
+		t.Fatalf("want %v, got %v", Signature, h.Signature)
+	}
+	if !reflect.DeepEqual(uint64(len(payload)), h.PayloadSize) {
+		t.Fatalf("want %v, got %v", uint64(len(payload)), h.PayloadSize)
+	}
+	if !reflect.DeepEqual(payload, data) {
+		t.Fatalf("want %v, got %v", payload, data)
+	}
 }
 
 func TestConnection_EmptyPayload(t *testing.T) {
@@ -55,13 +72,25 @@ func TestConnection_EmptyPayload(t *testing.T) {
 	}()
 
 	h, data, err := receiver.ReadPacket()
-	require.NoError(t, err)
-	require.NoError(t, <-errCh)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if err := <-errCh; err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 
-	assert.Equal(t, CommandPing, h.Command)
-	assert.False(t, h.ExpectResponse)
-	assert.Equal(t, uint64(0), h.PayloadSize)
-	assert.Nil(t, data)
+	if !reflect.DeepEqual(CommandPing, h.Command) {
+		t.Fatalf("want %v, got %v", CommandPing, h.Command)
+	}
+	if h.ExpectResponse {
+		t.Fatal("expected false")
+	}
+	if !reflect.DeepEqual(uint64(0), h.PayloadSize) {
+		t.Fatalf("want %v, got %v", uint64(0), h.PayloadSize)
+	}
+	if data != nil {
+		t.Fatalf("expected nil, got %v", data)
+	}
 }
 
 func TestConnection_Response(t *testing.T) {
@@ -81,14 +110,28 @@ func TestConnection_Response(t *testing.T) {
 	}()
 
 	h, data, err := receiver.ReadPacket()
-	require.NoError(t, err)
-	require.NoError(t, <-errCh)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if err := <-errCh; err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 
-	assert.Equal(t, CommandHandshake, h.Command)
-	assert.False(t, h.ExpectResponse)
-	assert.Equal(t, retCode, h.ReturnCode)
-	assert.Equal(t, FlagResponse, h.Flags)
-	assert.Equal(t, payload, data)
+	if !reflect.DeepEqual(CommandHandshake, h.Command) {
+		t.Fatalf("want %v, got %v", CommandHandshake, h.Command)
+	}
+	if h.ExpectResponse {
+		t.Fatal("expected false")
+	}
+	if !reflect.DeepEqual(retCode, h.ReturnCode) {
+		t.Fatalf("want %v, got %v", retCode, h.ReturnCode)
+	}
+	if !reflect.DeepEqual(FlagResponse, h.Flags) {
+		t.Fatalf("want %v, got %v", FlagResponse, h.Flags)
+	}
+	if !reflect.DeepEqual(payload, data) {
+		t.Fatalf("want %v, got %v", payload, data)
+	}
 }
 
 func TestConnection_PayloadTooBig(t *testing.T) {
@@ -119,10 +162,16 @@ func TestConnection_PayloadTooBig(t *testing.T) {
 	}()
 
 	_, _, err := receiver.ReadPacket()
-	require.Error(t, err)
-	assert.ErrorIs(t, err, ErrPayloadTooBig)
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !errors.Is(err, ErrPayloadTooBig) {
+		t.Fatalf("expected error %v, got %v", ErrPayloadTooBig, err)
+	}
 
-	require.NoError(t, <-errCh)
+	if err := <-errCh; err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 }
 
 func TestConnection_ReadTimeout(t *testing.T) {
@@ -135,12 +184,18 @@ func TestConnection_ReadTimeout(t *testing.T) {
 
 	// Do not write anything — the reader should time out.
 	_, _, err := receiver.ReadPacket()
-	require.Error(t, err)
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
 
 	// Verify it is a timeout error.
 	netErr, ok := err.(net.Error)
-	require.True(t, ok, "expected net.Error, got %T", err)
-	assert.True(t, netErr.Timeout(), "expected timeout error")
+	if !(ok) {
+		t.Fatal("expected true")
+	}
+	if !(netErr.Timeout()) {
+		t.Fatal("expected true")
+	}
 }
 
 func TestConnection_RemoteAddr(t *testing.T) {
@@ -150,7 +205,9 @@ func TestConnection_RemoteAddr(t *testing.T) {
 
 	conn := NewConnection(a)
 	addr := conn.RemoteAddr()
-	assert.NotEmpty(t, addr)
+	if len(addr) == 0 {
+		t.Fatal("expected non-empty")
+	}
 }
 
 func TestConnection_Close(t *testing.T) {
@@ -158,9 +215,13 @@ func TestConnection_Close(t *testing.T) {
 	defer b.Close()
 
 	conn := NewConnection(a)
-	require.NoError(t, conn.Close())
+	if err := conn.Close(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 
 	// Writing to a closed connection should fail.
 	err := conn.WritePacket(CommandPing, nil, false)
-	require.Error(t, err)
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
 }
