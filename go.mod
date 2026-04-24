@@ -1,10 +1,10 @@
-module dappco.re/go/core/p2p
+module dappco.re/go/p2p
 
 go 1.26.0
 
 require (
-	dappco.re/go/core/io v0.2.0
-	dappco.re/go/core/log v0.1.0
+	dappco.re/go/io v0.2.0
+	dappco.re/go/log v0.1.0
 	forge.lthn.ai/Snider/Borg v0.3.1
 	forge.lthn.ai/Snider/Poindexter v0.0.3
 	github.com/adrg/xdg v0.5.3

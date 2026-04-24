@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	coreerr "dappco.re/go/core/log"
+	coreerr "dappco.re/go/log"
 )
 
 // Level represents the severity of a log message.

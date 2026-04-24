@@ -10,9 +10,9 @@ import (
 	"sync"
 	"time"
 
-	coreio "dappco.re/go/core/io"
-	coreerr "dappco.re/go/core/log"
-	"dappco.re/go/core/p2p/logging"
+	coreio "dappco.re/go/io"
+	coreerr "dappco.re/go/log"
+	"dappco.re/go/p2p/logging"
 
 	poindexter "forge.lthn.ai/Snider/Poindexter"
 	"github.com/adrg/xdg"

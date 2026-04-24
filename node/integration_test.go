@@ -16,7 +16,7 @@ import (
 	"testing"
 	"time"
 
-	"dappco.re/go/core/p2p/ueps"
+	"dappco.re/go/p2p/ueps"
 )
 
 // ============================================================================

@@ -15,8 +15,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	coreerr "dappco.re/go/core/log"
-	"dappco.re/go/core/p2p/logging"
+	coreerr "dappco.re/go/log"
+	"dappco.re/go/p2p/logging"
 
 	"forge.lthn.ai/Snider/Borg/pkg/smsg"
 	"github.com/gorilla/websocket"

@@ -11,8 +11,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	coreio "dappco.re/go/core/io"
-	coreerr "dappco.re/go/core/log"
+	coreio "dappco.re/go/io"
+	coreerr "dappco.re/go/log"
 
 	"forge.lthn.ai/Snider/Borg/pkg/datanode"
 	"forge.lthn.ai/Snider/Borg/pkg/tim"

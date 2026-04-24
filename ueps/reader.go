@@ -8,7 +8,7 @@ import (
 	"encoding/binary"
 	"io"
 
-	coreerr "dappco.re/go/core/log"
+	coreerr "dappco.re/go/log"
 )
 
 // ParsedPacket holds the verified data

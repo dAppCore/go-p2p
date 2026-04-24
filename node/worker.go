@@ -6,9 +6,9 @@ import (
 	"path/filepath"
 	"time"
 
-	coreerr "dappco.re/go/core/log"
+	coreerr "dappco.re/go/log"
 
-	"dappco.re/go/core/p2p/logging"
+	"dappco.re/go/p2p/logging"
 	"github.com/adrg/xdg"
 )
 
