@@ -3,11 +3,13 @@ module dappco.re/go/p2p
 go 1.26.0
 
 require (
+	dappco.re/go/api v0.8.0-alpha.1
 	dappco.re/go/io v0.8.0-alpha.1
 	dappco.re/go/log v0.8.0-alpha.1
 	forge.lthn.ai/Snider/Borg v0.3.1
 	forge.lthn.ai/Snider/Poindexter v0.0.3
 	github.com/adrg/xdg v0.5.3
+	github.com/gin-gonic/gin v1.12.0
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/websocket v1.5.3
 )
