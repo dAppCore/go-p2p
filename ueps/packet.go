@@ -1,13 +1,17 @@
 package ueps
 
 import (
+	"crypto/hkdf"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/binary"
+	"fmt"
 
 	core "dappco.re/go/core"
 	coreerr "dappco.re/go/log"
 )
+
+const uepsMACKeyInfoV1 = "lthn-p2p-mac-v1"
 
 // TLV Types
 const (
@@ -53,7 +57,8 @@ func NewBuilder(intentID uint8, payload []byte) *PacketBuilder {
 	}
 }
 
-// MarshalAndSign generates the final byte stream using the shared secret
+// MarshalAndSign generates the final byte stream using a domain-separated MAC
+// key derived from the shared secret.
 func (p *PacketBuilder) MarshalAndSign(sharedSecret []byte) ([]byte, error) {
 	buf := core.NewBuffer()
 
@@ -82,7 +87,11 @@ func (p *PacketBuilder) MarshalAndSign(sharedSecret []byte) ([]byte, error) {
 	// 2. Calculate HMAC
 	// The signature covers: Existing Header TLVs + The Payload
 	// It does NOT cover the HMAC TLV tag itself (obviously)
-	mac := hmac.New(sha256.New, sharedSecret)
+	macKey, err := derivePacketMACKey(sharedSecret)
+	if err != nil {
+		return nil, err
+	}
+	mac := hmac.New(sha256.New, macKey)
 	mac.Write(buf.Bytes()) // The headers so far
 	mac.Write(p.Payload)   // The data
 	signature := mac.Sum(nil)
@@ -101,6 +110,14 @@ func (p *PacketBuilder) MarshalAndSign(sharedSecret []byte) ([]byte, error) {
 	}
 
 	return buf.Bytes(), nil
+}
+
+func derivePacketMACKey(sharedSecret []byte) ([]byte, error) {
+	key, err := hkdf.Expand(sha256.New, sharedSecret, uepsMACKeyInfoV1, sha256.Size)
+	if err != nil {
+		return nil, fmt.Errorf("derive UEPS MAC key: %w", err)
+	}
+	return key, nil
 }
 
 // Helper to write a simple TLV.

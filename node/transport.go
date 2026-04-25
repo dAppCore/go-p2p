@@ -2,8 +2,9 @@ package node
 
 import (
 	"context"
+	"crypto/cipher"
+	"crypto/rand"
 	"crypto/tls"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -21,8 +22,8 @@ import (
 	coreerr "dappco.re/go/log"
 	"dappco.re/go/p2p/logging"
 
-	"forge.lthn.ai/Snider/Borg/pkg/smsg"
 	"github.com/gorilla/websocket"
+	"golang.org/x/crypto/chacha20poly1305"
 )
 
 // debugLogCounter tracks message counts for rate limiting debug logs
@@ -119,7 +120,7 @@ func (d *MessageDeduplicator) Cleanup() {
 	}
 }
 
-// Transport manages WebSocket connections with SMSG encryption.
+// Transport manages WebSocket connections with per-peer AEAD encryption.
 type Transport struct {
 	config       TransportConfig
 	server       *http.Server
@@ -181,8 +182,9 @@ func (r *PeerRateLimiter) Allow() bool {
 type PeerConnection struct {
 	Peer         *Peer
 	Conn         *websocket.Conn
-	SharedSecret []byte // Derived via X25519 ECDH, used for SMSG
+	SharedSecret []byte // Derived via X25519 ECDH; derive per-purpose subkeys before use.
 	LastActivity time.Time
+	activityMu   sync.RWMutex
 	writeMu      sync.Mutex // Serialize WebSocket writes
 	transport    *Transport
 	closeOnce    sync.Once        // Ensure Close() is only called once
@@ -587,10 +589,15 @@ func (t *Transport) handleWSUpgrade(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Sign the client's challenge to prove we have the matching private key
+	// Sign the client's challenge to prove we have the matching private key.
 	var challengeResponse []byte
 	if len(payload.Challenge) > 0 {
-		challengeResponse = SignChallenge(payload.Challenge, sharedSecret)
+		subKeys, err := deriveSubKeys(sharedSecret)
+		if err != nil {
+			conn.Close()
+			return
+		}
+		challengeResponse = SignChallenge(payload.Challenge, subKeys.chlKey)
 	}
 
 	ackPayload := HandshakeAckPayload{
@@ -714,11 +721,16 @@ func (t *Transport) performHandshake(pc *PeerConnection) error {
 		return coreerr.E("Transport.performHandshake", "derive shared secret for challenge verification", err)
 	}
 
-	// Verify the server's response to our challenge
+	subKeys, err := deriveSubKeys(sharedSecret)
+	if err != nil {
+		return coreerr.E("Transport.performHandshake", "derive handshake subkeys", err)
+	}
+
+	// Verify the server's response to our challenge.
 	if len(ackPayload.ChallengeResponse) == 0 {
 		return coreerr.E("Transport.performHandshake", "server did not provide challenge response", nil)
 	}
-	if !VerifyChallenge(challenge, ackPayload.ChallengeResponse, sharedSecret) {
+	if !VerifyChallenge(challenge, ackPayload.ChallengeResponse, subKeys.chlKey) {
 		return coreerr.E("Transport.performHandshake", "challenge response verification failed: server may not have matching private key", nil)
 	}
 
@@ -774,7 +786,7 @@ func (t *Transport) readLoop(pc *PeerConnection) {
 			return
 		}
 
-		pc.LastActivity = time.Now()
+		pc.markActivity(time.Now())
 
 		// Check rate limit before processing
 		if pc.rateLimiter != nil && !pc.rateLimiter.Allow() {
@@ -782,7 +794,7 @@ func (t *Transport) readLoop(pc *PeerConnection) {
 			continue // Drop message from rate-limited peer
 		}
 
-		// Decrypt message using SMSG with shared secret
+		// Decrypt message using the transport AEAD encryption subkey.
 		msg, err := t.decryptMessage(data, pc.SharedSecret)
 		if err != nil {
 			if errors.Is(err, ErrEnvelopeSignatureInvalid) {
@@ -828,7 +840,7 @@ func (t *Transport) keepalive(pc *PeerConnection) {
 			return
 		case <-ticker.C:
 			// Check if connection is still alive
-			if time.Since(pc.LastActivity) > t.config.PingInterval+t.config.PongTimeout {
+			if time.Since(pc.lastActivity()) > t.config.PingInterval+t.config.PongTimeout {
 				t.removeConnection(pc)
 				return
 			}
@@ -860,7 +872,7 @@ func (pc *PeerConnection) Send(msg *Message) error {
 	pc.writeMu.Lock()
 	defer pc.writeMu.Unlock()
 
-	// Encrypt message using SMSG
+	// Encrypt message using the transport AEAD encryption subkey.
 	data, err := pc.transport.encryptMessage(msg, pc.SharedSecret)
 	if err != nil {
 		return err
@@ -876,8 +888,20 @@ func (pc *PeerConnection) Send(msg *Message) error {
 		return err
 	}
 
-	pc.LastActivity = time.Now()
+	pc.markActivity(time.Now())
 	return nil
+}
+
+func (pc *PeerConnection) markActivity(at time.Time) {
+	pc.activityMu.Lock()
+	pc.LastActivity = at
+	pc.activityMu.Unlock()
+}
+
+func (pc *PeerConnection) lastActivity() time.Time {
+	pc.activityMu.RLock()
+	defer pc.activityMu.RUnlock()
+	return pc.LastActivity
 }
 
 // Close closes the connection.
@@ -939,7 +963,9 @@ func (pc *PeerConnection) GracefulClose(reason string, code int) error {
 	return err
 }
 
-// encryptMessage encrypts a message using SMSG with the shared secret.
+const transportAEADVersion byte = 1
+
+// encryptMessage encrypts a message using a domain-separated transport AEAD key.
 func (t *Transport) encryptMessage(msg *Message, sharedSecret []byte) ([]byte, error) {
 	// Serialize message to JSON (using pooled buffer for efficiency)
 	msgData, err := MarshalJSON(msg)
@@ -951,29 +977,62 @@ func (t *Transport) encryptMessage(msg *Message, sharedSecret []byte) ([]byte, e
 }
 
 func encryptTransportPayload(payload []byte, sharedSecret []byte) ([]byte, error) {
-	// Create SMSG message
-	smsgMsg := smsg.NewMessage(string(payload))
-
-	// Encrypt using shared secret as password (base64 encoded)
-	password := base64.StdEncoding.EncodeToString(sharedSecret)
-	encrypted, err := smsg.Encrypt(smsgMsg, password)
+	aead, err := newTransportAEAD(sharedSecret)
 	if err != nil {
 		return nil, err
 	}
 
-	return encrypted, nil
+	nonce := make([]byte, aead.NonceSize())
+	if _, err := rand.Read(nonce); err != nil {
+		return nil, coreerr.E("encryptTransportPayload", "generate nonce", err)
+	}
+
+	out := make([]byte, 1, 1+len(nonce)+len(payload)+aead.Overhead())
+	out[0] = transportAEADVersion
+	out = append(out, nonce...)
+	out = aead.Seal(out, nonce, payload, transportAEADAdditionalData())
+	return out, nil
 }
 
-// decryptMessage decrypts a message using SMSG with the shared secret.
+// decryptMessage decrypts a message using a domain-separated transport AEAD key.
 func (t *Transport) decryptMessage(data []byte, sharedSecret []byte) (*Message, error) {
-	// Decrypt using shared secret as password
-	password := base64.StdEncoding.EncodeToString(sharedSecret)
-	smsgMsg, err := smsg.Decrypt(data, password)
+	plaintext, err := decryptTransportPayload(data, sharedSecret)
 	if err != nil {
 		return nil, err
 	}
 
-	return decodeReceivedMessage([]byte(smsgMsg.Body))
+	return decodeReceivedMessage(plaintext)
+}
+
+func decryptTransportPayload(data []byte, sharedSecret []byte) ([]byte, error) {
+	aead, err := newTransportAEAD(sharedSecret)
+	if err != nil {
+		return nil, err
+	}
+
+	headerSize := 1 + aead.NonceSize()
+	if len(data) < headerSize+aead.Overhead() {
+		return nil, fmt.Errorf("transport payload too short")
+	}
+	if data[0] != transportAEADVersion {
+		return nil, fmt.Errorf("unsupported transport payload version %d", data[0])
+	}
+
+	nonce := data[1:headerSize]
+	ciphertext := data[headerSize:]
+	return aead.Open(nil, nonce, ciphertext, transportAEADAdditionalData())
+}
+
+func newTransportAEAD(sharedSecret []byte) (cipher.AEAD, error) {
+	subKeys, err := deriveSubKeys(sharedSecret)
+	if err != nil {
+		return nil, err
+	}
+	return chacha20poly1305.New(subKeys.encKey)
+}
+
+func transportAEADAdditionalData() []byte {
+	return []byte{transportAEADVersion}
 }
 
 // ConnectedPeers returns the number of connected peers.

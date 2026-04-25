@@ -236,7 +236,7 @@ func TestReadAndVerify_ManualPacket_PayloadReadError(t *testing.T) {
 	}
 
 	// Compute HMAC
-	mac := hmac.New(sha256.New, testSecret)
+	mac := hmac.New(sha256.New, testPacketMACKey(t, testSecret))
 	mac.Write(hdr.Bytes())
 	mac.Write(payload)
 	sig := mac.Sum(nil)

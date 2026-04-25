@@ -17,7 +17,8 @@ type ParsedPacket struct {
 	Payload []byte
 }
 
-// ReadAndVerify reads a UEPS frame from the stream and validates the HMAC.
+// ReadAndVerify reads a UEPS frame from the stream and validates the HMAC with
+// a domain-separated MAC key derived from the shared secret.
 // It consumes the stream up to the end of the packet.
 func ReadAndVerify(r *bufio.Reader, sharedSecret []byte) (*ParsedPacket, error) {
 	// Buffer to reconstruct the data for HMAC verification
@@ -98,7 +99,11 @@ verify:
 
 	// 5. Verify HMAC
 	// Reconstruct: Headers (signedData) + Payload
-	mac := hmac.New(sha256.New, sharedSecret)
+	macKey, err := derivePacketMACKey(sharedSecret)
+	if err != nil {
+		return nil, err
+	}
+	mac := hmac.New(sha256.New, macKey)
 	mac.Write(signedData.Bytes())
 	mac.Write(payload)
 	expectedMAC := mac.Sum(nil)

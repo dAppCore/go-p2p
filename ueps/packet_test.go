@@ -14,6 +14,15 @@ import (
 // testSecret is a deterministic shared secret for reproducible tests.
 var testSecret = []byte("test-shared-secret-32-bytes!!!!!")
 
+func testPacketMACKey(t *testing.T, sharedSecret []byte) []byte {
+	t.Helper()
+	macKey, err := derivePacketMACKey(sharedSecret)
+	if err != nil {
+		t.Fatalf("derive packet MAC key: %v", err)
+	}
+	return macKey
+}
+
 func TestPacketBuilder_RoundTrip(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -256,7 +265,7 @@ func TestTruncatedPacket(t *testing.T) {
 		{
 			name:    "CutMidHMAC",
 			cutAt:   20, // Somewhere inside the header TLVs or HMAC
-			wantErr: "",  // Any io error
+			wantErr: "", // Any io error
 		},
 	}
 
@@ -296,7 +305,7 @@ func TestUnknownTLVTag(t *testing.T) {
 	writeTLV(&headerBuf, 0xAA, unknownValue)
 
 	// Compute HMAC over (all header TLVs including unknown + payload)
-	mac := hmac.New(sha256.New, testSecret)
+	mac := hmac.New(sha256.New, testPacketMACKey(t, testSecret))
 	mac.Write(headerBuf.Bytes())
 	mac.Write(payload)
 	signature := mac.Sum(nil)
@@ -406,7 +415,6 @@ func TestWriteTLV_BoundaryLengths(t *testing.T) {
 		})
 	}
 }
-
 
 // TestReadAndVerify_EmptyReader verifies behaviour on completely empty input.
 func TestReadAndVerify_EmptyReader(t *testing.T) {

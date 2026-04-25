@@ -3,11 +3,14 @@ package node
 import (
 	"bytes"
 	"crypto/ed25519"
+	"crypto/hmac"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -148,18 +151,35 @@ func waitForPeerConnection(t *testing.T, transport *Transport, peerID string) *P
 	return pc
 }
 
-func captureTransportLogs(t *testing.T) *bytes.Buffer {
+type lockedLogBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *lockedLogBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *lockedLogBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
+}
+
+func captureTransportLogs(t *testing.T) *lockedLogBuffer {
 	t.Helper()
-	var buf bytes.Buffer
+	buf := &lockedLogBuffer{}
 	previous := logging.GetGlobal()
 	logging.SetGlobal(logging.New(logging.Config{
-		Output: &buf,
+		Output: buf,
 		Level:  logging.LevelDebug,
 	}))
 	t.Cleanup(func() {
 		logging.SetGlobal(previous)
 	})
-	return &buf
+	return buf
 }
 
 func envelopeBody(t *testing.T, msg *Message) []byte {
@@ -291,6 +311,147 @@ func TestPeerRateLimiter(t *testing.T) {
 			t.Error("should allow after refill")
 		}
 	})
+}
+
+func TestDeriveSubKeysDeterministicAndSeparated(t *testing.T) {
+	sharedSecret := testSharedSecret(0x42)
+
+	keys1, err := deriveSubKeys(sharedSecret)
+	if err != nil {
+		t.Fatalf("deriveSubKeys: %v", err)
+	}
+	keys2, err := deriveSubKeys(sharedSecret)
+	if err != nil {
+		t.Fatalf("deriveSubKeys second call: %v", err)
+	}
+
+	if !bytes.Equal(keys1.encKey, keys2.encKey) {
+		t.Fatal("encryption key derivation is not deterministic")
+	}
+	if !bytes.Equal(keys1.macKey, keys2.macKey) {
+		t.Fatal("MAC key derivation is not deterministic")
+	}
+	if !bytes.Equal(keys1.chlKey, keys2.chlKey) {
+		t.Fatal("challenge key derivation is not deterministic")
+	}
+
+	for name, key := range map[string][]byte{
+		"encKey": keys1.encKey,
+		"macKey": keys1.macKey,
+		"chlKey": keys1.chlKey,
+	} {
+		if len(key) != subKeySize {
+			t.Fatalf("%s length: got %d, want %d", name, len(key), subKeySize)
+		}
+	}
+
+	if bytes.Equal(keys1.encKey, keys1.macKey) {
+		t.Fatal("encryption and MAC keys should be domain-separated")
+	}
+	if bytes.Equal(keys1.encKey, keys1.chlKey) {
+		t.Fatal("encryption and challenge keys should be domain-separated")
+	}
+	if bytes.Equal(keys1.macKey, keys1.chlKey) {
+		t.Fatal("MAC and challenge keys should be domain-separated")
+	}
+}
+
+func TestDeriveSubKeysDifferentSecrets(t *testing.T) {
+	keys1, err := deriveSubKeys(testSharedSecret(0x10))
+	if err != nil {
+		t.Fatalf("deriveSubKeys first secret: %v", err)
+	}
+	keys2, err := deriveSubKeys(testSharedSecret(0x20))
+	if err != nil {
+		t.Fatalf("deriveSubKeys second secret: %v", err)
+	}
+
+	if bytes.Equal(keys1.encKey, keys2.encKey) {
+		t.Fatal("different shared secrets produced the same encryption key")
+	}
+	if bytes.Equal(keys1.macKey, keys2.macKey) {
+		t.Fatal("different shared secrets produced the same MAC key")
+	}
+	if bytes.Equal(keys1.chlKey, keys2.chlKey) {
+		t.Fatal("different shared secrets produced the same challenge key")
+	}
+}
+
+func TestTransportPayloadEncryptDecryptRoundTrip(t *testing.T) {
+	sharedSecret := testSharedSecret(0x33)
+	payload := []byte(`{"id":"msg-1","type":"ping","from":"a","to":"b","timestamp":"2026-04-25T00:00:00Z","payload":{}}`)
+
+	encrypted, err := encryptTransportPayload(payload, sharedSecret)
+	if err != nil {
+		t.Fatalf("encryptTransportPayload: %v", err)
+	}
+	if len(encrypted) == 0 {
+		t.Fatal("expected encrypted payload")
+	}
+	if bytes.Equal(encrypted, payload) {
+		t.Fatal("ciphertext should not equal plaintext")
+	}
+
+	decrypted, err := decryptTransportPayload(encrypted, sharedSecret)
+	if err != nil {
+		t.Fatalf("decryptTransportPayload: %v", err)
+	}
+	if !bytes.Equal(decrypted, payload) {
+		t.Fatalf("decrypted payload mismatch: got %q, want %q", decrypted, payload)
+	}
+
+	if _, err := decryptTransportPayload(encrypted, testSharedSecret(0x34)); err == nil {
+		t.Fatal("decryptTransportPayload should reject a different shared secret")
+	}
+}
+
+func TestDerivedMACKeySignsAndVerifies(t *testing.T) {
+	keys, err := deriveSubKeys(testSharedSecret(0x55))
+	if err != nil {
+		t.Fatalf("deriveSubKeys: %v", err)
+	}
+	otherKeys, err := deriveSubKeys(testSharedSecret(0x56))
+	if err != nil {
+		t.Fatalf("deriveSubKeys other secret: %v", err)
+	}
+
+	message := []byte("ueps-mac-domain-separation")
+	signature := signWithMACKey(keys.macKey, message)
+
+	if !verifyWithMACKey(keys.macKey, message, signature) {
+		t.Fatal("signature should verify with the derived MAC key")
+	}
+	if verifyWithMACKey(otherKeys.macKey, message, signature) {
+		t.Fatal("signature should not verify with a different derived MAC key")
+	}
+}
+
+func TestTransportHotPathDoesNotCallSMSGEncrypt(t *testing.T) {
+	source, err := os.ReadFile("transport.go")
+	if err != nil {
+		t.Fatalf("read transport.go: %v", err)
+	}
+	if strings.Contains(string(source), "smsg.Encrypt") {
+		t.Fatal("transport hot path should not call smsg.Encrypt")
+	}
+}
+
+func testSharedSecret(seed byte) []byte {
+	sharedSecret := make([]byte, sharedSecretSize)
+	for i := range sharedSecret {
+		sharedSecret[i] = seed ^ byte(i)
+	}
+	return sharedSecret
+}
+
+func signWithMACKey(macKey []byte, message []byte) []byte {
+	mac := hmac.New(sha256.New, macKey)
+	mac.Write(message)
+	return mac.Sum(nil)
+}
+
+func verifyWithMACKey(macKey []byte, message []byte, signature []byte) bool {
+	return hmac.Equal(signature, signWithMACKey(macKey, message))
 }
 
 // --- Transport Integration Tests ---
