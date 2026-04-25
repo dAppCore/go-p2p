@@ -9,7 +9,7 @@ import (
 	coreerr "dappco.re/go/log"
 
 	"dappco.re/go/p2p/logging"
-	"github.com/adrg/xdg"
+	"github.com/adrg/xdg" // Note: intrinsic - XDG data directory resolution; c.Fs() does not expose XDG paths.
 )
 
 // MinerManager interface for the mining package integration.

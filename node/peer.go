@@ -15,7 +15,7 @@ import (
 	"dappco.re/go/p2p/logging"
 
 	poindexter "forge.lthn.ai/Snider/Poindexter"
-	"github.com/adrg/xdg"
+	"github.com/adrg/xdg" // Note: intrinsic - XDG data directory resolution; c.Fs() does not expose XDG paths.
 )
 
 // Peer represents a known remote node.

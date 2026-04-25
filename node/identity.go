@@ -17,7 +17,7 @@ import (
 	coreerr "dappco.re/go/log"
 
 	"forge.lthn.ai/Snider/Borg/pkg/stmf"
-	"github.com/adrg/xdg"
+	"github.com/adrg/xdg" // Note: intrinsic - XDG data directory resolution; c.Fs() does not expose XDG paths.
 )
 
 // ChallengeSize is the size of the challenge in bytes
