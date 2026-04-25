@@ -5,11 +5,14 @@ import (
 	"crypto/tls"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"iter"
 	"maps"
+	"net"
 	"net/http"
 	"net/url"
+	"os"
 	"slices"
 	"sync"
 	"sync/atomic"
@@ -31,6 +34,9 @@ const debugLogInterval = 100
 // DefaultMaxMessageSize is the default maximum message size (1MB)
 const DefaultMaxMessageSize int64 = 1 << 20 // 1MB
 
+// DefaultIdleTimeout is the default maximum time a peer read may remain idle.
+const DefaultIdleTimeout = 30 * time.Second
+
 // TransportConfig configures the WebSocket transport.
 type TransportConfig struct {
 	ListenAddr     string // ":9091" default
@@ -39,6 +45,7 @@ type TransportConfig struct {
 	TLSKeyPath     string
 	MaxConns       int           // Maximum concurrent connections
 	MaxMessageSize int64         // Maximum message size in bytes (0 = 1MB default)
+	IdleTimeout    time.Duration // Maximum idle time before a peer read times out
 	PingInterval   time.Duration // WebSocket keepalive interval
 	PongTimeout    time.Duration // Timeout waiting for pong
 }
@@ -50,6 +57,7 @@ func DefaultTransportConfig() TransportConfig {
 		WSPath:         "/ws",
 		MaxConns:       100,
 		MaxMessageSize: DefaultMaxMessageSize,
+		IdleTimeout:    DefaultIdleTimeout,
 		PingInterval:   30 * time.Second,
 		PongTimeout:    10 * time.Second,
 	}
@@ -212,6 +220,13 @@ func NewTransport(node *NodeManager, registry *PeerRegistry, config TransportCon
 		ctx:    ctx,
 		cancel: cancel,
 	}
+}
+
+func (t *Transport) idleTimeout() time.Duration {
+	if t.config.IdleTimeout > 0 {
+		return t.config.IdleTimeout
+	}
+	return DefaultIdleTimeout
 }
 
 // Start begins listening for incoming connections.
@@ -743,15 +758,18 @@ func (t *Transport) readLoop(pc *PeerConnection) {
 		default:
 		}
 
-		// Set read deadline to prevent blocking forever on unresponsive connections
-		readDeadline := t.config.PingInterval + t.config.PongTimeout
-		if err := pc.Conn.SetReadDeadline(time.Now().Add(readDeadline)); err != nil {
+		// Set read deadline to prevent blocking forever on unresponsive connections.
+		if err := pc.Conn.SetReadDeadline(time.Now().Add(t.idleTimeout())); err != nil {
 			logging.Error("SetReadDeadline error", logging.Fields{"peer_id": pc.Peer.ID, "error": err})
 			return
 		}
 
 		_, data, err := pc.Conn.ReadMessage()
 		if err != nil {
+			if isTimeoutError(err) {
+				logging.Warn("peer read deadline exceeded", logging.Fields{"peer_id": pc.Peer.ID, "error": err})
+				return
+			}
 			logging.Debug("read error from peer", logging.Fields{"peer_id": pc.Peer.ID, "error": err})
 			return
 		}
@@ -767,6 +785,10 @@ func (t *Transport) readLoop(pc *PeerConnection) {
 		// Decrypt message using SMSG with shared secret
 		msg, err := t.decryptMessage(data, pc.SharedSecret)
 		if err != nil {
+			if errors.Is(err, ErrEnvelopeSignatureInvalid) {
+				logging.Warn("dropping message with invalid envelope signature", logging.Fields{"peer_id": pc.Peer.ID, "error": err})
+				continue
+			}
 			logging.Debug("decrypt error from peer", logging.Fields{"peer_id": pc.Peer.ID, "error": err, "data_len": len(data)})
 			continue // Skip invalid messages
 		}
@@ -925,8 +947,12 @@ func (t *Transport) encryptMessage(msg *Message, sharedSecret []byte) ([]byte, e
 		return nil, err
 	}
 
+	return encryptTransportPayload(msgData, sharedSecret)
+}
+
+func encryptTransportPayload(payload []byte, sharedSecret []byte) ([]byte, error) {
 	// Create SMSG message
-	smsgMsg := smsg.NewMessage(string(msgData))
+	smsgMsg := smsg.NewMessage(string(payload))
 
 	// Encrypt using shared secret as password (base64 encoded)
 	password := base64.StdEncoding.EncodeToString(sharedSecret)
@@ -947,13 +973,7 @@ func (t *Transport) decryptMessage(data []byte, sharedSecret []byte) (*Message, 
 		return nil, err
 	}
 
-	// Parse message from JSON
-	var msg Message
-	if err := json.Unmarshal([]byte(smsgMsg.Body), &msg); err != nil {
-		return nil, err
-	}
-
-	return &msg, nil
+	return decodeReceivedMessage([]byte(smsgMsg.Body))
 }
 
 // ConnectedPeers returns the number of connected peers.
@@ -979,4 +999,12 @@ func (t *Transport) dropConnection(pc *PeerConnection) {
 	if t.registry != nil {
 		t.registry.SetConnected(pc.Peer.ID, false)
 	}
+}
+
+func isTimeoutError(err error) bool {
+	if errors.Is(err, os.ErrDeadlineExceeded) {
+		return true
+	}
+	var netErr net.Error
+	return errors.As(err, &netErr) && netErr.Timeout()
 }

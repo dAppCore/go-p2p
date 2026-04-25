@@ -1,6 +1,9 @@
 package node
 
 import (
+	"bytes"
+	"crypto/ed25519"
+	"crypto/rand"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -12,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"dappco.re/go/p2p/logging"
 	"github.com/gorilla/websocket"
 )
 
@@ -120,6 +124,73 @@ func (tp *testTransportPair) connectClient(t *testing.T) *PeerConnection {
 		t.Fatalf("client connect failed: %v", err)
 	}
 	return pc
+}
+
+func waitForTransportCondition(t *testing.T, timeout time.Duration, condition func() bool, failure string) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if condition() {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatal(failure)
+}
+
+func waitForPeerConnection(t *testing.T, transport *Transport, peerID string) *PeerConnection {
+	t.Helper()
+	var pc *PeerConnection
+	waitForTransportCondition(t, time.Second, func() bool {
+		pc = transport.GetConnection(peerID)
+		return pc != nil
+	}, "peer connection was not registered")
+	return pc
+}
+
+func captureTransportLogs(t *testing.T) *bytes.Buffer {
+	t.Helper()
+	var buf bytes.Buffer
+	previous := logging.GetGlobal()
+	logging.SetGlobal(logging.New(logging.Config{
+		Output: &buf,
+		Level:  logging.LevelDebug,
+	}))
+	t.Cleanup(func() {
+		logging.SetGlobal(previous)
+	})
+	return &buf
+}
+
+func envelopeBody(t *testing.T, msg *Message) []byte {
+	t.Helper()
+	body, err := MarshalJSON(msg)
+	if err != nil {
+		t.Fatalf("marshal message body: %v", err)
+	}
+	return body
+}
+
+func writeEnvelopeFrame(t *testing.T, pc *PeerConnection, env Envelope) {
+	t.Helper()
+	payload, err := MarshalJSON(env)
+	if err != nil {
+		t.Fatalf("marshal envelope: %v", err)
+	}
+	encrypted, err := encryptTransportPayload(payload, pc.SharedSecret)
+	if err != nil {
+		t.Fatalf("encrypt envelope: %v", err)
+	}
+
+	pc.writeMu.Lock()
+	defer pc.writeMu.Unlock()
+	if err := pc.Conn.SetWriteDeadline(time.Now().Add(time.Second)); err != nil {
+		t.Fatalf("set write deadline: %v", err)
+	}
+	defer pc.Conn.SetWriteDeadline(time.Time{})
+	if err := pc.Conn.WriteMessage(websocket.BinaryMessage, encrypted); err != nil {
+		t.Fatalf("write envelope frame: %v", err)
+	}
 }
 
 // --- Unit Tests for Sub-Components ---
@@ -524,6 +595,174 @@ func TestTransport_KeepaliveTimeout(t *testing.T) {
 			}
 			time.Sleep(50 * time.Millisecond)
 		}
+	}
+}
+
+func TestTransport_IdleTimeoutClosesSilentPeer(t *testing.T) {
+	serverCfg := DefaultTransportConfig()
+	serverCfg.IdleTimeout = 150 * time.Millisecond
+	serverCfg.PingInterval = time.Second
+	serverCfg.PongTimeout = time.Second
+
+	clientCfg := DefaultTransportConfig()
+	clientCfg.IdleTimeout = 150 * time.Millisecond
+	clientCfg.PingInterval = time.Second
+	clientCfg.PongTimeout = time.Second
+
+	tp := setupTestTransportPairWithConfig(t, serverCfg, clientCfg)
+	tp.connectClient(t)
+
+	if tp.Server.ConnectedPeers() != 1 {
+		t.Fatalf("server should have 1 peer initially, got %d", tp.Server.ConnectedPeers())
+	}
+
+	waitForTransportCondition(t, 2*time.Second, func() bool {
+		return tp.Server.ConnectedPeers() == 0
+	}, "silent peer connection did not close after idle timeout")
+}
+
+func TestTransport_IdleTimeoutAllowsActivePeer(t *testing.T) {
+	serverCfg := DefaultTransportConfig()
+	serverCfg.IdleTimeout = 500 * time.Millisecond
+	serverCfg.PingInterval = 2 * time.Second
+	serverCfg.PongTimeout = 2 * time.Second
+
+	clientCfg := DefaultTransportConfig()
+	clientCfg.IdleTimeout = 500 * time.Millisecond
+	clientCfg.PingInterval = 2 * time.Second
+	clientCfg.PongTimeout = 2 * time.Second
+
+	tp := setupTestTransportPairWithConfig(t, serverCfg, clientCfg)
+	clientConn := tp.connectClient(t)
+	serverConn := waitForPeerConnection(t, tp.Server, tp.ClientNode.GetIdentity().ID)
+
+	clientID := tp.ClientNode.GetIdentity().ID
+	serverID := tp.ServerNode.GetIdentity().ID
+	deadline := time.Now().Add(700 * time.Millisecond)
+	for time.Now().Before(deadline) {
+		clientMsg, _ := NewMessage(MsgPing, clientID, serverID, PingPayload{SentAt: time.Now().UnixMilli()})
+		if err := clientConn.Send(clientMsg); err != nil {
+			t.Fatalf("client send: %v", err)
+		}
+
+		serverMsg, _ := NewMessage(MsgPong, serverID, clientID, PongPayload{
+			SentAt:     time.Now().UnixMilli(),
+			ReceivedAt: time.Now().UnixMilli(),
+		})
+		if err := serverConn.Send(serverMsg); err != nil {
+			t.Fatalf("server send: %v", err)
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+
+	if tp.Server.ConnectedPeers() != 1 {
+		t.Fatalf("server should keep active peer connected, got %d", tp.Server.ConnectedPeers())
+	}
+	if tp.Client.ConnectedPeers() != 1 {
+		t.Fatalf("client should keep active peer connected, got %d", tp.Client.ConnectedPeers())
+	}
+}
+
+func TestTransport_EnvelopeSignedValidAccepted(t *testing.T) {
+	tp := setupTestTransportPair(t)
+
+	received := make(chan *Message, 1)
+	tp.Server.OnMessage(func(conn *PeerConnection, msg *Message) {
+		received <- msg
+	})
+
+	pc := tp.connectClient(t)
+	clientID := tp.ClientNode.GetIdentity().ID
+	serverID := tp.ServerNode.GetIdentity().ID
+	msg, _ := NewMessage(MsgPing, clientID, serverID, PingPayload{SentAt: time.Now().UnixMilli()})
+	body := envelopeBody(t, msg)
+
+	pub, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("generate signing key: %v", err)
+	}
+	env := Envelope{
+		PeerPubkey: pub,
+		Body:       body,
+		Signature:  ed25519.Sign(priv, body),
+	}
+	if err := env.VerifySignature(); err != nil {
+		t.Fatalf("signed envelope should verify: %v", err)
+	}
+
+	writeEnvelopeFrame(t, pc, env)
+
+	select {
+	case got := <-received:
+		if got.ID != msg.ID {
+			t.Errorf("message ID: got %q, want %q", got.ID, msg.ID)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timeout waiting for signed envelope message")
+	}
+}
+
+func TestTransport_EnvelopeBadSignatureDroppedAndLogged(t *testing.T) {
+	logs := captureTransportLogs(t)
+	tp := setupTestTransportPair(t)
+
+	var received atomic.Int32
+	tp.Server.OnMessage(func(conn *PeerConnection, msg *Message) {
+		received.Add(1)
+	})
+
+	pc := tp.connectClient(t)
+	clientID := tp.ClientNode.GetIdentity().ID
+	serverID := tp.ServerNode.GetIdentity().ID
+	msg, _ := NewMessage(MsgPing, clientID, serverID, PingPayload{SentAt: time.Now().UnixMilli()})
+	body := envelopeBody(t, msg)
+
+	pub, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("generate signing key: %v", err)
+	}
+	sig := ed25519.Sign(priv, body)
+	sig[0] ^= 0xff
+
+	writeEnvelopeFrame(t, pc, Envelope{
+		PeerPubkey: pub,
+		Body:       body,
+		Signature:  sig,
+	})
+
+	waitForTransportCondition(t, time.Second, func() bool {
+		return strings.Contains(logs.String(), "invalid envelope signature")
+	}, "invalid envelope signature was not logged")
+
+	if received.Load() != 0 {
+		t.Fatalf("bad signature message should be dropped, delivered %d messages", received.Load())
+	}
+}
+
+func TestTransport_EnvelopeUnsignedAccepted(t *testing.T) {
+	tp := setupTestTransportPair(t)
+
+	received := make(chan *Message, 1)
+	tp.Server.OnMessage(func(conn *PeerConnection, msg *Message) {
+		received <- msg
+	})
+
+	pc := tp.connectClient(t)
+	clientID := tp.ClientNode.GetIdentity().ID
+	serverID := tp.ServerNode.GetIdentity().ID
+	msg, _ := NewMessage(MsgPing, clientID, serverID, PingPayload{SentAt: time.Now().UnixMilli()})
+
+	writeEnvelopeFrame(t, pc, Envelope{
+		Body: envelopeBody(t, msg),
+	})
+
+	select {
+	case got := <-received:
+		if got.ID != msg.ID {
+			t.Errorf("message ID: got %q, want %q", got.ID, msg.ID)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timeout waiting for unsigned envelope message")
 	}
 }
 
