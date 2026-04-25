@@ -2,12 +2,12 @@ package ueps
 
 import (
 	"bufio"
-	"bytes"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/binary"
-	"io"
+	goio "io" // Note: AX-6 intrinsic — io.ReadFull for fixed-length TLV framing; no core wrapper for ReadFull semantics.
 
+	core "dappco.re/go/core"
 	coreerr "dappco.re/go/log"
 )
 
@@ -21,7 +21,7 @@ type ParsedPacket struct {
 // It consumes the stream up to the end of the packet.
 func ReadAndVerify(r *bufio.Reader, sharedSecret []byte) (*ParsedPacket, error) {
 	// Buffer to reconstruct the data for HMAC verification
-	var signedData bytes.Buffer
+	signedData := core.NewBuffer()
 	header := UEPSHeader{}
 	var signature []byte
 	var payload []byte
@@ -36,14 +36,14 @@ func ReadAndVerify(r *bufio.Reader, sharedSecret []byte) (*ParsedPacket, error) 
 
 		// 2. Read Length (2-byte big-endian uint16)
 		lenBuf := make([]byte, 2)
-		if _, err := io.ReadFull(r, lenBuf); err != nil {
+		if _, err := goio.ReadFull(r, lenBuf); err != nil {
 			return nil, err
 		}
 		length := int(binary.BigEndian.Uint16(lenBuf))
 
 		// 3. Read Value
 		value := make([]byte, length)
-		if _, err := io.ReadFull(r, value); err != nil {
+		if _, err := goio.ReadFull(r, value); err != nil {
 			return nil, err
 		}
 
@@ -112,4 +112,3 @@ verify:
 		Payload: payload,
 	}, nil
 }
-

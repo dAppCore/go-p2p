@@ -1,12 +1,11 @@
 package ueps
 
 import (
-	"bytes"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/binary"
-	"io"
 
+	core "dappco.re/go/core"
 	coreerr "dappco.re/go/log"
 )
 
@@ -23,7 +22,7 @@ const (
 
 // UEPSHeader represents the conscious routing metadata
 type UEPSHeader struct {
-	Version      uint8  // Default 0x09
+	Version      uint8 // Default 0x09
 	CurrentLayer uint8
 	TargetLayer  uint8
 	IntentID     uint8  // Semantic Token
@@ -34,6 +33,10 @@ type UEPSHeader struct {
 type PacketBuilder struct {
 	Header  UEPSHeader
 	Payload []byte
+}
+
+type tlvWriter interface {
+	Write([]byte) (int, error)
 }
 
 // NewBuilder creates a packet context for a specific intent
@@ -52,7 +55,7 @@ func NewBuilder(intentID uint8, payload []byte) *PacketBuilder {
 
 // MarshalAndSign generates the final byte stream using the shared secret
 func (p *PacketBuilder) MarshalAndSign(sharedSecret []byte) ([]byte, error) {
-	buf := new(bytes.Buffer)
+	buf := core.NewBuffer()
 
 	// 1. Write Standard Header Tags (0x01 - 0x05)
 	// We write these first because they are part of what we sign.
@@ -68,7 +71,7 @@ func (p *PacketBuilder) MarshalAndSign(sharedSecret []byte) ([]byte, error) {
 	if err := writeTLV(buf, TagIntent, []byte{p.Header.IntentID}); err != nil {
 		return nil, err
 	}
-	
+
 	// Threat Score is uint16, needs binary packing
 	tsBuf := make([]byte, 2)
 	binary.BigEndian.PutUint16(tsBuf, p.Header.ThreatScore)
@@ -92,7 +95,7 @@ func (p *PacketBuilder) MarshalAndSign(sharedSecret []byte) ([]byte, error) {
 
 	// 4. Write Payload TLV (0xFF)
 	// Fixed: Now uses writeTLV which provides a 2-byte length prefix.
-	// This prevents the io.ReadAll DoS and allows multiple packets in a stream.
+	// This prevents unbounded read DoS and allows multiple packets in a stream.
 	if err := writeTLV(buf, TagPayload, p.Payload); err != nil {
 		return nil, err
 	}
@@ -102,7 +105,7 @@ func (p *PacketBuilder) MarshalAndSign(sharedSecret []byte) ([]byte, error) {
 
 // Helper to write a simple TLV.
 // Now uses 2-byte big-endian length (uint16) to support up to 64KB payloads.
-func writeTLV(w io.Writer, tag uint8, value []byte) error {
+func writeTLV(w tlvWriter, tag uint8, value []byte) error {
 	// Check length constraint (2 byte length = max 65535 bytes)
 	if len(value) > 65535 {
 		return coreerr.E("ueps.writeTLV", "TLV value too large for 2-byte length header", nil)
@@ -111,16 +114,15 @@ func writeTLV(w io.Writer, tag uint8, value []byte) error {
 	if _, err := w.Write([]byte{tag}); err != nil {
 		return err
 	}
-	
+
 	lenBuf := make([]byte, 2)
 	binary.BigEndian.PutUint16(lenBuf, uint16(len(value)))
 	if _, err := w.Write(lenBuf); err != nil {
 		return err
 	}
-	
+
 	if _, err := w.Write(value); err != nil {
 		return err
 	}
 	return nil
 }
-
