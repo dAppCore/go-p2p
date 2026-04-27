@@ -10,7 +10,7 @@ import (
 	"math"
 	"slices"
 
-	coreerr "dappco.re/go/core/log"
+	coreerr "dappco.re/go/log"
 )
 
 // Portable storage signatures and version (9-byte header).

@@ -7,17 +7,15 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
-	"os"
-	"path/filepath"
-	"sync"
+	"os" // Note: AX-6 intrinsic - chmod repairs existing private-key file permissions after write.
 	"time"
 
-	coreio "dappco.re/go/core/io"
-	coreerr "dappco.re/go/core/log"
+	core "dappco.re/go/core"
+	coreio "dappco.re/go/io"
+	coreerr "dappco.re/go/log"
 
 	"forge.lthn.ai/Snider/Borg/pkg/stmf"
-	"github.com/adrg/xdg"
+	"github.com/adrg/xdg" // Note: intrinsic - XDG data directory resolution; c.Fs() does not expose XDG paths.
 )
 
 // ChallengeSize is the size of the challenge in bytes
@@ -74,7 +72,7 @@ type NodeManager struct {
 	keyPair    *stmf.KeyPair
 	keyPath    string // ~/.local/share/lethean-desktop/node/private.key
 	configPath string // ~/.config/lethean-desktop/node.json
-	mu         sync.RWMutex
+	mu         core.RWMutex
 }
 
 // NewNodeManager creates a new NodeManager, loading existing identity if available.
@@ -139,8 +137,8 @@ func LoadOrCreateIdentityWithPaths(keyPath, configPath string) (*NodeManager, er
 		return nm, nil
 	}
 
-	name, err := os.Hostname()
-	if err != nil || name == "" {
+	name := core.Env("HOSTNAME")
+	if name == "" {
 		name = "lethean-node"
 	}
 
@@ -246,13 +244,12 @@ func (n *NodeManager) DeriveSharedSecret(peerPubKeyBase64 string) ([]byte, error
 // savePrivateKey saves the private key to disk with restricted permissions.
 func (n *NodeManager) savePrivateKey() error {
 	// Ensure directory exists
-	dir := filepath.Dir(n.keyPath)
+	dir := core.PathDir(n.keyPath)
 	if err := coreio.Local.EnsureDir(dir); err != nil {
 		return coreerr.E("NodeManager.savePrivateKey", "failed to create key directory", err)
 	}
 
-	// Write private key and then tighten permissions explicitly.
-	if err := coreio.Local.Write(n.keyPath, string(n.privateKey)); err != nil {
+	if err := coreio.Local.WriteMode(n.keyPath, string(n.privateKey), 0600); err != nil {
 		return coreerr.E("NodeManager.savePrivateKey", "failed to write private key", err)
 	}
 	if err := os.Chmod(n.keyPath, 0600); err != nil {
@@ -265,15 +262,17 @@ func (n *NodeManager) savePrivateKey() error {
 // saveIdentity saves the public identity to the config file.
 func (n *NodeManager) saveIdentity() error {
 	// Ensure directory exists
-	dir := filepath.Dir(n.configPath)
+	dir := core.PathDir(n.configPath)
 	if err := coreio.Local.EnsureDir(dir); err != nil {
 		return coreerr.E("NodeManager.saveIdentity", "failed to create config directory", err)
 	}
 
-	data, err := json.MarshalIndent(n.identity, "", "  ")
-	if err != nil {
+	result := core.JSONMarshal(n.identity)
+	if !result.OK {
+		err, _ := result.Value.(error)
 		return coreerr.E("NodeManager.saveIdentity", "failed to marshal identity", err)
 	}
+	data := result.Value.([]byte)
 
 	if err := coreio.Local.Write(n.configPath, string(data)); err != nil {
 		return coreerr.E("NodeManager.saveIdentity", "failed to write identity", err)
@@ -291,7 +290,8 @@ func (n *NodeManager) loadIdentity() error {
 	}
 
 	var identity NodeIdentity
-	if err := json.Unmarshal([]byte(content), &identity); err != nil {
+	if result := core.JSONUnmarshal([]byte(content), &identity); !result.OK {
+		err, _ := result.Value.(error)
 		return coreerr.E("NodeManager.loadIdentity", "failed to unmarshal identity", err)
 	}
 

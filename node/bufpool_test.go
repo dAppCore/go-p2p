@@ -3,11 +3,11 @@ package node
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
+	"reflect"
+	"strings"
 	"sync"
 	"testing"
-
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 // --- bufpool.go tests ---
@@ -17,7 +17,9 @@ func TestGetBuffer_ReturnsResetBuffer(t *testing.T) {
 		buf := getBuffer()
 		defer putBuffer(buf)
 
-		assert.Equal(t, 0, buf.Len(), "buffer from pool should have zero length")
+		if !reflect.DeepEqual(0, buf.Len()) {
+			t.Fatalf("want %v, got %v", 0, buf.Len())
+		}
 	})
 
 	t.Run("buffer is reset after reuse", func(t *testing.T) {
@@ -28,8 +30,9 @@ func TestGetBuffer_ReturnsResetBuffer(t *testing.T) {
 		buf2 := getBuffer()
 		defer putBuffer(buf2)
 
-		assert.Equal(t, 0, buf2.Len(),
-			"reused buffer should be reset (no stale data)")
+		if !reflect.DeepEqual(0, buf2.Len()) {
+			t.Fatalf("want %v, got %v", 0, buf2.Len())
+		}
 	})
 }
 
@@ -41,21 +44,26 @@ func TestPutBuffer_DiscardsOversizedBuffers(t *testing.T) {
 
 		buf2 := getBuffer()
 		defer putBuffer(buf2)
-		assert.Equal(t, 0, buf2.Len())
+		if !reflect.DeepEqual(0, buf2.Len()) {
+			t.Fatalf("want %v, got %v", 0, buf2.Len())
+		}
 	})
 
 	t.Run("buffer exceeding 64KB is discarded", func(t *testing.T) {
 		buf := getBuffer()
 		large := make([]byte, 65537)
 		buf.Write(large)
-		assert.Greater(t, buf.Cap(), 65536, "buffer should have grown past 64KB")
+		if !(buf.Cap() > 65536) {
+			t.Fatalf("expected %v to be greater than %v", buf.Cap(), 65536)
+		}
 
 		putBuffer(buf)
 
 		buf2 := getBuffer()
 		defer putBuffer(buf2)
-		assert.LessOrEqual(t, buf2.Cap(), 65536,
-			"pool should not return an oversized buffer")
+		if !(buf2.Cap() <= 65536) {
+			t.Fatalf("expected %v to be less than or equal to %v", buf2.Cap(), 65536)
+		}
 	})
 }
 
@@ -66,12 +74,20 @@ func TestBufPool_BufferIndependence(t *testing.T) {
 	buf1.WriteString("buffer-one")
 	buf2.WriteString("buffer-two")
 
-	assert.Equal(t, "buffer-one", buf1.String())
-	assert.Equal(t, "buffer-two", buf2.String())
+	if !reflect.DeepEqual("buffer-one", buf1.String()) {
+		t.Fatalf("want %v, got %v", "buffer-one", buf1.String())
+	}
+	if !reflect.DeepEqual("buffer-two", buf2.String()) {
+		t.Fatalf("want %v, got %v", "buffer-two", buf2.String())
+	}
 
 	buf1.WriteString("-extra")
-	assert.Equal(t, "buffer-one-extra", buf1.String())
-	assert.Equal(t, "buffer-two", buf2.String())
+	if !reflect.DeepEqual("buffer-one-extra", buf1.String()) {
+		t.Fatalf("want %v, got %v", "buffer-one-extra", buf1.String())
+	}
+	if !reflect.DeepEqual("buffer-two", buf2.String()) {
+		t.Fatalf("want %v, got %v", "buffer-two", buf2.String())
+	}
 
 	putBuffer(buf1)
 	putBuffer(buf2)
@@ -119,66 +135,97 @@ func TestMarshalJSON_BasicTypes(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got, err := MarshalJSON(tt.input)
-			require.NoError(t, err)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
 
 			expected, err := json.Marshal(tt.input)
-			require.NoError(t, err)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
 
-			assert.JSONEq(t, string(expected), string(got),
-				"MarshalJSON output should match json.Marshal")
+			var wantJSON1, gotJSON1 any
+			if err := json.Unmarshal(expected, &wantJSON1); err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if err := json.Unmarshal(got, &gotJSON1); err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if !reflect.DeepEqual(wantJSON1, gotJSON1) {
+				t.Fatalf("want JSON %s, got %s", string(expected), string(got))
+			}
 		})
 	}
 }
 
 func TestMarshalJSON_NoTrailingNewline(t *testing.T) {
 	data, err := MarshalJSON(map[string]string{"key": "value"})
-	require.NoError(t, err)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 
-	assert.NotEqual(t, byte('\n'), data[len(data)-1],
-		"MarshalJSON should strip the trailing newline added by json.Encoder")
+	if reflect.DeepEqual(byte('\n'), data[len(data)-1]) {
+		t.Fatalf("did not want %v", data[len(data)-1])
+	}
 }
 
 func TestMarshalJSON_HTMLEscaping(t *testing.T) {
 	input := map[string]string{"html": "<script>alert('xss')</script>"}
 	data, err := MarshalJSON(input)
-	require.NoError(t, err)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 
-	assert.Contains(t, string(data), "<script>",
-		"HTML characters should not be escaped when EscapeHTML is false")
+	if !strings.Contains(string(data), "<script>") {
+		t.Fatalf("expected %q to contain %q", string(data), "<script>")
+	}
 }
 
 func TestMarshalJSON_ReturnsCopy(t *testing.T) {
 	data1, err := MarshalJSON("first")
-	require.NoError(t, err)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 
 	snapshot := make([]byte, len(data1))
 	copy(snapshot, data1)
 
 	data2, err := MarshalJSON("second")
-	require.NoError(t, err)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 	_ = data2
 
-	assert.Equal(t, snapshot, data1,
-		"returned slice should be a copy and not be mutated by subsequent calls")
+	if !reflect.DeepEqual(snapshot, data1) {
+		t.Fatalf("want %v, got %v", snapshot, data1)
+	}
 }
 
 func TestMarshalJSON_ReturnsIndependentCopy(t *testing.T) {
 	data1, err := MarshalJSON(map[string]string{"first": "call"})
-	require.NoError(t, err)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 
 	data2, err := MarshalJSON(map[string]string{"second": "call"})
-	require.NoError(t, err)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 
-	assert.True(t, bytes.Contains(data1, []byte("first")),
-		"first result should be independent of second call")
-	assert.True(t, bytes.Contains(data2, []byte("second")),
-		"second result should contain its own data")
+	if !(bytes.Contains(data1, []byte("first"))) {
+		t.Fatal("expected true")
+	}
+	if !(bytes.Contains(data2, []byte("second"))) {
+		t.Fatal("expected true")
+	}
 }
 
 func TestMarshalJSON_InvalidValue(t *testing.T) {
 	ch := make(chan int)
 	_, err := MarshalJSON(ch)
-	assert.Error(t, err, "marshalling an unserialisable type should return an error")
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
 }
 
 func TestBufferPool_ConcurrentAccess(t *testing.T) {
@@ -195,8 +242,12 @@ func TestBufferPool_ConcurrentAccess(t *testing.T) {
 				buf := getBuffer()
 				buf.WriteString("concurrent test data")
 
-				assert.IsType(t, &bytes.Buffer{}, buf)
-				assert.Greater(t, buf.Len(), 0)
+				if reflect.TypeOf(&bytes.Buffer{}) != reflect.TypeOf(buf) {
+					t.Errorf("expected type %T, got %T", &bytes.Buffer{}, buf)
+				}
+				if !(buf.Len() > 0) {
+					t.Errorf("expected %v to be greater than %v", buf.Len(), 0)
+				}
 
 				putBuffer(buf)
 			}
@@ -229,7 +280,7 @@ func TestMarshalJSON_ConcurrentSafety(t *testing.T) {
 					return
 				}
 				if parsed.SentAt != int64(idx) {
-					errs[idx] = assert.AnError
+					errs[idx] = errors.New("assertion error")
 				}
 			}
 		}(g)
@@ -238,7 +289,9 @@ func TestMarshalJSON_ConcurrentSafety(t *testing.T) {
 	wg.Wait()
 
 	for i, err := range errs {
-		assert.NoError(t, err, "goroutine %d should not produce an error", i)
+		if err != nil {
+			t.Fatalf("goroutine %d unexpected error: %v", i, err)
+		}
 	}
 }
 
@@ -250,7 +303,10 @@ func TestBufferPool_ReuseAfterReset(t *testing.T) {
 	buf2 := getBuffer()
 	defer putBuffer(buf2)
 
-	assert.Equal(t, 0, buf2.Len(), "buffer should be reset")
-	assert.GreaterOrEqual(t, buf2.Cap(), 1024,
-		"buffer capacity should be at least the default (1024)")
+	if !reflect.DeepEqual(0, buf2.Len()) {
+		t.Fatalf("want %v, got %v", 0, buf2.Len())
+	}
+	if !(buf2.Cap() >= 1024) {
+		t.Fatalf("expected %v to be greater than or equal to %v", buf2.Cap(), 1024)
+	}
 }

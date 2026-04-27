@@ -1,14 +1,14 @@
 package node
 
 import (
+	"errors"
 	"fmt"
+	"reflect"
 	"sync"
 	"sync/atomic"
 	"testing"
 
-	"dappco.re/go/core/p2p/ueps"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
+	"dappco.re/go/p2p/ueps"
 )
 
 // makePacket builds a minimal ParsedPacket for testing. ThreatScore defaults
@@ -41,10 +41,18 @@ func TestDispatcher_RegisterAndDispatch(t *testing.T) {
 		pkt := makePacket(IntentHandshake, 0, []byte("hello"))
 		err := d.Dispatch(pkt)
 
-		require.NoError(t, err)
-		require.NotNil(t, received)
-		assert.Equal(t, pkt, received)
-		assert.Equal(t, []byte("hello"), received.Payload)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if received == nil {
+			t.Fatal("expected non-nil")
+		}
+		if !reflect.DeepEqual(pkt, received) {
+			t.Fatalf("want %v, got %v", pkt, received)
+		}
+		if !reflect.DeepEqual([]byte("hello"), received.Payload) {
+			t.Fatalf("want %v, got %v", []byte("hello"), received.Payload)
+		}
 	})
 
 	t.Run("handler error propagates to caller", func(t *testing.T) {
@@ -58,7 +66,9 @@ func TestDispatcher_RegisterAndDispatch(t *testing.T) {
 		pkt := makePacket(IntentCompute, 0, []byte("job"))
 		err := d.Dispatch(pkt)
 
-		assert.ErrorIs(t, err, handlerErr)
+		if !errors.Is(err, handlerErr) {
+			t.Fatalf("expected error %v, got %v", handlerErr, err)
+		}
 	})
 }
 
@@ -109,11 +119,17 @@ func TestDispatcher_ThreatCircuitBreaker(t *testing.T) {
 			err := d.Dispatch(pkt)
 
 			if tt.wantErr != nil {
-				assert.ErrorIs(t, err, tt.wantErr)
+				if !errors.Is(err, tt.wantErr) {
+					t.Fatalf("expected error %v, got %v", tt.wantErr, err)
+				}
 			} else {
-				assert.NoError(t, err)
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
 			}
-			assert.Equal(t, tt.dispatched, called)
+			if !reflect.DeepEqual(tt.dispatched, called) {
+				t.Fatalf("want %v, got %v", tt.dispatched, called)
+			}
 		})
 	}
 }
@@ -130,7 +146,9 @@ func TestDispatcher_UnknownIntentDropped(t *testing.T) {
 	pkt := makePacket(0x42, 0, []byte("unknown"))
 	err := d.Dispatch(pkt)
 
-	assert.ErrorIs(t, err, ErrUnknownIntent)
+	if !errors.Is(err, ErrUnknownIntent) {
+		t.Fatalf("expected error %v, got %v", ErrUnknownIntent, err)
+	}
 }
 
 func TestDispatcher_MultipleHandlersCorrectRouting(t *testing.T) {
@@ -177,15 +195,19 @@ func TestDispatcher_MultipleHandlersCorrectRouting(t *testing.T) {
 			pkt := makePacket(tt.intentID, 0, []byte("payload"))
 			err := d.Dispatch(pkt)
 
-			require.NoError(t, err)
-			assert.True(t, *tt.want, "expected handler for intent 0x%02X to be called", tt.intentID)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if !(*tt.want) {
+				t.Fatal("expected true")
+			}
 
 			// Verify no other handler was called
 			for _, other := range tests {
 				if other.intentID != tt.intentID {
-					assert.False(t, *other.want,
-						"handler for intent 0x%02X should not have been called when dispatching 0x%02X",
-						other.intentID, tt.intentID)
+					if *other.want {
+						t.Fatal("expected false")
+					}
 				}
 			}
 		})
@@ -196,7 +218,9 @@ func TestDispatcher_NilAndEmptyPayload(t *testing.T) {
 	t.Run("nil packet returns ErrNilPacket", func(t *testing.T) {
 		d := NewDispatcher()
 		err := d.Dispatch(nil)
-		assert.ErrorIs(t, err, ErrNilPacket)
+		if !errors.Is(err, ErrNilPacket) {
+			t.Fatalf("expected error %v, got %v", ErrNilPacket, err)
+		}
 	})
 
 	t.Run("nil payload is delivered to handler", func(t *testing.T) {
@@ -211,9 +235,15 @@ func TestDispatcher_NilAndEmptyPayload(t *testing.T) {
 		pkt := makePacket(IntentHandshake, 0, nil)
 		err := d.Dispatch(pkt)
 
-		require.NoError(t, err)
-		require.NotNil(t, received)
-		assert.Nil(t, received.Payload)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if received == nil {
+			t.Fatal("expected non-nil")
+		}
+		if received.Payload != nil {
+			t.Fatalf("expected nil, got %v", received.Payload)
+		}
 	})
 
 	t.Run("empty payload is delivered to handler", func(t *testing.T) {
@@ -228,9 +258,15 @@ func TestDispatcher_NilAndEmptyPayload(t *testing.T) {
 		pkt := makePacket(IntentHandshake, 0, []byte{})
 		err := d.Dispatch(pkt)
 
-		require.NoError(t, err)
-		require.NotNil(t, received)
-		assert.Empty(t, received.Payload)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if received == nil {
+			t.Fatal("expected non-nil")
+		}
+		if len(received.Payload) != 0 {
+			t.Fatalf("expected empty, got %v", received.Payload)
+		}
 	})
 }
 
@@ -253,12 +289,16 @@ func TestDispatcher_ConcurrentDispatchSafety(t *testing.T) {
 			defer wg.Done()
 			pkt := makePacket(IntentCompute, 0, []byte("concurrent"))
 			err := d.Dispatch(pkt)
-			assert.NoError(t, err)
+			if err != nil {
+				t.Errorf("unexpected error: %v", err)
+			}
 		}()
 	}
 
 	wg.Wait()
-	assert.Equal(t, int64(goroutines), count.Load())
+	if !reflect.DeepEqual(int64(goroutines), count.Load()) {
+		t.Fatalf("want %v, got %v", int64(goroutines), count.Load())
+	}
 }
 
 func TestDispatcher_ConcurrentRegisterAndDispatch(t *testing.T) {
@@ -298,7 +338,9 @@ func TestDispatcher_ConcurrentRegisterAndDispatch(t *testing.T) {
 	wg.Wait()
 	// We only assert no panics / races occurred; count may vary depending
 	// on scheduling order.
-	assert.True(t, count.Load() >= 0)
+	if !(count.Load() >= 0) {
+		t.Fatal("expected true")
+	}
 }
 
 func TestDispatcher_ReplaceHandler(t *testing.T) {
@@ -320,9 +362,15 @@ func TestDispatcher_ReplaceHandler(t *testing.T) {
 	pkt := makePacket(IntentCompute, 0, []byte("replaced"))
 	err := d.Dispatch(pkt)
 
-	require.NoError(t, err)
-	assert.False(t, firstCalled, "original handler should not be called after replacement")
-	assert.True(t, secondCalled, "replacement handler should be called")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if firstCalled {
+		t.Fatal("expected false")
+	}
+	if !(secondCalled) {
+		t.Fatal("expected true")
+	}
 }
 
 func TestDispatcher_ThreatBlocksBeforeRouting(t *testing.T) {
@@ -333,14 +381,80 @@ func TestDispatcher_ThreatBlocksBeforeRouting(t *testing.T) {
 	pkt := makePacket(0x42, ThreatScoreThreshold+1, []byte("hostile"))
 	err := d.Dispatch(pkt)
 
-	assert.ErrorIs(t, err, ErrThreatScoreExceeded,
-		"threat circuit breaker should fire before intent routing")
+	if !errors.Is(err, ErrThreatScoreExceeded) {
+		t.Fatalf("expected error %v, got %v", ErrThreatScoreExceeded, err)
+	}
 }
 
 func TestDispatcher_IntentConstants(t *testing.T) {
 	// Verify the well-known intent IDs match the spec (RFC-021).
-	assert.Equal(t, byte(0x01), IntentHandshake)
-	assert.Equal(t, byte(0x20), IntentCompute)
-	assert.Equal(t, byte(0x30), IntentRehab)
-	assert.Equal(t, byte(0xFF), IntentCustom)
+	if !reflect.DeepEqual(byte(0x01), IntentHandshake) {
+		t.Fatalf("want %v, got %v", byte(0x01), IntentHandshake)
+	}
+	if !reflect.DeepEqual(byte(0x20), IntentCompute) {
+		t.Fatalf("want %v, got %v", byte(0x20), IntentCompute)
+	}
+	if !reflect.DeepEqual(byte(0x30), IntentRehab) {
+		t.Fatalf("want %v, got %v", byte(0x30), IntentRehab)
+	}
+	if !reflect.DeepEqual(byte(0xFF), IntentCustom) {
+		t.Fatalf("want %v, got %v", byte(0xFF), IntentCustom)
+	}
+}
+
+// TestDispatcher_Handlers_Good verifies that the Handlers iterator yields
+// every registered handler keyed by intent ID.
+func TestDispatcher_Handlers_Good(t *testing.T) {
+	d := NewDispatcher()
+
+	d.RegisterHandler(IntentHandshake, func(pkt *ueps.ParsedPacket) error { return nil })
+	d.RegisterHandler(IntentCompute, func(pkt *ueps.ParsedPacket) error { return nil })
+	d.RegisterHandler(IntentRehab, func(pkt *ueps.ParsedPacket) error { return nil })
+
+	seen := make(map[byte]bool)
+	for id, handler := range d.Handlers() {
+		if handler == nil {
+			t.Errorf("handler for intent 0x%02X is nil", id)
+		}
+		seen[id] = true
+	}
+
+	expected := []byte{IntentHandshake, IntentCompute, IntentRehab}
+	if len(seen) != len(expected) {
+		t.Errorf("expected %d handlers, got %d", len(expected), len(seen))
+	}
+	for _, id := range expected {
+		if !seen[id] {
+			t.Errorf("expected handler for intent 0x%02X in iterator output", id)
+		}
+	}
+}
+
+// TestDispatcher_Handlers_Bad verifies early termination and the empty-registry
+// case so the iterator cannot deadlock or misreport state.
+func TestDispatcher_Handlers_Bad(t *testing.T) {
+	d := NewDispatcher()
+
+	// Empty dispatcher yields nothing.
+	var emptyCount int
+	for range d.Handlers() {
+		emptyCount++
+	}
+	if emptyCount != 0 {
+		t.Errorf("empty dispatcher should yield 0 handlers, got %d", emptyCount)
+	}
+
+	// Early termination must stop the iterator promptly.
+	d.RegisterHandler(IntentHandshake, func(pkt *ueps.ParsedPacket) error { return nil })
+	d.RegisterHandler(IntentCompute, func(pkt *ueps.ParsedPacket) error { return nil })
+	d.RegisterHandler(IntentRehab, func(pkt *ueps.ParsedPacket) error { return nil })
+
+	var stopped int
+	for range d.Handlers() {
+		stopped++
+		break
+	}
+	if stopped != 1 {
+		t.Errorf("iterator should stop after first break, got %d", stopped)
+	}
 }

@@ -10,12 +10,12 @@ import (
 	"sync"
 	"time"
 
-	coreio "dappco.re/go/core/io"
-	coreerr "dappco.re/go/core/log"
-	"dappco.re/go/core/p2p/logging"
+	coreio "dappco.re/go/io"
+	coreerr "dappco.re/go/log"
+	"dappco.re/go/p2p/logging"
 
 	poindexter "forge.lthn.ai/Snider/Poindexter"
-	"github.com/adrg/xdg"
+	"github.com/adrg/xdg" // Note: intrinsic - XDG data directory resolution; c.Fs() does not expose XDG paths.
 )
 
 // Peer represents a known remote node.
@@ -27,6 +27,8 @@ type Peer struct {
 	Role      NodeRole  `json:"role"`
 	AddedAt   time.Time `json:"addedAt"`
 	LastSeen  time.Time `json:"lastSeen"`
+	Latitude  float64   `json:"latitude,omitempty"`
+	Longitude float64   `json:"longitude,omitempty"`
 
 	// Poindexter metrics (updated dynamically)
 	PingMS float64 `json:"pingMs"` // Latency in milliseconds
@@ -118,7 +120,11 @@ var (
 )
 
 // NewPeerRegistry creates a new PeerRegistry, loading existing peers if available.
-func NewPeerRegistry() (*PeerRegistry, error) {
+func NewPeerRegistry(paths ...string) (*PeerRegistry, error) {
+	if len(paths) > 0 && paths[0] != "" {
+		return NewPeerRegistryWithPath(paths[0])
+	}
+
 	peersPath, err := xdg.ConfigFile("lethean-desktop/peers.json")
 	if err != nil {
 		return nil, coreerr.E("PeerRegistry.New", "failed to get peers path", err)
@@ -401,14 +407,36 @@ func (r *PeerRegistry) UpdateScore(id string, score float64) error {
 // SetConnected updates a peer's connection state.
 func (r *PeerRegistry) SetConnected(id string, connected bool) {
 	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	if peer, exists := r.peers[id]; exists {
-		peer.Connected = connected
-		if connected {
-			peer.LastSeen = time.Now()
-		}
+	peer, exists := r.peers[id]
+	if !exists {
+		r.mu.Unlock()
+		return
 	}
+
+	peer.Connected = connected
+	if connected {
+		peer.LastSeen = time.Now()
+	}
+	r.mu.Unlock()
+
+	if connected {
+		r.save()
+	}
+}
+
+// MarkSeen updates a peer's LastSeen timestamp.
+func (r *PeerRegistry) MarkSeen(id string) {
+	r.mu.Lock()
+	peer, exists := r.peers[id]
+	if !exists {
+		r.mu.Unlock()
+		return
+	}
+
+	peer.LastSeen = time.Now()
+	r.mu.Unlock()
+
+	r.save()
 }
 
 // Score adjustment constants
@@ -432,7 +460,9 @@ func (r *PeerRegistry) RecordSuccess(id string) {
 
 	peer.Score = min(peer.Score+ScoreSuccessIncrement, ScoreMaximum)
 	peer.LastSeen = time.Now()
+	r.rebuildKDTree()
 	r.mu.Unlock()
+
 	r.save()
 }
 
@@ -446,8 +476,11 @@ func (r *PeerRegistry) RecordFailure(id string) {
 	}
 
 	peer.Score = max(peer.Score-ScoreFailureDecrement, ScoreMinimum)
+	peer.LastSeen = time.Now()
 	newScore := peer.Score
+	r.rebuildKDTree()
 	r.mu.Unlock()
+
 	r.save()
 
 	logging.Debug("peer score decreased", logging.Fields{
@@ -467,8 +500,11 @@ func (r *PeerRegistry) RecordTimeout(id string) {
 	}
 
 	peer.Score = max(peer.Score-ScoreTimeoutDecrement, ScoreMinimum)
+	peer.LastSeen = time.Now()
 	newScore := peer.Score
+	r.rebuildKDTree()
 	r.mu.Unlock()
+
 	r.save()
 
 	logging.Debug("peer score decreased", logging.Fields{
@@ -483,7 +519,11 @@ func (r *PeerRegistry) GetPeersByScore() []*Peer {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
-	peers := slices.Collect(maps.Values(r.peers))
+	peers := make([]*Peer, 0, len(r.peers))
+	for _, peer := range r.peers {
+		peerCopy := *peer
+		peers = append(peers, &peerCopy)
+	}
 
 	// Sort by score descending
 	slices.SortFunc(peers, func(a, b *Peer) int {
@@ -562,6 +602,63 @@ func (r *PeerRegistry) SelectNearestPeers(n int) []*Peer {
 	}
 
 	return peers
+}
+
+// FindNearby returns peers closest to the supplied coordinates and hop count.
+// It prefers explicit peer coordinates when available, but falls back to the
+// existing distance metrics so older registry entries still participate.
+func (r *PeerRegistry) FindNearby(latitude, longitude float64, hopCount, maxResults int) ([]*Peer, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	if maxResults <= 0 || len(r.peers) == 0 {
+		return []*Peer{}, nil
+	}
+
+	type scoredPeer struct {
+		peer  *Peer
+		score float64
+	}
+
+	scored := make([]scoredPeer, 0, len(r.peers))
+	for _, peer := range r.peers {
+		deltaLat := peer.Latitude - latitude
+		deltaLon := peer.Longitude - longitude
+
+		// If coordinates were never recorded, fall back to the coarse GeoKM
+		// distance already maintained by the registry.
+		coordDistance := deltaLat*deltaLat + deltaLon*deltaLon
+		if peer.Latitude == 0 && peer.Longitude == 0 {
+			coordDistance = peer.GeoKM * peer.GeoKM
+		}
+
+		hopDelta := float64(peer.Hops - hopCount)
+		combined := coordDistance + hopDelta*hopDelta
+		scored = append(scored, scoredPeer{
+			peer:  peer,
+			score: combined,
+		})
+	}
+
+	slices.SortFunc(scored, func(a, b scoredPeer) int {
+		switch {
+		case a.score < b.score:
+			return -1
+		case a.score > b.score:
+			return 1
+		default:
+			return 0
+		}
+	})
+
+	limit := min(maxResults, len(scored))
+	out := make([]*Peer, 0, limit)
+	for i := 0; i < limit; i++ {
+		peerCopy := *scored[i].peer
+		out = append(out, &peerCopy)
+	}
+
+	return out, nil
 }
 
 // GetConnectedPeers returns all currently connected peers.

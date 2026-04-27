@@ -3,7 +3,7 @@ package node
 import (
 	"fmt"
 
-	coreerr "dappco.re/go/core/log"
+	coreerr "dappco.re/go/log"
 )
 
 // ProtocolError represents an error from the remote peer.

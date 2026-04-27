@@ -11,8 +11,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	coreio "dappco.re/go/core/io"
-	coreerr "dappco.re/go/core/log"
+	coreio "dappco.re/go/io"
+	coreerr "dappco.re/go/log"
 
 	"forge.lthn.ai/Snider/Borg/pkg/datanode"
 	"forge.lthn.ai/Snider/Borg/pkg/tim"
@@ -195,6 +195,7 @@ func calculateChecksum(data []byte) string {
 
 // isJSON checks if data starts with JSON characters.
 func isJSON(data []byte) bool {
+	data = bytes.TrimSpace(data)
 	if len(data) == 0 {
 		return false
 	}
@@ -352,9 +353,13 @@ func StreamBundle(bundle *Bundle, w io.Writer) error {
 
 // ReadBundle reads a bundle from a reader.
 func ReadBundle(r io.Reader) (*Bundle, error) {
+	raw, err := io.ReadAll(r)
+	if err != nil {
+		return nil, err
+	}
+
 	var bundle Bundle
-	decoder := json.NewDecoder(r)
-	if err := decoder.Decode(&bundle); err != nil {
+	if err := json.Unmarshal(raw, &bundle); err != nil {
 		return nil, err
 	}
 	return &bundle, nil

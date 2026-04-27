@@ -267,17 +267,18 @@ func TestMessageTypes(t *testing.T) {
 func TestErrorCodes(t *testing.T) {
 	codes := map[int]string{
 		ErrCodeUnknown:         "Unknown",
-		ErrCodeInvalidMessage:  "InvalidMessage",
-		ErrCodeUnauthorized:    "Unauthorized",
 		ErrCodeNotFound:        "NotFound",
+		ErrCodeAlreadyRunning:  "AlreadyRunning",
+		ErrCodeNotRunning:      "NotRunning",
 		ErrCodeOperationFailed: "OperationFailed",
-		ErrCodeTimeout:         "Timeout",
+		ErrCodeInvalidConfig:   "InvalidConfig",
+		ErrCodeAuthFailed:      "AuthFailed",
 	}
 
 	for code, name := range codes {
 		t.Run(name, func(t *testing.T) {
-			if code < 1000 || code > 1999 {
-				t.Errorf("error code %d should be in 1000-1999 range", code)
+			if code < 0 || code > 6 {
+				t.Errorf("error code %d should be in 0-6 range", code)
 			}
 		})
 	}

@@ -8,10 +8,8 @@ import (
 	"encoding/binary"
 	"errors"
 	"io"
+	"reflect"
 	"testing"
-
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 // failWriter returns an error after n successful Write calls.
@@ -34,8 +32,12 @@ func TestWriteTLV_TagWriteFails(t *testing.T) {
 	w := &failWriter{remaining: 0}
 	err := writeTLV(w, TagVersion, []byte{0x09})
 
-	require.Error(t, err)
-	assert.Equal(t, "write failed", err.Error())
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !reflect.DeepEqual("write failed", err.Error()) {
+		t.Fatalf("want %v, got %v", "write failed", err.Error())
+	}
 }
 
 // TestWriteTLV_LengthWriteFails verifies writeTLV returns an error
@@ -44,8 +46,12 @@ func TestWriteTLV_LengthWriteFails(t *testing.T) {
 	w := &failWriter{remaining: 1}
 	err := writeTLV(w, TagVersion, []byte{0x09})
 
-	require.Error(t, err)
-	assert.Equal(t, "write failed", err.Error())
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !reflect.DeepEqual("write failed", err.Error()) {
+		t.Fatalf("want %v, got %v", "write failed", err.Error())
+	}
 }
 
 // TestWriteTLV_ValueWriteFails verifies writeTLV returns an error
@@ -54,8 +60,12 @@ func TestWriteTLV_ValueWriteFails(t *testing.T) {
 	w := &failWriter{remaining: 2}
 	err := writeTLV(w, TagVersion, []byte{0x09})
 
-	require.Error(t, err)
-	assert.Equal(t, "write failed", err.Error())
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !reflect.DeepEqual("write failed", err.Error()) {
+		t.Fatalf("want %v, got %v", "write failed", err.Error())
+	}
 }
 
 // errorAfterNReader delivers a fixed prefix of valid bytes then
@@ -86,7 +96,9 @@ func TestReadAndVerify_PayloadReadError(t *testing.T) {
 	payload := []byte("coverage test")
 	builder := NewBuilder(0x20, payload)
 	frame, err := builder.MarshalAndSign(testSecret)
-	require.NoError(t, err)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 
 	// Find the position of the 0xFF (TagPayload) byte in the frame.
 	// Everything up to and including 0xFF will be delivered; the
@@ -98,7 +110,9 @@ func TestReadAndVerify_PayloadReadError(t *testing.T) {
 			break
 		}
 	}
-	require.NotEqual(t, -1, payloadTagIdx, "0xFF tag must exist in the frame")
+	if reflect.DeepEqual(-1, payloadTagIdx) {
+		t.Fatalf("did not want %v", payloadTagIdx)
+	}
 
 	// Deliver bytes up to and including the 0xFF tag, then error.
 	prefix := frame[:payloadTagIdx+1]
@@ -108,8 +122,12 @@ func TestReadAndVerify_PayloadReadError(t *testing.T) {
 	}
 
 	_, err = ReadAndVerify(bufio.NewReader(r), testSecret)
-	require.Error(t, err)
-	assert.Equal(t, "connection reset", err.Error())
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !reflect.DeepEqual("connection reset", err.Error()) {
+		t.Fatalf("want %v, got %v", "connection reset", err.Error())
+	}
 }
 
 // TestReadAndVerify_PayloadReadError_EOF ensures that a truncated payload
@@ -119,23 +137,35 @@ func TestReadAndVerify_PayloadReadError_EOF(t *testing.T) {
 	payload := []byte("eof test")
 	builder := NewBuilder(0x20, payload)
 	frame, err := builder.MarshalAndSign(testSecret)
-	require.NoError(t, err)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 
 	// Truncate at TagPayload tag + partial length — the reader will see 0xFF
 	// then EOF while trying to read the 2-byte length or the payload itself.
 	payloadTagIdx := bytes.IndexByte(frame, TagPayload)
-	require.NotEqual(t, -1, payloadTagIdx)
+	if reflect.DeepEqual(-1, payloadTagIdx) {
+		t.Fatalf("did not want %v", payloadTagIdx)
+	}
 
 	truncated := frame[:payloadTagIdx+1] // Only the tag, no length
 	_, err = ReadAndVerify(bufio.NewReader(bytes.NewReader(truncated)), testSecret)
-	require.Error(t, err)
-	assert.ErrorIs(t, err, io.EOF) // Failed reading length
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !errors.Is(err, io.EOF) {
+		t.Fatalf("expected error %v, got %v", io.EOF, err)
+	} // Failed reading length
 
 	truncatedWithLen := frame[:payloadTagIdx+3] // Tag + Length, but no payload
 	_, err = ReadAndVerify(bufio.NewReader(bytes.NewReader(truncatedWithLen)), testSecret)
-	require.Error(t, err)
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
 	// io.ReadFull returns io.EOF if no bytes are read at all before EOF.
-	assert.ErrorIs(t, err, io.EOF)
+	if !errors.Is(err, io.EOF) {
+		t.Fatalf("expected error %v, got %v", io.EOF, err)
+	}
 }
 
 // TestWriteTLV_AllWritesSucceed confirms the happy path still works
@@ -144,11 +174,14 @@ func TestReadAndVerify_PayloadReadError_EOF(t *testing.T) {
 func TestWriteTLV_AllWritesSucceed(t *testing.T) {
 	var buf bytes.Buffer
 	err := writeTLV(&buf, TagVersion, []byte{0x09})
-	require.NoError(t, err)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 	// Now uses 2-byte big-endian length: 0x00 0x01
-	assert.Equal(t, []byte{TagVersion, 0x00, 0x01, 0x09}, buf.Bytes())
+	if !reflect.DeepEqual([]byte{TagVersion, 0x00, 0x01, 0x09}, buf.Bytes()) {
+		t.Fatalf("want %v, got %v", []byte{TagVersion, 0x00, 0x01, 0x09}, buf.Bytes())
+	}
 }
-
 
 // TestWriteTLV_FailWriterTable runs the three failure scenarios in
 // a table-driven fashion for completeness.
@@ -167,7 +200,9 @@ func TestWriteTLV_FailWriterTable(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			w := &failWriter{remaining: tc.remaining}
 			err := writeTLV(w, TagIntent, []byte{0x42})
-			require.Error(t, err, "expected error when %s write fails", tc.failsAt)
+			if err == nil {
+				t.Fatal("expected error, got nil")
+			}
 		})
 	}
 }
@@ -182,16 +217,26 @@ func TestReadAndVerify_ManualPacket_PayloadReadError(t *testing.T) {
 
 	// Build header TLVs
 	var hdr bytes.Buffer
-	require.NoError(t, writeTLV(&hdr, TagVersion, []byte{0x09}))
-	require.NoError(t, writeTLV(&hdr, TagCurrentLay, []byte{5}))
-	require.NoError(t, writeTLV(&hdr, TagTargetLay, []byte{5}))
-	require.NoError(t, writeTLV(&hdr, TagIntent, []byte{0x20}))
+	if err := writeTLV(&hdr, TagVersion, []byte{0x09}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if err := writeTLV(&hdr, TagCurrentLay, []byte{5}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if err := writeTLV(&hdr, TagTargetLay, []byte{5}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if err := writeTLV(&hdr, TagIntent, []byte{0x20}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 	tsBuf := make([]byte, 2)
 	binary.BigEndian.PutUint16(tsBuf, 0)
-	require.NoError(t, writeTLV(&hdr, TagThreatScore, tsBuf))
+	if err := writeTLV(&hdr, TagThreatScore, tsBuf); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 
 	// Compute HMAC
-	mac := hmac.New(sha256.New, testSecret)
+	mac := hmac.New(sha256.New, testPacketMACKey(t, testSecret))
 	mac.Write(hdr.Bytes())
 	mac.Write(payload)
 	sig := mac.Sum(nil)
@@ -199,7 +244,9 @@ func TestReadAndVerify_ManualPacket_PayloadReadError(t *testing.T) {
 	// Assemble full frame up to (and including) 0xFF tag
 	var frame bytes.Buffer
 	frame.Write(hdr.Bytes())
-	require.NoError(t, writeTLV(&frame, TagHMAC, sig))
+	if err := writeTLV(&frame, TagHMAC, sig); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 	frame.WriteByte(TagPayload)
 	// Do NOT write payload — the errorAfterNReader will inject an error here.
 
@@ -209,6 +256,10 @@ func TestReadAndVerify_ManualPacket_PayloadReadError(t *testing.T) {
 	}
 
 	_, err := ReadAndVerify(bufio.NewReader(r), testSecret)
-	require.Error(t, err)
-	assert.Equal(t, io.ErrUnexpectedEOF, err)
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !reflect.DeepEqual(io.ErrUnexpectedEOF, err) {
+		t.Fatalf("want %v, got %v", io.ErrUnexpectedEOF, err)
+	}
 }

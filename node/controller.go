@@ -2,13 +2,12 @@ package node
 
 import (
 	"context"
-	"encoding/json"
 	"sync"
 	"time"
 
-	coreerr "dappco.re/go/core/log"
+	coreerr "dappco.re/go/log"
 
-	"dappco.re/go/core/p2p/logging"
+	"dappco.re/go/p2p/logging"
 )
 
 // Controller manages remote peer operations from a controller node.
@@ -137,7 +136,7 @@ func (c *Controller) GetRemoteStats(peerID string) (*StatsPayload, error) {
 }
 
 // StartRemoteMiner requests a remote peer to start a miner with a given profile.
-func (c *Controller) StartRemoteMiner(peerID, minerType, profileID string, configOverride json.RawMessage) error {
+func (c *Controller) StartRemoteMiner(peerID, minerType, profileID string, configOverride RawMessage) error {
 	identity := c.node.GetIdentity()
 	if identity == nil {
 		return ErrIdentityNotInitialized

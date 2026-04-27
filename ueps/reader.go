@@ -2,13 +2,13 @@ package ueps
 
 import (
 	"bufio"
-	"bytes"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/binary"
-	"io"
+	goio "io" // Note: AX-6 intrinsic — io.ReadFull for fixed-length TLV framing; no core wrapper for ReadFull semantics.
 
-	coreerr "dappco.re/go/core/log"
+	core "dappco.re/go/core"
+	coreerr "dappco.re/go/log"
 )
 
 // ParsedPacket holds the verified data
@@ -17,11 +17,12 @@ type ParsedPacket struct {
 	Payload []byte
 }
 
-// ReadAndVerify reads a UEPS frame from the stream and validates the HMAC.
+// ReadAndVerify reads a UEPS frame from the stream and validates the HMAC with
+// a domain-separated MAC key derived from the shared secret.
 // It consumes the stream up to the end of the packet.
 func ReadAndVerify(r *bufio.Reader, sharedSecret []byte) (*ParsedPacket, error) {
 	// Buffer to reconstruct the data for HMAC verification
-	var signedData bytes.Buffer
+	signedData := core.NewBuffer()
 	header := UEPSHeader{}
 	var signature []byte
 	var payload []byte
@@ -36,14 +37,14 @@ func ReadAndVerify(r *bufio.Reader, sharedSecret []byte) (*ParsedPacket, error) 
 
 		// 2. Read Length (2-byte big-endian uint16)
 		lenBuf := make([]byte, 2)
-		if _, err := io.ReadFull(r, lenBuf); err != nil {
+		if _, err := goio.ReadFull(r, lenBuf); err != nil {
 			return nil, err
 		}
 		length := int(binary.BigEndian.Uint16(lenBuf))
 
 		// 3. Read Value
 		value := make([]byte, length)
-		if _, err := io.ReadFull(r, value); err != nil {
+		if _, err := goio.ReadFull(r, value); err != nil {
 			return nil, err
 		}
 
@@ -98,7 +99,11 @@ verify:
 
 	// 5. Verify HMAC
 	// Reconstruct: Headers (signedData) + Payload
-	mac := hmac.New(sha256.New, sharedSecret)
+	macKey, err := derivePacketMACKey(sharedSecret)
+	if err != nil {
+		return nil, err
+	}
+	mac := hmac.New(sha256.New, macKey)
 	mac.Write(signedData.Bytes())
 	mac.Write(payload)
 	expectedMAC := mac.Sum(nil)
@@ -112,4 +117,3 @@ verify:
 		Payload: payload,
 	}, nil
 }
-

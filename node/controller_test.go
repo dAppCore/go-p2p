@@ -7,14 +7,12 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
-
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 // setupControllerPair creates a controller (client-side) connected to a worker
@@ -83,8 +81,12 @@ func TestController_RequestResponseCorrelation(t *testing.T) {
 	// Send a ping request via the controller; the server-side worker
 	// replies with MsgPong, setting ReplyTo to the original message ID.
 	rtt, err := controller.PingPeer(serverID)
-	require.NoError(t, err, "PingPeer should succeed")
-	assert.Greater(t, rtt, 0.0, "RTT should be positive")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !(rtt > 0.0) {
+		t.Fatalf("expected %v to be greater than %v", rtt, 0.0)
+	}
 }
 
 func TestController_RequestTimeout(t *testing.T) {
@@ -107,15 +109,23 @@ func TestController_RequestTimeout(t *testing.T) {
 	msg, err := NewMessage(MsgPing, clientID, serverID, PingPayload{
 		SentAt: time.Now().UnixMilli(),
 	})
-	require.NoError(t, err)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 
 	start := time.Now()
 	_, err = controller.sendRequest(serverID, msg, 200*time.Millisecond)
 	elapsed := time.Since(start)
 
-	require.Error(t, err, "request should time out when peer does not reply")
-	assert.Contains(t, err.Error(), "timeout", "error message should mention timeout")
-	assert.Less(t, elapsed, 1*time.Second, "should return quickly after the deadline")
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !strings.Contains(err.Error(), "timeout") {
+		t.Fatalf("expected %q to contain %q", err.Error(), "timeout")
+	}
+	if !(elapsed < 1*time.Second) {
+		t.Fatalf("expected %v to be less than %v", elapsed, 1*time.Second)
+	}
 }
 
 func TestController_AutoConnect(t *testing.T) {
@@ -139,15 +149,23 @@ func TestController_AutoConnect(t *testing.T) {
 	tp.ClientReg.AddPeer(peer)
 
 	// Confirm no connection exists yet.
-	assert.Equal(t, 0, tp.Client.ConnectedPeers(), "should have no connections initially")
+	if !reflect.DeepEqual(0, tp.Client.ConnectedPeers()) {
+		t.Fatalf("want %v, got %v", 0, tp.Client.ConnectedPeers())
+	}
 
 	// Send a request — controller should auto-connect via transport before sending.
 	rtt, err := controller.PingPeer(serverIdentity.ID)
-	require.NoError(t, err, "PingPeer with auto-connect should succeed")
-	assert.Greater(t, rtt, 0.0, "RTT should be positive after auto-connect")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !(rtt > 0.0) {
+		t.Fatalf("expected %v to be greater than %v", rtt, 0.0)
+	}
 
 	// Verify connection was established.
-	assert.Equal(t, 1, tp.Client.ConnectedPeers(), "should have 1 connection after auto-connect")
+	if !reflect.DeepEqual(1, tp.Client.ConnectedPeers()) {
+		t.Fatalf("want %v, got %v", 1, tp.Client.ConnectedPeers())
+	}
 }
 
 func TestController_GetAllStats(t *testing.T) {
@@ -174,7 +192,9 @@ func TestController_GetAllStats(t *testing.T) {
 		controllerReg.AddPeer(peer)
 
 		_, err := controllerTransport.Connect(peer)
-		require.NoError(t, err, "connecting to worker %d should succeed", i)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
 	}
 
 	time.Sleep(100 * time.Millisecond) // Allow connections to stabilise.
@@ -183,14 +203,22 @@ func TestController_GetAllStats(t *testing.T) {
 
 	// GetAllStats fetches stats from all connected peers in parallel.
 	stats := controller.GetAllStats()
-	assert.Len(t, stats, numWorkers, "should get stats from all connected workers")
+	if len(stats) != numWorkers {
+		t.Fatalf("want len %v, got %v", numWorkers, len(stats))
+	}
 
 	for _, wID := range workerIDs {
 		peerStats, exists := stats[wID]
-		assert.True(t, exists, "stats should contain worker %s", wID)
+		if !(exists) {
+			t.Fatal("expected true")
+		}
 		if peerStats != nil {
-			assert.NotEmpty(t, peerStats.NodeID, "stats should include the node ID")
-			assert.GreaterOrEqual(t, peerStats.Uptime, int64(0), "uptime should be non-negative")
+			if len(peerStats.NodeID) == 0 {
+				t.Fatal("expected non-empty")
+			}
+			if !(peerStats.Uptime >= int64(0)) {
+				t.Fatalf("expected %v to be greater than or equal to %v", peerStats.Uptime, int64(0))
+			}
 		}
 	}
 }
@@ -201,21 +229,34 @@ func TestController_PingPeerRTT(t *testing.T) {
 
 	// Record initial peer metrics.
 	peerBefore := tp.ClientReg.GetPeer(serverID)
-	require.NotNil(t, peerBefore, "server peer should exist in the client registry")
+	if peerBefore == nil {
+		t.Fatal("expected non-nil")
+	}
 	initialPingMS := peerBefore.PingMS
 
 	// Send a ping.
 	rtt, err := controller.PingPeer(serverID)
-	require.NoError(t, err, "PingPeer should succeed")
-	assert.Greater(t, rtt, 0.0, "RTT should be positive")
-	assert.Less(t, rtt, 1000.0, "RTT on loopback should be well under 1000ms")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !(rtt > 0.0) {
+		t.Fatalf("expected %v to be greater than %v", rtt, 0.0)
+	}
+	if !(rtt < 1000.0) {
+		t.Fatalf("expected %v to be less than %v", rtt, 1000.0)
+	}
 
 	// Verify the peer registry was updated with the measured latency.
 	peerAfter := tp.ClientReg.GetPeer(serverID)
-	require.NotNil(t, peerAfter, "server peer should still exist after ping")
-	assert.NotEqual(t, initialPingMS, peerAfter.PingMS,
-		"PingMS should be updated after a successful ping")
-	assert.Greater(t, peerAfter.PingMS, 0.0, "PingMS should be positive")
+	if peerAfter == nil {
+		t.Fatal("expected non-nil")
+	}
+	if reflect.DeepEqual(initialPingMS, peerAfter.PingMS) {
+		t.Fatalf("did not want %v", peerAfter.PingMS)
+	}
+	if !(peerAfter.PingMS > 0.0) {
+		t.Fatalf("expected %v to be greater than %v", peerAfter.PingMS, 0.0)
+	}
 }
 
 func TestController_ConcurrentRequests(t *testing.T) {
@@ -243,7 +284,9 @@ func TestController_ConcurrentRequests(t *testing.T) {
 		controllerReg.AddPeer(peer)
 
 		_, err := controllerTransport.Connect(peer)
-		require.NoError(t, err, "connecting to worker %d should succeed", i)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
 	}
 
 	time.Sleep(100 * time.Millisecond)
@@ -267,8 +310,12 @@ func TestController_ConcurrentRequests(t *testing.T) {
 	wg.Wait()
 
 	for i, err := range errors {
-		assert.NoError(t, err, "PingPeer to peer %d should succeed", i)
-		assert.Greater(t, results[i], 0.0, "RTT for peer %d should be positive", i)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !(results[i] > 0.0) {
+			t.Fatalf("expected %v to be greater than %v", results[i], 0.0)
+		}
 	}
 }
 
@@ -289,11 +336,17 @@ func TestController_DeadPeerCleanup(t *testing.T) {
 	msg, err := NewMessage(MsgPing, clientID, serverID, PingPayload{
 		SentAt: time.Now().UnixMilli(),
 	})
-	require.NoError(t, err)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 
 	_, err = controller.sendRequest(serverID, msg, 100*time.Millisecond)
-	require.Error(t, err, "request should time out")
-	assert.Contains(t, err.Error(), "timeout")
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !strings.Contains(err.Error(), "timeout") {
+		t.Fatalf("expected %q to contain %q", err.Error(), "timeout")
+	}
 
 	// The defer block inside sendRequest should have cleaned up the pending entry.
 	time.Sleep(50 * time.Millisecond)
@@ -302,8 +355,9 @@ func TestController_DeadPeerCleanup(t *testing.T) {
 	pendingCount := len(controller.pending)
 	controller.mu.RUnlock()
 
-	assert.Equal(t, 0, pendingCount,
-		"pending map should be empty after timeout — no goroutine/memory leak")
+	if !reflect.DeepEqual(0, pendingCount) {
+		t.Fatalf("want %v, got %v", 0, pendingCount)
+	}
 }
 
 // --- Additional edge-case tests ---
@@ -313,10 +367,14 @@ func TestController_MultipleSequentialPings(t *testing.T) {
 	controller, _, tp := setupControllerPair(t)
 	serverID := tp.ServerNode.GetIdentity().ID
 
-	for i := range 5 {
+	for range 5 {
 		rtt, err := controller.PingPeer(serverID)
-		require.NoError(t, err, "iteration %d should succeed", i)
-		assert.Greater(t, rtt, 0.0, "iteration %d RTT should be positive", i)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !(rtt > 0.0) {
+			t.Fatalf("expected %v to be greater than %v", rtt, 0.0)
+		}
 	}
 }
 
@@ -340,8 +398,9 @@ func TestController_ConcurrentRequestsSamePeer(t *testing.T) {
 	}
 
 	wg.Wait()
-	assert.Equal(t, int32(goroutines), successCount.Load(),
-		"all concurrent requests to the same peer should succeed")
+	if !reflect.DeepEqual(int32(goroutines), successCount.Load()) {
+		t.Fatalf("want %v, got %v", int32(goroutines), successCount.Load())
+	}
 }
 
 func TestController_GetRemoteStats(t *testing.T) {
@@ -349,13 +408,25 @@ func TestController_GetRemoteStats(t *testing.T) {
 	serverID := tp.ServerNode.GetIdentity().ID
 
 	stats, err := controller.GetRemoteStats(serverID)
-	require.NoError(t, err, "GetRemoteStats should succeed")
-	require.NotNil(t, stats)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if stats == nil {
+		t.Fatal("expected non-nil")
+	}
 
-	assert.NotEmpty(t, stats.NodeID, "stats should contain the node ID")
-	assert.NotEmpty(t, stats.NodeName, "stats should contain the node name")
-	assert.NotNil(t, stats.Miners, "miners list should not be nil")
-	assert.GreaterOrEqual(t, stats.Uptime, int64(0), "uptime should be non-negative")
+	if len(stats.NodeID) == 0 {
+		t.Fatal("expected non-empty")
+	}
+	if len(stats.NodeName) == 0 {
+		t.Fatal("expected non-empty")
+	}
+	if stats.Miners == nil {
+		t.Fatal("expected non-nil")
+	}
+	if !(stats.Uptime >= int64(0)) {
+		t.Fatalf("expected %v to be greater than or equal to %v", stats.Uptime, int64(0))
+	}
 }
 
 func TestController_ConnectToPeerUnknown(t *testing.T) {
@@ -363,18 +434,26 @@ func TestController_ConnectToPeerUnknown(t *testing.T) {
 	controller := NewController(tp.ClientNode, tp.ClientReg, tp.Client)
 
 	err := controller.ConnectToPeer("non-existent-peer-id")
-	require.Error(t, err, "connecting to an unknown peer should fail")
-	assert.Contains(t, err.Error(), "not found")
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !strings.Contains(err.Error(), "not found") {
+		t.Fatalf("expected %q to contain %q", err.Error(), "not found")
+	}
 }
 
 func TestController_DisconnectFromPeer(t *testing.T) {
 	controller, _, tp := setupControllerPair(t)
 	serverID := tp.ServerNode.GetIdentity().ID
 
-	assert.Equal(t, 1, tp.Client.ConnectedPeers(), "should have 1 connection")
+	if !reflect.DeepEqual(1, tp.Client.ConnectedPeers()) {
+		t.Fatalf("want %v, got %v", 1, tp.Client.ConnectedPeers())
+	}
 
 	err := controller.DisconnectFromPeer(serverID)
-	require.NoError(t, err, "DisconnectFromPeer should succeed")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 }
 
 func TestController_DisconnectFromPeerNotConnected(t *testing.T) {
@@ -382,8 +461,12 @@ func TestController_DisconnectFromPeerNotConnected(t *testing.T) {
 	controller := NewController(tp.ClientNode, tp.ClientReg, tp.Client)
 
 	err := controller.DisconnectFromPeer("non-existent-peer-id")
-	require.Error(t, err, "disconnecting from a non-connected peer should fail")
-	assert.Contains(t, err.Error(), "not connected")
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !strings.Contains(err.Error(), "not connected") {
+		t.Fatalf("expected %q to contain %q", err.Error(), "not connected")
+	}
 }
 
 func TestController_SendRequestPeerNotFound(t *testing.T) {
@@ -394,12 +477,18 @@ func TestController_SendRequestPeerNotFound(t *testing.T) {
 	msg, err := NewMessage(MsgPing, clientID, "ghost-peer", PingPayload{
 		SentAt: time.Now().UnixMilli(),
 	})
-	require.NoError(t, err)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 
 	// Peer is neither connected nor in the registry — sendRequest should fail.
 	_, err = controller.sendRequest("ghost-peer", msg, 1*time.Second)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "peer not found")
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !strings.Contains(err.Error(), "peer not found") {
+		t.Fatalf("expected %q to contain %q", err.Error(), "peer not found")
+	}
 }
 
 // --- Tests for StartRemoteMiner, StopRemoteMiner, GetRemoteLogs ---
@@ -562,7 +651,9 @@ func TestController_StartRemoteMiner(t *testing.T) {
 	configOverride := json.RawMessage(`{"pool":"pool.example.com:3333"}`)
 	err := controller.StartRemoteMiner(serverID, "xmrig", "profile-1", configOverride)
 
-	require.NoError(t, err, "StartRemoteMiner should succeed")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 }
 
 func TestController_StartRemoteMiner_WithConfig(t *testing.T) {
@@ -571,7 +662,9 @@ func TestController_StartRemoteMiner_WithConfig(t *testing.T) {
 
 	configOverride := json.RawMessage(`{"pool":"custom-pool:3333","threads":4}`)
 	err := controller.StartRemoteMiner(serverID, "xmrig", "", configOverride)
-	require.NoError(t, err, "StartRemoteMiner with config override should succeed")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 }
 
 func TestController_StartRemoteMiner_EmptyType(t *testing.T) {
@@ -579,8 +672,12 @@ func TestController_StartRemoteMiner_EmptyType(t *testing.T) {
 	serverID := tp.ServerNode.GetIdentity().ID
 
 	err := controller.StartRemoteMiner(serverID, "", "profile-1", nil)
-	require.Error(t, err, "StartRemoteMiner with empty miner type should fail")
-	assert.Contains(t, err.Error(), "miner type is required")
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !strings.Contains(err.Error(), "miner type is required") {
+		t.Fatalf("expected %q to contain %q", err.Error(), "miner type is required")
+	}
 }
 
 func TestController_StartRemoteMiner_NoIdentity(t *testing.T) {
@@ -591,13 +688,19 @@ func TestController_StartRemoteMiner_NoIdentity(t *testing.T) {
 		filepath.Join(t.TempDir(), "priv.key"),
 		filepath.Join(t.TempDir(), "node.json"),
 	)
-	require.NoError(t, err)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 
 	controller := NewController(nmNoID, tp.ClientReg, tp.Client)
 
 	err = controller.StartRemoteMiner("some-peer", "xmrig", "profile-1", nil)
-	require.Error(t, err, "should fail without identity")
-	assert.Contains(t, err.Error(), "identity not initialized")
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !strings.Contains(err.Error(), "identity not initialized") {
+		t.Fatalf("expected %q to contain %q", err.Error(), "identity not initialized")
+	}
 }
 
 func TestController_StopRemoteMiner(t *testing.T) {
@@ -605,7 +708,9 @@ func TestController_StopRemoteMiner(t *testing.T) {
 	serverID := tp.ServerNode.GetIdentity().ID
 
 	err := controller.StopRemoteMiner(serverID, "running-miner")
-	require.NoError(t, err, "StopRemoteMiner should succeed for existing miner")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 }
 
 func TestController_StopRemoteMiner_NotFound(t *testing.T) {
@@ -613,7 +718,9 @@ func TestController_StopRemoteMiner_NotFound(t *testing.T) {
 	serverID := tp.ServerNode.GetIdentity().ID
 
 	err := controller.StopRemoteMiner(serverID, "non-existent-miner")
-	require.Error(t, err, "StopRemoteMiner should fail for non-existent miner")
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
 }
 
 func TestController_StopRemoteMiner_NoIdentity(t *testing.T) {
@@ -622,13 +729,19 @@ func TestController_StopRemoteMiner_NoIdentity(t *testing.T) {
 		filepath.Join(t.TempDir(), "priv.key"),
 		filepath.Join(t.TempDir(), "node.json"),
 	)
-	require.NoError(t, err)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 
 	controller := NewController(nmNoID, tp.ClientReg, tp.Client)
 
 	err = controller.StopRemoteMiner("some-peer", "any-miner")
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "identity not initialized")
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !strings.Contains(err.Error(), "identity not initialized") {
+		t.Fatalf("expected %q to contain %q", err.Error(), "identity not initialized")
+	}
 }
 
 func TestController_GetRemoteLogs(t *testing.T) {
@@ -636,10 +749,18 @@ func TestController_GetRemoteLogs(t *testing.T) {
 	serverID := tp.ServerNode.GetIdentity().ID
 
 	lines, err := controller.GetRemoteLogs(serverID, "running-miner", 10)
-	require.NoError(t, err, "GetRemoteLogs should succeed")
-	require.NotNil(t, lines)
-	assert.Len(t, lines, 3, "should return all 3 console history lines")
-	assert.Contains(t, lines[0], "started")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if lines == nil {
+		t.Fatal("expected non-nil")
+	}
+	if len(lines) != 3 {
+		t.Fatalf("want len %v, got %v", 3, len(lines))
+	}
+	if !strings.Contains(lines[0], "started") {
+		t.Fatalf("expected %q to contain %q", lines[0], "started")
+	}
 }
 
 func TestController_GetRemoteLogs_LimitedLines(t *testing.T) {
@@ -647,8 +768,12 @@ func TestController_GetRemoteLogs_LimitedLines(t *testing.T) {
 	serverID := tp.ServerNode.GetIdentity().ID
 
 	lines, err := controller.GetRemoteLogs(serverID, "running-miner", 1)
-	require.NoError(t, err, "GetRemoteLogs with limited lines should succeed")
-	assert.Len(t, lines, 1, "should return only 1 line")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(lines) != 1 {
+		t.Fatalf("want len %v, got %v", 1, len(lines))
+	}
 }
 
 func TestController_GetRemoteLogsSince(t *testing.T) {
@@ -656,13 +781,23 @@ func TestController_GetRemoteLogsSince(t *testing.T) {
 	serverID := tp.ServerNode.GetIdentity().ID
 
 	since, err := time.Parse("2006-01-02 15:04:05", "2026-02-20 10:00:01")
-	require.NoError(t, err)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 
 	lines, err := controller.GetRemoteLogsSince(serverID, "running-miner", 10, since)
-	require.NoError(t, err, "GetRemoteLogsSince should succeed")
-	require.Len(t, lines, 2, "should return only log lines on or after the requested timestamp")
-	assert.Contains(t, lines[0], "connected to pool")
-	assert.Contains(t, lines[1], "new job received")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(lines) != 2 {
+		t.Fatalf("want len %v, got %v", 2, len(lines))
+	}
+	if !strings.Contains(lines[0], "connected to pool") {
+		t.Fatalf("expected %q to contain %q", lines[0], "connected to pool")
+	}
+	if !strings.Contains(lines[1], "new job received") {
+		t.Fatalf("expected %q to contain %q", lines[1], "new job received")
+	}
 }
 
 func TestController_GetRemoteLogs_NoIdentity(t *testing.T) {
@@ -671,13 +806,19 @@ func TestController_GetRemoteLogs_NoIdentity(t *testing.T) {
 		filepath.Join(t.TempDir(), "priv.key"),
 		filepath.Join(t.TempDir(), "node.json"),
 	)
-	require.NoError(t, err)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 
 	controller := NewController(nmNoID, tp.ClientReg, tp.Client)
 
 	_, err = controller.GetRemoteLogs("some-peer", "any-miner", 10)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "identity not initialized")
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !strings.Contains(err.Error(), "identity not initialized") {
+		t.Fatalf("expected %q to contain %q", err.Error(), "identity not initialized")
+	}
 }
 
 func TestController_GetRemoteStats_WithMiners(t *testing.T) {
@@ -685,13 +826,25 @@ func TestController_GetRemoteStats_WithMiners(t *testing.T) {
 	serverID := tp.ServerNode.GetIdentity().ID
 
 	stats, err := controller.GetRemoteStats(serverID)
-	require.NoError(t, err, "GetRemoteStats should succeed")
-	require.NotNil(t, stats)
-	assert.NotEmpty(t, stats.NodeID)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if stats == nil {
+		t.Fatal("expected non-nil")
+	}
+	if len(stats.NodeID) == 0 {
+		t.Fatal("expected non-empty")
+	}
 	// The worker has a miner manager with 1 running miner
-	assert.Len(t, stats.Miners, 1, "should list the running miner")
-	assert.Equal(t, "running-miner", stats.Miners[0].Name)
-	assert.Equal(t, 1234.5, stats.Miners[0].Hashrate)
+	if len(stats.Miners) != 1 {
+		t.Fatalf("want len %v, got %v", 1, len(stats.Miners))
+	}
+	if !reflect.DeepEqual("running-miner", stats.Miners[0].Name) {
+		t.Fatalf("want %v, got %v", "running-miner", stats.Miners[0].Name)
+	}
+	if !reflect.DeepEqual(1234.5, stats.Miners[0].Hashrate) {
+		t.Fatalf("want %v, got %v", 1234.5, stats.Miners[0].Hashrate)
+	}
 }
 
 func TestController_GetRemoteStats_NoIdentity(t *testing.T) {
@@ -700,13 +853,19 @@ func TestController_GetRemoteStats_NoIdentity(t *testing.T) {
 		filepath.Join(t.TempDir(), "priv.key"),
 		filepath.Join(t.TempDir(), "node.json"),
 	)
-	require.NoError(t, err)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 
 	controller := NewController(nmNoID, tp.ClientReg, tp.Client)
 
 	_, err = controller.GetRemoteStats("some-peer")
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "identity not initialized")
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !strings.Contains(err.Error(), "identity not initialized") {
+		t.Fatalf("expected %q to contain %q", err.Error(), "identity not initialized")
+	}
 }
 
 func TestController_ConnectToPeer_Success(t *testing.T) {
@@ -728,9 +887,13 @@ func TestController_ConnectToPeer_Success(t *testing.T) {
 	tp.ClientReg.AddPeer(peer)
 
 	err := controller.ConnectToPeer(serverIdentity.ID)
-	require.NoError(t, err, "ConnectToPeer should succeed")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 
-	assert.Equal(t, 1, tp.Client.ConnectedPeers(), "should have 1 connection after ConnectToPeer")
+	if !reflect.DeepEqual(1, tp.Client.ConnectedPeers()) {
+		t.Fatalf("want %v, got %v", 1, tp.Client.ConnectedPeers())
+	}
 }
 
 func TestController_HandleResponse_NonReply(t *testing.T) {
@@ -745,7 +908,9 @@ func TestController_HandleResponse_NonReply(t *testing.T) {
 	controller.mu.RLock()
 	count := len(controller.pending)
 	controller.mu.RUnlock()
-	assert.Equal(t, 0, count)
+	if !reflect.DeepEqual(0, count) {
+		t.Fatalf("want %v, got %v", 0, count)
+	}
 }
 
 func TestController_HandleResponse_FullChannel(t *testing.T) {
@@ -769,7 +934,9 @@ func TestController_HandleResponse_FullChannel(t *testing.T) {
 	controller.mu.RLock()
 	_, exists := controller.pending["test-id"]
 	controller.mu.RUnlock()
-	assert.False(t, exists, "pending entry should be removed after handling")
+	if exists {
+		t.Fatal("expected false")
+	}
 }
 
 func TestController_PingPeer_NoIdentity(t *testing.T) {
@@ -781,6 +948,10 @@ func TestController_PingPeer_NoIdentity(t *testing.T) {
 	controller := NewController(nmNoID, tp.ClientReg, tp.Client)
 
 	_, err := controller.PingPeer("some-peer")
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "identity not initialized")
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !strings.Contains(err.Error(), "identity not initialized") {
+		t.Fatalf("expected %q to contain %q", err.Error(), "identity not initialized")
+	}
 }

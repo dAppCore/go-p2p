@@ -555,6 +555,9 @@ func (m *mockMinerInstance) GetType() string { return m.minerType }
 func (m *mockMinerInstance) GetStats() (any, error) {
 	return m.stats, nil
 }
+func (m *mockMinerInstance) GetConsoleHistory(lines int) []string {
+	return []string{}
+}
 func (m *mockMinerInstance) GetConsoleHistorySince(lines int, since time.Time) []string {
 	return []string{}
 }

@@ -262,6 +262,7 @@ func TestIsJSON(t *testing.T) {
 		expected bool
 	}{
 		{[]byte(`{"key":"value"}`), true},
+		{[]byte("  \n\t{\"key\":\"value\"}"), true},
 		{[]byte(`["item1","item2"]`), true},
 		{[]byte(`{}`), true},
 		{[]byte(`[]`), true},
