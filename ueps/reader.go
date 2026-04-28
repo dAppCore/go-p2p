@@ -7,7 +7,7 @@ import (
 	"encoding/binary"
 	goio "io" // Note: AX-6 intrinsic — io.ReadFull for fixed-length TLV framing; no core wrapper for ReadFull semantics.
 
-	core "dappco.re/go/core"
+	core "dappco.re/go"
 	coreerr "dappco.re/go/log"
 )
 

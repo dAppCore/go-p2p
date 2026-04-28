@@ -57,6 +57,171 @@ func TestNewWorker(t *testing.T) {
 	}
 }
 
+func newTripletWorker(t *testing.T) (*Worker, *Transport) {
+	t.Helper()
+	dir := t.TempDir()
+	nm, err := NewNodeManagerWithPaths(filepath.Join(dir, "private.key"), filepath.Join(dir, "node.json"))
+	if err != nil {
+		t.Fatalf("NewNodeManagerWithPaths: %v", err)
+	}
+	if err := nm.GenerateIdentity("worker", RoleWorker); err != nil {
+		t.Fatalf("GenerateIdentity: %v", err)
+	}
+	registry, err := NewPeerRegistryWithPath(filepath.Join(dir, "peers.json"))
+	if err != nil {
+		t.Fatalf("NewPeerRegistryWithPath: %v", err)
+	}
+	t.Cleanup(func() { registry.Close() })
+	transport := NewTransport(nm, registry, DefaultTransportConfig())
+	return NewWorker(nm, transport), transport
+}
+
+func TestWorker_NewWorker_Good(t *testing.T) {
+	worker, transport := newTripletWorker(t)
+	if worker == nil {
+		t.Fatal("expected worker")
+	}
+	if worker.transport != transport {
+		t.Fatal("transport not retained")
+	}
+}
+
+func TestWorker_NewWorker_Bad(t *testing.T) {
+	worker := NewWorker(nil, nil)
+	if worker.node != nil || worker.transport != nil {
+		t.Fatalf("worker: %#v", worker)
+	}
+	if worker.startTime.IsZero() {
+		t.Fatal("start time should be set")
+	}
+}
+
+func TestWorker_NewWorker_Ugly(t *testing.T) {
+	worker, _ := newTripletWorker(t)
+	worker.DataDir = ""
+	if worker.DataDir != "" {
+		t.Fatal("data dir should be mutable")
+	}
+	if worker.minerManager != nil {
+		t.Fatal("miner manager should start nil")
+	}
+}
+
+func TestWorker_Worker_SetMinerManager_Good(t *testing.T) {
+	worker, _ := newTripletWorker(t)
+	manager := &mockMinerManager{}
+	worker.SetMinerManager(manager)
+	if worker.minerManager != manager {
+		t.Fatal("miner manager not set")
+	}
+}
+
+func TestWorker_Worker_SetMinerManager_Bad(t *testing.T) {
+	worker, _ := newTripletWorker(t)
+	worker.SetMinerManager(nil)
+	if worker.minerManager != nil {
+		t.Fatal("miner manager should be nil")
+	}
+}
+
+func TestWorker_Worker_SetMinerManager_Ugly(t *testing.T) {
+	worker, _ := newTripletWorker(t)
+	first := &mockMinerManager{}
+	second := &mockMinerManagerFailing{}
+	worker.SetMinerManager(first)
+	worker.SetMinerManager(second)
+	if worker.minerManager != second {
+		t.Fatal("latest miner manager should win")
+	}
+}
+
+func TestWorker_Worker_SetProfileManager_Good(t *testing.T) {
+	worker, _ := newTripletWorker(t)
+	manager := &mockProfileManager{}
+	worker.SetProfileManager(manager)
+	if worker.profileManager != manager {
+		t.Fatal("profile manager not set")
+	}
+}
+
+func TestWorker_Worker_SetProfileManager_Bad(t *testing.T) {
+	worker, _ := newTripletWorker(t)
+	worker.SetProfileManager(nil)
+	if worker.profileManager != nil {
+		t.Fatal("profile manager should be nil")
+	}
+}
+
+func TestWorker_Worker_SetProfileManager_Ugly(t *testing.T) {
+	worker, _ := newTripletWorker(t)
+	first := &mockProfileManager{}
+	second := &mockProfileManagerFull{}
+	worker.SetProfileManager(first)
+	worker.SetProfileManager(second)
+	if worker.profileManager != second {
+		t.Fatal("latest profile manager should win")
+	}
+}
+
+func TestWorker_Worker_HandleMessage_Good(t *testing.T) {
+	worker, _ := newTripletWorker(t)
+	msg := &Message{Type: MessageType("unknown")}
+	worker.HandleMessage(nil, msg)
+	if worker.node == nil {
+		t.Fatal("worker node should remain set")
+	}
+}
+
+func TestWorker_Worker_HandleMessage_Bad(t *testing.T) {
+	worker, _ := newTripletWorker(t)
+	msg, err := NewMessage(MsgGetStats, "from", "to", nil)
+	if err != nil {
+		t.Fatalf("NewMessage: %v", err)
+	}
+	worker.node.identity = nil
+	worker.HandleMessage(nil, msg)
+	if worker.node.HasIdentity() {
+		t.Fatal("identity should remain nil")
+	}
+}
+
+func TestWorker_Worker_HandleMessage_Ugly(t *testing.T) {
+	worker, _ := newTripletWorker(t)
+	defer func() {
+		if recover() == nil {
+			t.Fatal("expected panic for nil message")
+		}
+	}()
+	worker.HandleMessage(nil, nil)
+}
+
+func TestWorker_Worker_RegisterWithTransport_Good(t *testing.T) {
+	worker, transport := newTripletWorker(t)
+	worker.RegisterWithTransport()
+	if transport.handler == nil {
+		t.Fatal("handler not registered")
+	}
+}
+
+func TestWorker_Worker_RegisterWithTransport_Bad(t *testing.T) {
+	worker := NewWorker(nil, nil)
+	defer func() {
+		if recover() == nil {
+			t.Fatal("expected panic for nil transport")
+		}
+	}()
+	worker.RegisterWithTransport()
+}
+
+func TestWorker_Worker_RegisterWithTransport_Ugly(t *testing.T) {
+	worker, transport := newTripletWorker(t)
+	worker.RegisterWithTransport()
+	worker.RegisterWithTransport()
+	if transport.handler == nil {
+		t.Fatal("handler should remain registered")
+	}
+}
+
 func TestWorker_SetMinerManager(t *testing.T) {
 	cleanup := setupTestEnv(t)
 	defer cleanup()

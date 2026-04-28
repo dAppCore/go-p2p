@@ -5,6 +5,7 @@
 package contentbus
 
 import (
+	"errors"
 	"sync"
 	"time"
 
@@ -134,13 +135,18 @@ func NewController(opts ...Option) (Controller, error) {
 
 	if cfg.startTransport {
 		if err := c.transport.Start(); err != nil {
+			startErr := err
 			if c.ownsTransport {
-				_ = c.transport.Stop()
+				if stopErr := c.transport.Stop(); stopErr != nil {
+					startErr = errors.Join(startErr, stopErr)
+				}
 			}
 			if c.ownsRegistry {
-				_ = c.registry.Close()
+				if closeErr := c.registry.Close(); closeErr != nil {
+					startErr = errors.Join(startErr, closeErr)
+				}
 			}
-			return nil, coreerr.E("contentbus.NewController", "start transport", err)
+			return nil, coreerr.E("contentbus.NewController", "start transport", startErr)
 		}
 		c.startedTransport = true
 	}

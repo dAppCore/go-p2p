@@ -89,6 +89,317 @@ func TestController_RequestResponseCorrelation(t *testing.T) {
 	}
 }
 
+func TestController_NewController_Good(t *testing.T) {
+	tp := setupTestTransportPair(t)
+	controller := NewController(tp.ClientNode, tp.ClientReg, tp.Client)
+	if controller == nil {
+		t.Fatal("expected controller")
+	}
+	if tp.Client.handler == nil {
+		t.Fatal("response handler not registered")
+	}
+}
+
+func TestController_NewController_Bad(t *testing.T) {
+	defer func() {
+		if recover() == nil {
+			t.Fatal("expected panic for nil transport")
+		}
+	}()
+	_ = NewController(nil, nil, nil)
+}
+
+func TestController_NewController_Ugly(t *testing.T) {
+	tp := setupTestTransportPair(t)
+	first := NewController(tp.ClientNode, tp.ClientReg, tp.Client)
+	second := NewController(tp.ClientNode, tp.ClientReg, tp.Client)
+	if first == second {
+		t.Fatal("expected distinct controllers")
+	}
+	if tp.Client.handler == nil {
+		t.Fatal("handler should remain registered")
+	}
+}
+
+func TestController_Controller_GetRemoteStats_Good(t *testing.T) {
+	controller, _, tp := setupControllerPair(t)
+	stats, err := controller.GetRemoteStats(tp.ServerNode.GetIdentity().ID)
+	if err != nil {
+		t.Fatalf("GetRemoteStats: %v", err)
+	}
+	if stats == nil || stats.NodeID == "" {
+		t.Fatalf("stats: %#v", stats)
+	}
+}
+
+func TestController_Controller_GetRemoteStats_Bad(t *testing.T) {
+	tp := setupTestTransportPair(t)
+	nm, _ := NewNodeManagerWithPaths(filepath.Join(t.TempDir(), "private.key"), filepath.Join(t.TempDir(), "node.json"))
+	controller := NewController(nm, tp.ClientReg, tp.Client)
+	stats, err := controller.GetRemoteStats("peer")
+	if err == nil {
+		t.Fatal("expected identity error")
+	}
+	if stats != nil {
+		t.Fatalf("stats: got %#v, want nil", stats)
+	}
+}
+
+func TestController_Controller_GetRemoteStats_Ugly(t *testing.T) {
+	controller, _, tp := setupControllerPairWithMiner(t)
+	stats, err := controller.GetRemoteStats(tp.ServerNode.GetIdentity().ID)
+	if err != nil {
+		t.Fatalf("GetRemoteStats with miners: %v", err)
+	}
+	if len(stats.Miners) != 1 {
+		t.Fatalf("miners: %#v", stats.Miners)
+	}
+}
+
+func TestController_Controller_StartRemoteMiner_Good(t *testing.T) {
+	controller, _, tp := setupControllerPairWithMiner(t)
+	err := controller.StartRemoteMiner(tp.ServerNode.GetIdentity().ID, "xmrig", "", json.RawMessage(`{"pool":"p"}`))
+	if err != nil {
+		t.Fatalf("StartRemoteMiner: %v", err)
+	}
+}
+
+func TestController_Controller_StartRemoteMiner_Bad(t *testing.T) {
+	controller, _, tp := setupControllerPairWithMiner(t)
+	err := controller.StartRemoteMiner(tp.ServerNode.GetIdentity().ID, "", "", nil)
+	if err == nil {
+		t.Fatal("expected miner type error")
+	}
+}
+
+func TestController_Controller_StartRemoteMiner_Ugly(t *testing.T) {
+	tp := setupTestTransportPair(t)
+	nm, _ := NewNodeManagerWithPaths(filepath.Join(t.TempDir(), "private.key"), filepath.Join(t.TempDir(), "node.json"))
+	controller := NewController(nm, tp.ClientReg, tp.Client)
+	err := controller.StartRemoteMiner("peer", "xmrig", "", nil)
+	if err == nil {
+		t.Fatal("expected identity error")
+	}
+}
+
+func TestController_Controller_StopRemoteMiner_Good(t *testing.T) {
+	controller, _, tp := setupControllerPairWithMiner(t)
+	err := controller.StopRemoteMiner(tp.ServerNode.GetIdentity().ID, "running-miner")
+	if err != nil {
+		t.Fatalf("StopRemoteMiner: %v", err)
+	}
+}
+
+func TestController_Controller_StopRemoteMiner_Bad(t *testing.T) {
+	controller, _, tp := setupControllerPairWithMiner(t)
+	err := controller.StopRemoteMiner(tp.ServerNode.GetIdentity().ID, "missing")
+	if err == nil {
+		t.Fatal("expected missing miner error")
+	}
+}
+
+func TestController_Controller_StopRemoteMiner_Ugly(t *testing.T) {
+	tp := setupTestTransportPair(t)
+	nm, _ := NewNodeManagerWithPaths(filepath.Join(t.TempDir(), "private.key"), filepath.Join(t.TempDir(), "node.json"))
+	controller := NewController(nm, tp.ClientReg, tp.Client)
+	err := controller.StopRemoteMiner("peer", "")
+	if err == nil {
+		t.Fatal("expected identity error")
+	}
+}
+
+func TestController_Controller_GetRemoteLogs_Good(t *testing.T) {
+	controller, _, tp := setupControllerPairWithMiner(t)
+	lines, err := controller.GetRemoteLogs(tp.ServerNode.GetIdentity().ID, "running-miner", 2)
+	if err != nil {
+		t.Fatalf("GetRemoteLogs: %v", err)
+	}
+	if len(lines) != 2 {
+		t.Fatalf("lines: %#v", lines)
+	}
+}
+
+func TestController_Controller_GetRemoteLogs_Bad(t *testing.T) {
+	controller, _, tp := setupControllerPairWithMiner(t)
+	lines, err := controller.GetRemoteLogs(tp.ServerNode.GetIdentity().ID, "missing", 2)
+	if err == nil {
+		t.Fatal("expected missing miner error")
+	}
+	if lines != nil {
+		t.Fatalf("lines: %#v", lines)
+	}
+}
+
+func TestController_Controller_GetRemoteLogs_Ugly(t *testing.T) {
+	tp := setupTestTransportPair(t)
+	nm, _ := NewNodeManagerWithPaths(filepath.Join(t.TempDir(), "private.key"), filepath.Join(t.TempDir(), "node.json"))
+	controller := NewController(nm, tp.ClientReg, tp.Client)
+	lines, err := controller.GetRemoteLogs("peer", "", 0)
+	if err == nil {
+		t.Fatal("expected identity error")
+	}
+	if lines != nil {
+		t.Fatalf("lines: %#v", lines)
+	}
+}
+
+func TestController_Controller_GetRemoteLogsSince_Good(t *testing.T) {
+	controller, _, tp := setupControllerPairWithMiner(t)
+	since, _ := time.Parse("2006-01-02 15:04:05", "2026-02-20 10:00:01")
+	lines, err := controller.GetRemoteLogsSince(tp.ServerNode.GetIdentity().ID, "running-miner", 10, since)
+	if err != nil {
+		t.Fatalf("GetRemoteLogsSince: %v", err)
+	}
+	if len(lines) != 2 {
+		t.Fatalf("lines: %#v", lines)
+	}
+}
+
+func TestController_Controller_GetRemoteLogsSince_Bad(t *testing.T) {
+	controller, _, tp := setupControllerPairWithMiner(t)
+	lines, err := controller.GetRemoteLogsSince(tp.ServerNode.GetIdentity().ID, "missing", 10, time.Now())
+	if err == nil {
+		t.Fatal("expected missing miner error")
+	}
+	if lines != nil {
+		t.Fatalf("lines: %#v", lines)
+	}
+}
+
+func TestController_Controller_GetRemoteLogsSince_Ugly(t *testing.T) {
+	controller, _, tp := setupControllerPairWithMiner(t)
+	lines, err := controller.GetRemoteLogsSince(tp.ServerNode.GetIdentity().ID, "running-miner", 0, time.Time{})
+	if err != nil {
+		t.Fatalf("GetRemoteLogsSince zero lines: %v", err)
+	}
+	if len(lines) == 0 {
+		t.Fatal("expected capped log lines")
+	}
+}
+
+func TestController_Controller_GetAllStats_Good(t *testing.T) {
+	controller, _, tp := setupControllerPair(t)
+	stats := controller.GetAllStats()
+	if len(stats) != 1 {
+		t.Fatalf("stats: %#v", stats)
+	}
+	if stats[tp.ServerNode.GetIdentity().ID] == nil {
+		t.Fatal("expected server stats")
+	}
+}
+
+func TestController_Controller_GetAllStats_Bad(t *testing.T) {
+	tp := setupTestTransportPair(t)
+	controller := NewController(tp.ClientNode, tp.ClientReg, tp.Client)
+	stats := controller.GetAllStats()
+	if len(stats) != 0 {
+		t.Fatalf("stats: %#v", stats)
+	}
+}
+
+func TestController_Controller_GetAllStats_Ugly(t *testing.T) {
+	controller, _, tp := setupControllerPair(t)
+	_ = tp.Client.Stop()
+	stats := controller.GetAllStats()
+	if len(stats) != 0 {
+		t.Fatalf("stats after stop: %#v", stats)
+	}
+}
+
+func TestController_Controller_PingPeer_Good(t *testing.T) {
+	controller, _, tp := setupControllerPair(t)
+	rtt, err := controller.PingPeer(tp.ServerNode.GetIdentity().ID)
+	if err != nil {
+		t.Fatalf("PingPeer: %v", err)
+	}
+	if rtt <= 0 {
+		t.Fatalf("rtt: got %f", rtt)
+	}
+}
+
+func TestController_Controller_PingPeer_Bad(t *testing.T) {
+	tp := setupTestTransportPair(t)
+	nm, _ := NewNodeManagerWithPaths(filepath.Join(t.TempDir(), "private.key"), filepath.Join(t.TempDir(), "node.json"))
+	controller := NewController(nm, tp.ClientReg, tp.Client)
+	rtt, err := controller.PingPeer("peer")
+	if err == nil {
+		t.Fatal("expected identity error")
+	}
+	if rtt != 0 {
+		t.Fatalf("rtt: got %f", rtt)
+	}
+}
+
+func TestController_Controller_PingPeer_Ugly(t *testing.T) {
+	tp := setupTestTransportPair(t)
+	controller := NewController(tp.ClientNode, tp.ClientReg, tp.Client)
+	rtt, err := controller.PingPeer("missing")
+	if err == nil {
+		t.Fatal("expected missing peer error")
+	}
+	if rtt != 0 {
+		t.Fatalf("rtt: got %f", rtt)
+	}
+}
+
+func TestController_Controller_ConnectToPeer_Good(t *testing.T) {
+	tp := setupTestTransportPair(t)
+	worker := NewWorker(tp.ServerNode, tp.Server)
+	worker.RegisterWithTransport()
+	controller := NewController(tp.ClientNode, tp.ClientReg, tp.Client)
+	peer := &Peer{ID: tp.ServerNode.GetIdentity().ID, Name: "server", Address: tp.ServerAddr, Role: RoleWorker}
+	_ = tp.ClientReg.AddPeer(peer)
+	if err := controller.ConnectToPeer(peer.ID); err != nil {
+		t.Fatalf("ConnectToPeer: %v", err)
+	}
+}
+
+func TestController_Controller_ConnectToPeer_Bad(t *testing.T) {
+	tp := setupTestTransportPair(t)
+	controller := NewController(tp.ClientNode, tp.ClientReg, tp.Client)
+	err := controller.ConnectToPeer("missing")
+	if err == nil {
+		t.Fatal("expected missing peer error")
+	}
+}
+
+func TestController_Controller_ConnectToPeer_Ugly(t *testing.T) {
+	tp := setupTestTransportPair(t)
+	controller := NewController(tp.ClientNode, tp.ClientReg, tp.Client)
+	peer := &Peer{ID: "bad", Address: "127.0.0.1:1"}
+	_ = tp.ClientReg.AddPeer(peer)
+	err := controller.ConnectToPeer("bad")
+	if err == nil {
+		t.Fatal("expected connect error")
+	}
+}
+
+func TestController_Controller_DisconnectFromPeer_Good(t *testing.T) {
+	controller, _, tp := setupControllerPair(t)
+	err := controller.DisconnectFromPeer(tp.ServerNode.GetIdentity().ID)
+	if err != nil {
+		t.Fatalf("DisconnectFromPeer: %v", err)
+	}
+}
+
+func TestController_Controller_DisconnectFromPeer_Bad(t *testing.T) {
+	tp := setupTestTransportPair(t)
+	controller := NewController(tp.ClientNode, tp.ClientReg, tp.Client)
+	err := controller.DisconnectFromPeer("missing")
+	if err == nil {
+		t.Fatal("expected not connected error")
+	}
+}
+
+func TestController_Controller_DisconnectFromPeer_Ugly(t *testing.T) {
+	controller, _, tp := setupControllerPair(t)
+	_ = controller.DisconnectFromPeer(tp.ServerNode.GetIdentity().ID)
+	err := controller.DisconnectFromPeer(tp.ServerNode.GetIdentity().ID)
+	if err == nil {
+		t.Fatal("expected second disconnect error")
+	}
+}
+
 func TestController_RequestTimeout(t *testing.T) {
 	tp := setupTestTransportPair(t)
 

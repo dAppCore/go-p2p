@@ -33,6 +33,66 @@ func TestPackVarint_Value65536(t *testing.T) {
 	}
 }
 
+func TestVarint_PackVarint_Good(t *testing.T) {
+	got := PackVarint(63)
+	if !reflect.DeepEqual([]byte{0xfc}, got) {
+		t.Fatalf("packed: got %#v", got)
+	}
+	if len(got) != 1 {
+		t.Fatalf("length: got %d", len(got))
+	}
+}
+
+func TestVarint_PackVarint_Bad(t *testing.T) {
+	got := PackVarint(64)
+	if len(got) != 2 {
+		t.Fatalf("length: got %d, want 2", len(got))
+	}
+	if got[0]&varintMask != varintMark2 {
+		t.Fatalf("mark: got %d", got[0]&varintMask)
+	}
+}
+
+func TestVarint_PackVarint_Ugly(t *testing.T) {
+	got := PackVarint(^uint64(0) >> 2)
+	if len(got) != 8 {
+		t.Fatalf("length: got %d, want 8", len(got))
+	}
+	if got[0]&varintMask != varintMark8 {
+		t.Fatalf("mark: got %d", got[0]&varintMask)
+	}
+}
+
+func TestVarint_UnpackVarint_Good(t *testing.T) {
+	value, consumed, err := UnpackVarint(PackVarint(100))
+	if err != nil {
+		t.Fatalf("UnpackVarint: %v", err)
+	}
+	if value != 100 || consumed != 2 {
+		t.Fatalf("decoded: got value=%d consumed=%d", value, consumed)
+	}
+}
+
+func TestVarint_UnpackVarint_Bad(t *testing.T) {
+	value, consumed, err := UnpackVarint(nil)
+	if !errors.Is(err, ErrVarintTruncated) {
+		t.Fatalf("error: got %v", err)
+	}
+	if value != 0 || consumed != 0 {
+		t.Fatalf("decoded: got value=%d consumed=%d", value, consumed)
+	}
+}
+
+func TestVarint_UnpackVarint_Ugly(t *testing.T) {
+	value, consumed, err := UnpackVarint([]byte{varintMark8})
+	if !errors.Is(err, ErrVarintTruncated) {
+		t.Fatalf("error: got %v", err)
+	}
+	if value != 0 || consumed != 0 {
+		t.Fatalf("decoded: got value=%d consumed=%d", value, consumed)
+	}
+}
+
 func TestPackVarint_Value2Billion(t *testing.T) {
 	got := PackVarint(2_000_000_000)
 	if len(got) != 8 {

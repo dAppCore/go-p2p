@@ -10,7 +10,7 @@ import (
 	"os" // Note: AX-6 intrinsic - chmod repairs existing private-key file permissions after write.
 	"time"
 
-	core "dappco.re/go/core"
+	core "dappco.re/go"
 	coreio "dappco.re/go/io"
 	coreerr "dappco.re/go/log"
 

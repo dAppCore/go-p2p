@@ -426,3 +426,65 @@ func TestReadAndVerify_EmptyReader(t *testing.T) {
 		t.Errorf("Expected io.EOF, got: %v", err)
 	}
 }
+
+func TestPacket_NewBuilder_Good(t *testing.T) {
+	builder := NewBuilder(0x20, []byte("payload"))
+	if builder.Header.IntentID != 0x20 {
+		t.Fatalf("intent: got %d, want %d", builder.Header.IntentID, 0x20)
+	}
+	if !bytes.Equal(builder.Payload, []byte("payload")) {
+		t.Fatalf("payload: got %q", builder.Payload)
+	}
+}
+
+func TestPacket_NewBuilder_Bad(t *testing.T) {
+	builder := NewBuilder(0, nil)
+	if builder.Header.IntentID != 0 {
+		t.Fatalf("intent: got %d, want 0", builder.Header.IntentID)
+	}
+	if builder.Payload != nil {
+		t.Fatalf("payload: got %q, want nil", builder.Payload)
+	}
+}
+
+func TestPacket_NewBuilder_Ugly(t *testing.T) {
+	payload := bytes.Repeat([]byte("x"), 1024)
+	builder := NewBuilder(0xff, payload)
+	payload[0] = 'y'
+	if builder.Payload[0] != 'y' {
+		t.Fatal("builder should keep caller-provided payload slice")
+	}
+}
+
+func TestPacket_PacketBuilder_MarshalAndSign_Good(t *testing.T) {
+	builder := NewBuilder(0x20, []byte("payload"))
+	frame, err := builder.MarshalAndSign(testSecret)
+	if err != nil {
+		t.Fatalf("MarshalAndSign: %v", err)
+	}
+	if len(frame) == 0 {
+		t.Fatal("expected signed frame")
+	}
+}
+
+func TestPacket_PacketBuilder_MarshalAndSign_Bad(t *testing.T) {
+	builder := NewBuilder(0x20, bytes.Repeat([]byte("x"), 65536))
+	frame, err := builder.MarshalAndSign(testSecret)
+	if err == nil {
+		t.Fatal("expected oversized payload error")
+	}
+	if frame != nil {
+		t.Fatalf("frame: got %d bytes, want nil", len(frame))
+	}
+}
+
+func TestPacket_PacketBuilder_MarshalAndSign_Ugly(t *testing.T) {
+	builder := NewBuilder(0x20, nil)
+	frame, err := builder.MarshalAndSign(testSecret)
+	if err != nil {
+		t.Fatalf("MarshalAndSign nil payload: %v", err)
+	}
+	if len(frame) == 0 {
+		t.Fatal("expected frame for nil payload")
+	}
+}

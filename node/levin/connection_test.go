@@ -58,6 +58,226 @@ func TestConnection_RoundTrip(t *testing.T) {
 	}
 }
 
+func TestConnection_NewConnection_Good(t *testing.T) {
+	a, b := net.Pipe()
+	defer a.Close()
+	defer b.Close()
+	conn := NewConnection(a)
+	if conn.ReadTimeout != DefaultReadTimeout {
+		t.Fatalf("read timeout: got %v", conn.ReadTimeout)
+	}
+}
+
+func TestConnection_NewConnection_Bad(t *testing.T) {
+	conn := NewConnection(nil)
+	if conn.conn != nil {
+		t.Fatal("expected nil wrapped connection")
+	}
+	if conn.MaxPayloadSize != MaxPayloadSize {
+		t.Fatalf("max payload: got %d", conn.MaxPayloadSize)
+	}
+}
+
+func TestConnection_NewConnection_Ugly(t *testing.T) {
+	a, b := net.Pipe()
+	defer a.Close()
+	defer b.Close()
+	conn := NewConnection(a)
+	if conn.WriteTimeout != DefaultWriteTimeout {
+		t.Fatalf("write timeout: got %v", conn.WriteTimeout)
+	}
+}
+
+func TestConnection_Connection_WritePacket_Good(t *testing.T) {
+	a, b := net.Pipe()
+	defer a.Close()
+	defer b.Close()
+	conn := NewConnection(a)
+	errCh := make(chan error, 1)
+	go func() { errCh <- conn.WritePacket(CommandPing, []byte("ping"), true) }()
+	header, payload, err := NewConnection(b).ReadPacket()
+	if err != nil || <-errCh != nil {
+		t.Fatalf("round trip: header=%#v payload=%q err=%v", header, payload, err)
+	}
+}
+
+func TestConnection_Connection_WritePacket_Bad(t *testing.T) {
+	conn := NewConnection(closedPipeConn(t))
+	err := conn.WritePacket(CommandPing, []byte("ping"), true)
+	if err == nil {
+		t.Fatal("expected closed connection error")
+	}
+	if conn.conn == nil {
+		t.Fatal("wrapped connection should remain set")
+	}
+}
+
+func TestConnection_Connection_WritePacket_Ugly(t *testing.T) {
+	a, b := net.Pipe()
+	defer a.Close()
+	defer b.Close()
+	conn := NewConnection(a)
+	errCh := make(chan error, 1)
+	go func() { errCh <- conn.WritePacket(CommandPing, nil, false) }()
+	header, payload, err := NewConnection(b).ReadPacket()
+	if err != nil || <-errCh != nil || header.PayloadSize != 0 || payload != nil {
+		t.Fatalf("empty payload round trip failed")
+	}
+}
+
+func TestConnection_Connection_WriteResponse_Good(t *testing.T) {
+	a, b := net.Pipe()
+	defer a.Close()
+	defer b.Close()
+	conn := NewConnection(a)
+	errCh := make(chan error, 1)
+	go func() { errCh <- conn.WriteResponse(CommandPing, []byte("pong"), ReturnOK) }()
+	header, payload, err := NewConnection(b).ReadPacket()
+	if err != nil || <-errCh != nil || header.Flags != FlagResponse || string(payload) != "pong" {
+		t.Fatalf("response round trip failed")
+	}
+}
+
+func TestConnection_Connection_WriteResponse_Bad(t *testing.T) {
+	conn := NewConnection(closedPipeConn(t))
+	err := conn.WriteResponse(CommandPing, []byte("pong"), ReturnErrConnection)
+	if err == nil {
+		t.Fatal("expected closed connection error")
+	}
+	if conn.conn == nil {
+		t.Fatal("wrapped connection should remain set")
+	}
+}
+
+func TestConnection_Connection_WriteResponse_Ugly(t *testing.T) {
+	a, b := net.Pipe()
+	defer a.Close()
+	defer b.Close()
+	conn := NewConnection(a)
+	errCh := make(chan error, 1)
+	go func() { errCh <- conn.WriteResponse(CommandPing, nil, ReturnErrFormat) }()
+	header, payload, err := NewConnection(b).ReadPacket()
+	if err != nil || <-errCh != nil || header.ReturnCode != ReturnErrFormat || payload != nil {
+		t.Fatalf("empty response round trip failed")
+	}
+}
+
+func TestConnection_Connection_ReadPacket_Good(t *testing.T) {
+	a, b := net.Pipe()
+	defer a.Close()
+	defer b.Close()
+	go func() { _ = NewConnection(a).WritePacket(CommandPing, []byte("ping"), false) }()
+	header, payload, err := NewConnection(b).ReadPacket()
+	if err != nil {
+		t.Fatalf("ReadPacket: %v", err)
+	}
+	if header.Command != CommandPing || string(payload) != "ping" {
+		t.Fatalf("packet: header=%#v payload=%q", header, payload)
+	}
+}
+
+func TestConnection_Connection_ReadPacket_Bad(t *testing.T) {
+	a, b := net.Pipe()
+	defer b.Close()
+	a.Close()
+	header, payload, err := NewConnection(b).ReadPacket()
+	if err == nil {
+		t.Fatal("expected read error")
+	}
+	if header.Signature != 0 || payload != nil {
+		t.Fatalf("packet: header=%#v payload=%q", header, payload)
+	}
+}
+
+func TestConnection_Connection_ReadPacket_Ugly(t *testing.T) {
+	a, b := net.Pipe()
+	defer a.Close()
+	defer b.Close()
+	go func() {
+		encoded := EncodeHeader(&Header{Signature: Signature})
+		_, _ = a.Write(encoded[:])
+	}()
+	header, payload, err := NewConnection(b).ReadPacket()
+	if err != nil || header.PayloadSize != 0 || payload != nil {
+		t.Fatalf("empty packet failed: header=%#v payload=%q err=%v", header, payload, err)
+	}
+}
+
+func TestConnection_Connection_Close_Good(t *testing.T) {
+	a, b := net.Pipe()
+	defer b.Close()
+	conn := NewConnection(a)
+	err := conn.Close()
+	if err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	if _, err := a.Write([]byte("x")); err == nil {
+		t.Fatal("expected write error after close")
+	}
+}
+
+func TestConnection_Connection_Close_Bad(t *testing.T) {
+	conn := NewConnection(closedPipeConn(t))
+	err := conn.Close()
+	if err != nil {
+		t.Fatalf("Close on closed pipe: %v", err)
+	}
+	if conn.conn == nil {
+		t.Fatal("wrapped connection should remain set")
+	}
+}
+
+func TestConnection_Connection_Close_Ugly(t *testing.T) {
+	a, b := net.Pipe()
+	defer b.Close()
+	conn := NewConnection(a)
+	_ = conn.Close()
+	err := conn.Close()
+	if err != nil {
+		t.Fatalf("second Close: %v", err)
+	}
+}
+
+func TestConnection_Connection_RemoteAddr_Good(t *testing.T) {
+	a, b := net.Pipe()
+	defer a.Close()
+	defer b.Close()
+	addr := NewConnection(a).RemoteAddr()
+	if addr == "" {
+		t.Fatal("expected remote address")
+	}
+}
+
+func TestConnection_Connection_RemoteAddr_Bad(t *testing.T) {
+	a, b := net.Pipe()
+	defer a.Close()
+	defer b.Close()
+	addr := NewConnection(a).RemoteAddr()
+	if addr != b.LocalAddr().String() {
+		t.Fatalf("remote address: got %q want %q", addr, b.LocalAddr().String())
+	}
+}
+
+func TestConnection_Connection_RemoteAddr_Ugly(t *testing.T) {
+	a, b := net.Pipe()
+	defer b.Close()
+	_ = a.Close()
+	addr := NewConnection(a).RemoteAddr()
+	if addr == "" {
+		t.Fatal("closed pipe should still report remote address")
+	}
+}
+
+func closedPipeConn(t *testing.T) net.Conn {
+	t.Helper()
+	a, b := net.Pipe()
+	t.Cleanup(func() { b.Close() })
+	if err := a.Close(); err != nil {
+		t.Fatalf("close pipe: %v", err)
+	}
+	return a
+}
+
 func TestConnection_EmptyPayload(t *testing.T) {
 	a, b := net.Pipe()
 	defer a.Close()

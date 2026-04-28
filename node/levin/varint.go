@@ -11,15 +11,15 @@ import (
 
 // Size-mark bits occupying the two lowest bits of the first byte.
 const (
-	varintMask     = 0x03
-	varintMark1    = 0x00 // 1 byte,  max 63
-	varintMark2    = 0x01 // 2 bytes, max 16,383
-	varintMark4    = 0x02 // 4 bytes, max 1,073,741,823
-	varintMark8    = 0x03 // 8 bytes, max 4,611,686,018,427,387,903
-	varintMax1     = 63
-	varintMax2     = 16_383
-	varintMax4     = 1_073_741_823
-	varintMax8     = 4_611_686_018_427_387_903
+	varintMask  = 0x03
+	varintMark1 = 0x00 // 1 byte,  max 63
+	varintMark2 = 0x01 // 2 bytes, max 16,383
+	varintMark4 = 0x02 // 4 bytes, max 1,073,741,823
+	varintMark8 = 0x03 // 8 bytes, max 4,611,686,018,427,387,903
+	varintMax1  = 63
+	varintMax2  = 16_383
+	varintMax4  = 1_073_741_823
+	varintMax8  = 4_611_686_018_427_387_903
 )
 
 // ErrVarintTruncated is returned when the buffer is too short.

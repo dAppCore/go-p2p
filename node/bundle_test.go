@@ -3,10 +3,26 @@ package node
 import (
 	"archive/tar"
 	"bytes"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
 )
+
+type errBundleWriter struct{}
+
+func (errBundleWriter) Write([]byte) (int, error) {
+	return 0, errors.New("write failed")
+}
+
+func testMinerFile(t *testing.T, content string) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "miner")
+	if err := os.WriteFile(path, []byte(content), 0755); err != nil {
+		t.Fatalf("write miner file: %v", err)
+	}
+	return path
+}
 
 func TestCreateProfileBundleUnencrypted(t *testing.T) {
 	profileJSON := []byte(`{"name":"test-profile","minerType":"xmrig","config":{}}`)
@@ -30,6 +46,276 @@ func TestCreateProfileBundleUnencrypted(t *testing.T) {
 
 	if !bytes.Equal(bundle.Data, profileJSON) {
 		t.Error("data should match original JSON")
+	}
+}
+
+func TestBundle_CreateProfileBundle_Good(t *testing.T) {
+	profile := []byte(`{"name":"profile"}`)
+	bundle, err := CreateProfileBundle(profile, "profile", "password")
+	if err != nil {
+		t.Fatalf("CreateProfileBundle: %v", err)
+	}
+	if bundle.Type != BundleProfile || bytes.Equal(bundle.Data, profile) {
+		t.Fatalf("bundle: %#v", bundle)
+	}
+}
+
+func TestBundle_CreateProfileBundle_Bad(t *testing.T) {
+	profile := []byte(`{"name":"profile"}`)
+	bundle, err := CreateProfileBundle(profile, "profile", "")
+	if err == nil {
+		t.Fatal("expected empty password error")
+	}
+	if bundle != nil {
+		t.Fatalf("bundle: got %#v, want nil", bundle)
+	}
+}
+
+func TestBundle_CreateProfileBundle_Ugly(t *testing.T) {
+	bundle, err := CreateProfileBundle(nil, "", "password")
+	if err == nil {
+		t.Fatal("expected nil profile error")
+	}
+	if bundle != nil {
+		t.Fatalf("bundle: got %#v, want nil", bundle)
+	}
+}
+
+func TestBundle_CreateProfileBundleUnencrypted_Good(t *testing.T) {
+	profile := []byte(`{"name":"plain"}`)
+	bundle, err := CreateProfileBundleUnencrypted(profile, "plain")
+	if err != nil {
+		t.Fatalf("CreateProfileBundleUnencrypted: %v", err)
+	}
+	if !bytes.Equal(bundle.Data, profile) {
+		t.Fatal("data should match profile")
+	}
+}
+
+func TestBundle_CreateProfileBundleUnencrypted_Bad(t *testing.T) {
+	bundle, err := CreateProfileBundleUnencrypted(nil, "")
+	if err != nil {
+		t.Fatalf("CreateProfileBundleUnencrypted nil: %v", err)
+	}
+	if bundle.Name != "" || bundle.Data != nil {
+		t.Fatalf("bundle: %#v", bundle)
+	}
+}
+
+func TestBundle_CreateProfileBundleUnencrypted_Ugly(t *testing.T) {
+	profile := []byte(`[]`)
+	bundle, err := CreateProfileBundleUnencrypted(profile, "array")
+	if err != nil {
+		t.Fatalf("CreateProfileBundleUnencrypted: %v", err)
+	}
+	if !VerifyBundle(bundle) {
+		t.Fatal("array JSON bundle should verify")
+	}
+}
+
+func TestBundle_CreateMinerBundle_Good(t *testing.T) {
+	minerPath := testMinerFile(t, "binary")
+	bundle, err := CreateMinerBundle(minerPath, []byte(`{"profile":true}`), "miner", "password")
+	if err != nil {
+		t.Fatalf("CreateMinerBundle: %v", err)
+	}
+	if bundle.Type != BundleMiner || bundle.Name != "miner" {
+		t.Fatalf("bundle: %#v", bundle)
+	}
+}
+
+func TestBundle_CreateMinerBundle_Bad(t *testing.T) {
+	bundle, err := CreateMinerBundle(filepath.Join(t.TempDir(), "missing"), nil, "miner", "password")
+	if err == nil {
+		t.Fatal("expected missing miner error")
+	}
+	if bundle != nil {
+		t.Fatalf("bundle: got %#v, want nil", bundle)
+	}
+}
+
+func TestBundle_CreateMinerBundle_Ugly(t *testing.T) {
+	minerPath := testMinerFile(t, "")
+	bundle, err := CreateMinerBundle(minerPath, nil, "", "password")
+	if err != nil {
+		t.Fatalf("CreateMinerBundle empty inputs: %v", err)
+	}
+	if bundle.Name != "" || !VerifyBundle(bundle) {
+		t.Fatalf("bundle: %#v", bundle)
+	}
+}
+
+func TestBundle_ExtractProfileBundle_Good(t *testing.T) {
+	profile := []byte(`{"name":"plain"}`)
+	bundle, _ := CreateProfileBundleUnencrypted(profile, "plain")
+	extracted, err := ExtractProfileBundle(bundle, "")
+	if err != nil {
+		t.Fatalf("ExtractProfileBundle: %v", err)
+	}
+	if !bytes.Equal(extracted, profile) {
+		t.Fatalf("profile: got %s", extracted)
+	}
+}
+
+func TestBundle_ExtractProfileBundle_Bad(t *testing.T) {
+	bundle, _ := CreateProfileBundleUnencrypted([]byte(`{}`), "plain")
+	bundle.Checksum = "bad"
+	extracted, err := ExtractProfileBundle(bundle, "")
+	if err == nil {
+		t.Fatal("expected checksum error")
+	}
+	if extracted != nil {
+		t.Fatalf("profile: got %s, want nil", extracted)
+	}
+}
+
+func TestBundle_ExtractProfileBundle_Ugly(t *testing.T) {
+	profile := []byte(`{"name":"secret"}`)
+	bundle, _ := CreateProfileBundle(profile, "secret", "password")
+	extracted, err := ExtractProfileBundle(bundle, "password")
+	if err != nil {
+		t.Fatalf("ExtractProfileBundle encrypted: %v", err)
+	}
+	if !bytes.Equal(extracted, profile) {
+		t.Fatalf("profile: got %s", extracted)
+	}
+}
+
+func TestBundle_ExtractMinerBundle_Good(t *testing.T) {
+	minerPath := testMinerFile(t, "binary")
+	bundle, err := CreateMinerBundle(minerPath, []byte(`{"profile":true}`), "miner", "password")
+	if err != nil {
+		t.Fatalf("CreateMinerBundle: %v", err)
+	}
+	extractedPath, profile, err := ExtractMinerBundle(bundle, "password", t.TempDir())
+	if err != nil {
+		t.Fatalf("ExtractMinerBundle: %v", err)
+	}
+	if !bytes.Equal(profile, []byte(`{"profile":true}`)) {
+		t.Fatalf("path=%q profile=%s", extractedPath, profile)
+	}
+}
+
+func TestBundle_ExtractMinerBundle_Bad(t *testing.T) {
+	bundle := &Bundle{Type: BundleMiner, Data: []byte("bad"), Checksum: "bad"}
+	path, profile, err := ExtractMinerBundle(bundle, "password", t.TempDir())
+	if err == nil {
+		t.Fatal("expected checksum error")
+	}
+	if path != "" || profile != nil {
+		t.Fatalf("path=%q profile=%s", path, profile)
+	}
+}
+
+func TestBundle_ExtractMinerBundle_Ugly(t *testing.T) {
+	minerPath := testMinerFile(t, "binary")
+	bundle, err := CreateMinerBundle(minerPath, nil, "miner", "password")
+	if err != nil {
+		t.Fatalf("CreateMinerBundle: %v", err)
+	}
+	path, profile, err := ExtractMinerBundle(bundle, "wrong-password", t.TempDir())
+	if err == nil {
+		t.Fatal("expected decrypt error")
+	}
+	if path != "" || profile != nil {
+		t.Fatalf("path=%q profile=%s", path, profile)
+	}
+}
+
+func TestBundle_VerifyBundle_Good(t *testing.T) {
+	bundle, _ := CreateProfileBundleUnencrypted([]byte(`{"ok":true}`), "ok")
+	if !VerifyBundle(bundle) {
+		t.Fatal("valid bundle should verify")
+	}
+	if bundle.Checksum == "" {
+		t.Fatal("expected checksum")
+	}
+}
+
+func TestBundle_VerifyBundle_Bad(t *testing.T) {
+	bundle, _ := CreateProfileBundleUnencrypted([]byte(`{"ok":true}`), "ok")
+	bundle.Data = []byte(`{"ok":false}`)
+	if VerifyBundle(bundle) {
+		t.Fatal("modified bundle should not verify")
+	}
+	if bundle.Checksum == "" {
+		t.Fatal("expected checksum")
+	}
+}
+
+func TestBundle_VerifyBundle_Ugly(t *testing.T) {
+	bundle := &Bundle{Data: nil, Checksum: calculateChecksum(nil)}
+	if !VerifyBundle(bundle) {
+		t.Fatal("nil data with matching checksum should verify")
+	}
+	if bundle.Type != "" {
+		t.Fatal("type should remain empty")
+	}
+}
+
+func TestBundle_StreamBundle_Good(t *testing.T) {
+	bundle, _ := CreateProfileBundleUnencrypted([]byte(`{"stream":true}`), "stream")
+	var buf bytes.Buffer
+	err := StreamBundle(bundle, &buf)
+	if err != nil {
+		t.Fatalf("StreamBundle: %v", err)
+	}
+	if buf.Len() == 0 {
+		t.Fatal("expected streamed data")
+	}
+}
+
+func TestBundle_StreamBundle_Bad(t *testing.T) {
+	bundle, _ := CreateProfileBundleUnencrypted([]byte(`{}`), "stream")
+	err := StreamBundle(bundle, errBundleWriter{})
+	if err == nil {
+		t.Fatal("expected writer error")
+	}
+	if !VerifyBundle(bundle) {
+		t.Fatal("stream failure should not mutate bundle")
+	}
+}
+
+func TestBundle_StreamBundle_Ugly(t *testing.T) {
+	var buf bytes.Buffer
+	err := StreamBundle(&Bundle{}, &buf)
+	if err != nil {
+		t.Fatalf("StreamBundle empty: %v", err)
+	}
+	if !bytes.Contains(buf.Bytes(), []byte(`"type"`)) {
+		t.Fatalf("json: %s", buf.String())
+	}
+}
+
+func TestBundle_ReadBundle_Good(t *testing.T) {
+	bundle, _ := CreateProfileBundleUnencrypted([]byte(`{"read":true}`), "read")
+	var buf bytes.Buffer
+	if err := StreamBundle(bundle, &buf); err != nil {
+		t.Fatalf("StreamBundle: %v", err)
+	}
+	restored, err := ReadBundle(&buf)
+	if err != nil || restored.Name != "read" {
+		t.Fatalf("restored: %#v err=%v", restored, err)
+	}
+}
+
+func TestBundle_ReadBundle_Bad(t *testing.T) {
+	restored, err := ReadBundle(bytes.NewReader([]byte("not json")))
+	if err == nil {
+		t.Fatal("expected JSON error")
+	}
+	if restored != nil {
+		t.Fatalf("bundle: got %#v, want nil", restored)
+	}
+}
+
+func TestBundle_ReadBundle_Ugly(t *testing.T) {
+	restored, err := ReadBundle(bytes.NewReader(nil))
+	if err == nil {
+		t.Fatal("expected empty reader error")
+	}
+	if restored != nil {
+		t.Fatalf("bundle: got %#v, want nil", restored)
 	}
 }
 

@@ -60,6 +60,162 @@ func TestNewMessage(t *testing.T) {
 	})
 }
 
+func TestMessage_IsProtocolVersionSupported_Good(t *testing.T) {
+	if !IsProtocolVersionSupported(ProtocolVersion) {
+		t.Fatalf("version %q should be supported", ProtocolVersion)
+	}
+	if !IsProtocolVersionSupported(MinProtocolVersion) {
+		t.Fatalf("version %q should be supported", MinProtocolVersion)
+	}
+}
+
+func TestMessage_IsProtocolVersionSupported_Bad(t *testing.T) {
+	if IsProtocolVersionSupported("2.0") {
+		t.Fatal("unexpected support for 2.0")
+	}
+	if len(SupportedProtocolVersions) == 0 {
+		t.Fatal("supported versions should not be empty")
+	}
+}
+
+func TestMessage_IsProtocolVersionSupported_Ugly(t *testing.T) {
+	if IsProtocolVersionSupported("") {
+		t.Fatal("empty version should not be supported")
+	}
+	if IsProtocolVersionSupported(" 1.0 ") {
+		t.Fatal("version matching should not trim input")
+	}
+}
+
+func TestMessage_NewMessage_Good(t *testing.T) {
+	msg, err := NewMessage(MsgPing, "from", "to", PingPayload{SentAt: 1})
+	if err != nil {
+		t.Fatalf("NewMessage: %v", err)
+	}
+	if msg.Type != MsgPing || len(msg.Payload) == 0 {
+		t.Fatalf("message: %#v", msg)
+	}
+}
+
+func TestMessage_NewMessage_Bad(t *testing.T) {
+	msg, err := NewMessage(MsgPing, "from", "to", func() {})
+	if err == nil {
+		t.Fatal("expected marshal error")
+	}
+	if msg != nil {
+		t.Fatalf("message: got %#v, want nil", msg)
+	}
+}
+
+func TestMessage_NewMessage_Ugly(t *testing.T) {
+	msg, err := NewMessage("", "", "", nil)
+	if err != nil {
+		t.Fatalf("NewMessage: %v", err)
+	}
+	if msg.ID == "" || msg.Payload != nil {
+		t.Fatalf("message: %#v", msg)
+	}
+}
+
+func TestMessage_Message_Reply_Good(t *testing.T) {
+	msg, err := NewMessage(MsgPing, "from", "to", nil)
+	if err != nil {
+		t.Fatalf("NewMessage: %v", err)
+	}
+	reply, err := msg.Reply(MsgPong, PongPayload{SentAt: 1})
+	if err != nil || reply.ReplyTo != msg.ID {
+		t.Fatalf("reply: %#v err=%v", reply, err)
+	}
+}
+
+func TestMessage_Message_Reply_Bad(t *testing.T) {
+	msg, err := NewMessage(MsgPing, "from", "to", nil)
+	if err != nil {
+		t.Fatalf("NewMessage: %v", err)
+	}
+	reply, err := msg.Reply(MsgPong, func() {})
+	if err == nil || reply != nil {
+		t.Fatalf("reply: %#v err=%v", reply, err)
+	}
+}
+
+func TestMessage_Message_Reply_Ugly(t *testing.T) {
+	msg := &Message{ID: "id-1"}
+	reply, err := msg.Reply("", nil)
+	if err != nil {
+		t.Fatalf("Reply: %v", err)
+	}
+	if reply.From != msg.To || reply.To != msg.From {
+		t.Fatalf("reply routing: %#v", reply)
+	}
+}
+
+func TestMessage_Message_ParsePayload_Good(t *testing.T) {
+	msg, err := NewMessage(MsgPing, "from", "to", PingPayload{SentAt: 123})
+	if err != nil {
+		t.Fatalf("NewMessage: %v", err)
+	}
+	var payload PingPayload
+	if err := msg.ParsePayload(&payload); err != nil || payload.SentAt != 123 {
+		t.Fatalf("payload: %#v err=%v", payload, err)
+	}
+}
+
+func TestMessage_Message_ParsePayload_Bad(t *testing.T) {
+	msg := &Message{Payload: json.RawMessage(`{`)}
+	var payload PingPayload
+	err := msg.ParsePayload(&payload)
+	if err == nil {
+		t.Fatal("expected parse error")
+	}
+	if payload.SentAt != 0 {
+		t.Fatalf("payload: %#v", payload)
+	}
+}
+
+func TestMessage_Message_ParsePayload_Ugly(t *testing.T) {
+	msg := &Message{}
+	var payload PingPayload
+	err := msg.ParsePayload(&payload)
+	if err != nil {
+		t.Fatalf("ParsePayload nil: %v", err)
+	}
+	if payload.SentAt != 0 {
+		t.Fatalf("payload: %#v", payload)
+	}
+}
+
+func TestMessage_NewErrorMessage_Good(t *testing.T) {
+	msg, err := NewErrorMessage("from", "to", ErrCodeOperationFailed, "failed", "reply")
+	if err != nil {
+		t.Fatalf("NewErrorMessage: %v", err)
+	}
+	if msg.Type != MsgError || msg.ReplyTo != "reply" {
+		t.Fatalf("message: %#v", msg)
+	}
+}
+
+func TestMessage_NewErrorMessage_Bad(t *testing.T) {
+	msg, err := NewErrorMessage("", "", ErrCodeUnknown, "", "")
+	if err != nil {
+		t.Fatalf("NewErrorMessage: %v", err)
+	}
+	if msg.From != "" || msg.To != "" {
+		t.Fatalf("message: %#v", msg)
+	}
+}
+
+func TestMessage_NewErrorMessage_Ugly(t *testing.T) {
+	msg, err := NewErrorMessage("from", "to", -1, "custom", "id")
+	if err != nil {
+		t.Fatalf("NewErrorMessage: %v", err)
+	}
+	var payload ErrorPayload
+	if err := msg.ParsePayload(&payload); err != nil || payload.Code != -1 {
+		t.Fatalf("payload: %#v err=%v", payload, err)
+	}
+}
+
 func TestMessageReply(t *testing.T) {
 	original, _ := NewMessage(MsgPing, "sender", "receiver", PingPayload{SentAt: 12345})
 

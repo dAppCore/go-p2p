@@ -47,6 +47,167 @@ func TestNewProvider_Good(t *testing.T) {
 	}
 }
 
+func TestProvider_NewProvider_Good(t *testing.T) {
+	registry := newProviderTestRegistry(t)
+	provider := NewProvider(registry, nil)
+	if provider == nil {
+		t.Fatal("expected provider")
+	}
+	if provider.registry != registry {
+		t.Fatal("registry not retained")
+	}
+}
+
+func TestProvider_NewProvider_Bad(t *testing.T) {
+	provider := NewProvider(nil, nil)
+	if provider == nil {
+		t.Fatal("expected provider")
+	}
+	if provider.registry != nil {
+		t.Fatal("expected nil registry")
+	}
+}
+
+func TestProvider_NewProvider_Ugly(t *testing.T) {
+	registry := newProviderTestRegistry(t)
+	transport := p2pnode.NewTransport(nil, registry, p2pnode.DefaultTransportConfig())
+	provider := NewProvider(registry, transport)
+	if provider.transport != transport {
+		t.Fatal("transport not retained")
+	}
+}
+
+func TestProvider_P2PProvider_Name_Good(t *testing.T) {
+	provider := NewProvider(nil, nil)
+	if provider.Name() != "p2p" {
+		t.Fatalf("name: got %q", provider.Name())
+	}
+	if provider.Name() == "" {
+		t.Fatal("expected non-empty name")
+	}
+}
+
+func TestProvider_P2PProvider_Name_Bad(t *testing.T) {
+	var provider *P2PProvider
+	got := provider.Name()
+	if got != "p2p" {
+		t.Fatalf("name: got %q", got)
+	}
+}
+
+func TestProvider_P2PProvider_Name_Ugly(t *testing.T) {
+	provider := NewProvider(newProviderTestRegistry(t), nil)
+	got := provider.Name()
+	if strings.TrimSpace(got) != got {
+		t.Fatalf("name has whitespace: %q", got)
+	}
+}
+
+func TestProvider_P2PProvider_BasePath_Good(t *testing.T) {
+	provider := NewProvider(nil, nil)
+	if provider.BasePath() != "/v1/p2p" {
+		t.Fatalf("base path: got %q", provider.BasePath())
+	}
+	if provider.BasePath()[0] != '/' {
+		t.Fatal("base path should be absolute")
+	}
+}
+
+func TestProvider_P2PProvider_BasePath_Bad(t *testing.T) {
+	var provider *P2PProvider
+	got := provider.BasePath()
+	if got != "/v1/p2p" {
+		t.Fatalf("base path: got %q", got)
+	}
+}
+
+func TestProvider_P2PProvider_BasePath_Ugly(t *testing.T) {
+	provider := NewProvider(newProviderTestRegistry(t), nil)
+	got := provider.BasePath()
+	if strings.Contains(got, "//") {
+		t.Fatalf("base path contains duplicate slash: %q", got)
+	}
+}
+
+func TestProvider_P2PProvider_RegisterRoutes_Good(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	group := router.Group("/v1/p2p")
+	NewProvider(newProviderTestRegistry(t), nil).RegisterRoutes(group)
+	routes := router.Routes()
+	if len(routes) != 5 {
+		t.Fatalf("route count: got %d", len(routes))
+	}
+}
+
+func TestProvider_P2PProvider_RegisterRoutes_Bad(t *testing.T) {
+	provider := NewProvider(nil, nil)
+	provider.RegisterRoutes(nil)
+	if provider.Name() != "p2p" {
+		t.Fatal("provider changed after nil route group")
+	}
+}
+
+func TestProvider_P2PProvider_RegisterRoutes_Ugly(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	group := router.Group("")
+	var provider *P2PProvider
+	provider.RegisterRoutes(group)
+	if len(router.Routes()) != 0 {
+		t.Fatalf("route count: got %d", len(router.Routes()))
+	}
+}
+
+func TestProvider_P2PProvider_Describe_Good(t *testing.T) {
+	provider := NewProvider(nil, nil)
+	descriptions := provider.Describe()
+	if len(descriptions) != 5 {
+		t.Fatalf("description count: got %d", len(descriptions))
+	}
+}
+
+func TestProvider_P2PProvider_Describe_Bad(t *testing.T) {
+	var provider *P2PProvider
+	descriptions := provider.Describe()
+	if len(descriptions) != 5 {
+		t.Fatalf("description count: got %d", len(descriptions))
+	}
+}
+
+func TestProvider_P2PProvider_Describe_Ugly(t *testing.T) {
+	provider := NewProvider(newProviderTestRegistry(t), nil)
+	descriptions := provider.Describe()
+	if descriptions[0].Path == "" {
+		t.Fatal("expected route path")
+	}
+}
+
+func TestProvider_P2PProvider_Channels_Good(t *testing.T) {
+	provider := NewProvider(nil, nil)
+	channels := provider.Channels()
+	if len(channels) != 1 {
+		t.Fatalf("channels: got %#v", channels)
+	}
+}
+
+func TestProvider_P2PProvider_Channels_Bad(t *testing.T) {
+	var provider *P2PProvider
+	channels := provider.Channels()
+	if len(channels) != 1 {
+		t.Fatalf("channels: got %#v", channels)
+	}
+}
+
+func TestProvider_P2PProvider_Channels_Ugly(t *testing.T) {
+	provider := NewProvider(newProviderTestRegistry(t), nil)
+	channels := provider.Channels()
+	channels[0] = "mutated"
+	if provider.Channels()[0] != "p2p" {
+		t.Fatal("channels should be recreated")
+	}
+}
+
 func TestNewProvider_Bad(t *testing.T) {
 	provider := NewProvider(nil, nil)
 	router := newProviderTestRouter(provider)

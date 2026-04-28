@@ -71,6 +71,72 @@ func TestEncodeHeader_KnownValues(t *testing.T) {
 	}
 }
 
+func TestHeader_EncodeHeader_Good(t *testing.T) {
+	header := &Header{Signature: Signature, PayloadSize: 5, ExpectResponse: true, Command: CommandPing}
+	encoded := EncodeHeader(header)
+	if binary.LittleEndian.Uint64(encoded[0:8]) != Signature {
+		t.Fatal("signature not encoded")
+	}
+	if encoded[16] != 1 {
+		t.Fatalf("expect-response byte: got %d", encoded[16])
+	}
+}
+
+func TestHeader_EncodeHeader_Bad(t *testing.T) {
+	header := &Header{Signature: 0, PayloadSize: 0, ExpectResponse: false}
+	encoded := EncodeHeader(header)
+	if binary.LittleEndian.Uint64(encoded[0:8]) != 0 {
+		t.Fatal("signature should encode as zero")
+	}
+	if encoded[16] != 0 {
+		t.Fatalf("expect-response byte: got %d", encoded[16])
+	}
+}
+
+func TestHeader_EncodeHeader_Ugly(t *testing.T) {
+	header := &Header{Signature: Signature, PayloadSize: MaxPayloadSize, ReturnCode: -1}
+	encoded := EncodeHeader(header)
+	if len(encoded) != HeaderSize {
+		t.Fatalf("header length: got %d", len(encoded))
+	}
+	if int32(binary.LittleEndian.Uint32(encoded[21:25])) != -1 {
+		t.Fatal("return code not encoded")
+	}
+}
+
+func TestHeader_DecodeHeader_Good(t *testing.T) {
+	encoded := EncodeHeader(&Header{Signature: Signature, PayloadSize: 7, Command: CommandPing})
+	header, err := DecodeHeader(encoded)
+	if err != nil {
+		t.Fatalf("DecodeHeader: %v", err)
+	}
+	if header.PayloadSize != 7 || header.Command != CommandPing {
+		t.Fatalf("header: got %#v", header)
+	}
+}
+
+func TestHeader_DecodeHeader_Bad(t *testing.T) {
+	encoded := EncodeHeader(&Header{Signature: 0})
+	header, err := DecodeHeader(encoded)
+	if !errors.Is(err, ErrBadSignature) {
+		t.Fatalf("error: got %v", err)
+	}
+	if header.Signature != 0 {
+		t.Fatalf("header: got %#v", header)
+	}
+}
+
+func TestHeader_DecodeHeader_Ugly(t *testing.T) {
+	encoded := EncodeHeader(&Header{Signature: Signature, PayloadSize: MaxPayloadSize + 1})
+	header, err := DecodeHeader(encoded)
+	if !errors.Is(err, ErrPayloadTooBig) {
+		t.Fatalf("error: got %v", err)
+	}
+	if header.PayloadSize != 0 {
+		t.Fatalf("header: got %#v", header)
+	}
+}
+
 func TestEncodeHeader_ExpectResponseFalse(t *testing.T) {
 	h := &Header{
 		Signature:      Signature,

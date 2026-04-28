@@ -6,6 +6,12 @@ import (
 	"testing"
 )
 
+func axLoggerBuffer(level Level) (*Logger, *bytes.Buffer) {
+	var buf bytes.Buffer
+	logger := New(Config{Output: &buf, Level: level, Component: "test"})
+	return logger, &buf
+}
+
 func TestLoggerLevels(t *testing.T) {
 	var buf bytes.Buffer
 	logger := New(Config{
@@ -40,6 +46,751 @@ func TestLoggerLevels(t *testing.T) {
 	logger.Error("error message")
 	if !strings.Contains(buf.String(), "[ERROR]") {
 		t.Error("Error message should appear")
+	}
+}
+
+func TestLogger_Level_String_Good(t *testing.T) {
+	got := LevelInfo.String()
+	if got != "INFO" {
+		t.Fatalf("level: got %q", got)
+	}
+	if LevelWarn.String() != "WARN" {
+		t.Fatal("warn level string mismatch")
+	}
+}
+
+func TestLogger_Level_String_Bad(t *testing.T) {
+	got := Level(99).String()
+	if got != "UNKNOWN" {
+		t.Fatalf("level: got %q", got)
+	}
+	if Level(-1).String() != "UNKNOWN" {
+		t.Fatal("negative level should be unknown")
+	}
+}
+
+func TestLogger_Level_String_Ugly(t *testing.T) {
+	got := LevelDebug.String()
+	if got != "DEBUG" {
+		t.Fatalf("level: got %q", got)
+	}
+	if LevelError.String() != "ERROR" {
+		t.Fatal("error level string mismatch")
+	}
+}
+
+func TestLogger_DefaultConfig_Good(t *testing.T) {
+	cfg := DefaultConfig()
+	if cfg.Output == nil {
+		t.Fatal("expected default output")
+	}
+	if cfg.Level != LevelInfo {
+		t.Fatalf("level: got %v", cfg.Level)
+	}
+}
+
+func TestLogger_DefaultConfig_Bad(t *testing.T) {
+	cfg := DefaultConfig()
+	if cfg.Component != "" {
+		t.Fatalf("component: got %q", cfg.Component)
+	}
+	if cfg.Level == LevelDebug {
+		t.Fatal("default should not be debug")
+	}
+}
+
+func TestLogger_DefaultConfig_Ugly(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Output = nil
+	logger := New(cfg)
+	if logger.output == nil {
+		t.Fatal("New should repair nil output")
+	}
+}
+
+func TestLogger_New_Good(t *testing.T) {
+	var buf bytes.Buffer
+	logger := New(Config{Output: &buf, Level: LevelDebug, Component: "core"})
+	if logger == nil {
+		t.Fatal("expected logger")
+	}
+	if logger.component != "core" {
+		t.Fatalf("component: got %q", logger.component)
+	}
+}
+
+func TestLogger_New_Bad(t *testing.T) {
+	logger := New(Config{})
+	if logger.output == nil {
+		t.Fatal("expected fallback output")
+	}
+	if logger.level != LevelDebug {
+		t.Fatalf("zero config level: got %v", logger.level)
+	}
+}
+
+func TestLogger_New_Ugly(t *testing.T) {
+	logger := New(Config{Level: Level(99), Component: ""})
+	if logger.GetLevel() != Level(99) {
+		t.Fatalf("level: got %v", logger.GetLevel())
+	}
+	if logger.component != "" {
+		t.Fatal("expected empty component")
+	}
+}
+
+func TestLogger_Logger_WithComponent_Good(t *testing.T) {
+	logger, _ := axLoggerBuffer(LevelDebug)
+	child := logger.WithComponent("child")
+	if child.component != "child" {
+		t.Fatalf("component: got %q", child.component)
+	}
+	if child.level != logger.level {
+		t.Fatal("child should inherit level")
+	}
+}
+
+func TestLogger_Logger_WithComponent_Bad(t *testing.T) {
+	logger, _ := axLoggerBuffer(LevelInfo)
+	child := logger.WithComponent("")
+	if child.component != "" {
+		t.Fatalf("component: got %q", child.component)
+	}
+	if child.output != logger.output {
+		t.Fatal("child should inherit output")
+	}
+}
+
+func TestLogger_Logger_WithComponent_Ugly(t *testing.T) {
+	logger, _ := axLoggerBuffer(LevelInfo)
+	child := logger.WithComponent("worker/a")
+	child.Info("ready")
+	if logger.component != "test" {
+		t.Fatalf("parent component changed: %q", logger.component)
+	}
+}
+
+func TestLogger_Logger_SetLevel_Good(t *testing.T) {
+	logger, _ := axLoggerBuffer(LevelInfo)
+	logger.SetLevel(LevelDebug)
+	if logger.GetLevel() != LevelDebug {
+		t.Fatalf("level: got %v", logger.GetLevel())
+	}
+}
+
+func TestLogger_Logger_SetLevel_Bad(t *testing.T) {
+	logger, _ := axLoggerBuffer(LevelInfo)
+	logger.SetLevel(Level(99))
+	if logger.GetLevel() != Level(99) {
+		t.Fatalf("level: got %v", logger.GetLevel())
+	}
+}
+
+func TestLogger_Logger_SetLevel_Ugly(t *testing.T) {
+	logger, _ := axLoggerBuffer(LevelError)
+	logger.SetLevel(LevelDebug)
+	logger.SetLevel(LevelError)
+	if logger.GetLevel() != LevelError {
+		t.Fatalf("level: got %v", logger.GetLevel())
+	}
+}
+
+func TestLogger_Logger_GetLevel_Good(t *testing.T) {
+	logger, _ := axLoggerBuffer(LevelWarn)
+	got := logger.GetLevel()
+	if got != LevelWarn {
+		t.Fatalf("level: got %v", got)
+	}
+}
+
+func TestLogger_Logger_GetLevel_Bad(t *testing.T) {
+	logger, _ := axLoggerBuffer(LevelDebug)
+	logger.SetLevel(LevelInfo)
+	if logger.GetLevel() == LevelDebug {
+		t.Fatal("expected changed level")
+	}
+}
+
+func TestLogger_Logger_GetLevel_Ugly(t *testing.T) {
+	logger, _ := axLoggerBuffer(Level(42))
+	got := logger.GetLevel()
+	if got != Level(42) {
+		t.Fatalf("level: got %v", got)
+	}
+}
+
+func TestLogger_Logger_Debug_Good(t *testing.T) {
+	logger, buf := axLoggerBuffer(LevelDebug)
+	logger.Debug("debug", Fields{"k": "v"})
+	if !strings.Contains(buf.String(), "[DEBUG]") {
+		t.Fatalf("log: %q", buf.String())
+	}
+}
+
+func TestLogger_Logger_Debug_Bad(t *testing.T) {
+	logger, buf := axLoggerBuffer(LevelInfo)
+	logger.Debug("debug")
+	if buf.Len() != 0 {
+		t.Fatalf("log: %q", buf.String())
+	}
+}
+
+func TestLogger_Logger_Debug_Ugly(t *testing.T) {
+	logger, buf := axLoggerBuffer(LevelDebug)
+	logger.Debug("")
+	if !strings.Contains(buf.String(), "[DEBUG]") {
+		t.Fatalf("log: %q", buf.String())
+	}
+}
+
+func TestLogger_Logger_Info_Good(t *testing.T) {
+	logger, buf := axLoggerBuffer(LevelInfo)
+	logger.Info("info")
+	if !strings.Contains(buf.String(), "[INFO]") {
+		t.Fatalf("log: %q", buf.String())
+	}
+}
+
+func TestLogger_Logger_Info_Bad(t *testing.T) {
+	logger, buf := axLoggerBuffer(LevelWarn)
+	logger.Info("info")
+	if buf.Len() != 0 {
+		t.Fatalf("log: %q", buf.String())
+	}
+}
+
+func TestLogger_Logger_Info_Ugly(t *testing.T) {
+	logger, buf := axLoggerBuffer(LevelInfo)
+	logger.Info("info", nil)
+	if !strings.Contains(buf.String(), "info") {
+		t.Fatalf("log: %q", buf.String())
+	}
+}
+
+func TestLogger_Logger_Warn_Good(t *testing.T) {
+	logger, buf := axLoggerBuffer(LevelWarn)
+	logger.Warn("warn")
+	if !strings.Contains(buf.String(), "[WARN]") {
+		t.Fatalf("log: %q", buf.String())
+	}
+}
+
+func TestLogger_Logger_Warn_Bad(t *testing.T) {
+	logger, buf := axLoggerBuffer(LevelError)
+	logger.Warn("warn")
+	if buf.Len() != 0 {
+		t.Fatalf("log: %q", buf.String())
+	}
+}
+
+func TestLogger_Logger_Warn_Ugly(t *testing.T) {
+	logger, buf := axLoggerBuffer(LevelWarn)
+	logger.Warn("", Fields{"empty": true})
+	if !strings.Contains(buf.String(), "empty=true") {
+		t.Fatalf("log: %q", buf.String())
+	}
+}
+
+func TestLogger_Logger_Error_Good(t *testing.T) {
+	logger, buf := axLoggerBuffer(LevelError)
+	logger.Error("error")
+	if !strings.Contains(buf.String(), "[ERROR]") {
+		t.Fatalf("log: %q", buf.String())
+	}
+}
+
+func TestLogger_Logger_Error_Bad(t *testing.T) {
+	logger, buf := axLoggerBuffer(Level(99))
+	logger.Error("error")
+	if buf.Len() != 0 {
+		t.Fatalf("log: %q", buf.String())
+	}
+}
+
+func TestLogger_Logger_Error_Ugly(t *testing.T) {
+	logger, buf := axLoggerBuffer(LevelError)
+	logger.Error("", Fields{"code": 500})
+	if !strings.Contains(buf.String(), "code=500") {
+		t.Fatalf("log: %q", buf.String())
+	}
+}
+
+func TestLogger_Logger_Debugf_Good(t *testing.T) {
+	logger, buf := axLoggerBuffer(LevelDebug)
+	logger.Debugf("debug %d", 1)
+	if !strings.Contains(buf.String(), "debug 1") {
+		t.Fatalf("log: %q", buf.String())
+	}
+}
+
+func TestLogger_Logger_Debugf_Bad(t *testing.T) {
+	logger, buf := axLoggerBuffer(LevelInfo)
+	logger.Debugf("debug %d", 1)
+	if buf.Len() != 0 {
+		t.Fatalf("log: %q", buf.String())
+	}
+}
+
+func TestLogger_Logger_Debugf_Ugly(t *testing.T) {
+	logger, buf := axLoggerBuffer(LevelDebug)
+	logger.Debugf("%s", "")
+	if !strings.Contains(buf.String(), "[DEBUG]") {
+		t.Fatalf("log: %q", buf.String())
+	}
+}
+
+func TestLogger_Logger_Infof_Good(t *testing.T) {
+	logger, buf := axLoggerBuffer(LevelInfo)
+	logger.Infof("info %d", 1)
+	if !strings.Contains(buf.String(), "info 1") {
+		t.Fatalf("log: %q", buf.String())
+	}
+}
+
+func TestLogger_Logger_Infof_Bad(t *testing.T) {
+	logger, buf := axLoggerBuffer(LevelWarn)
+	logger.Infof("info %d", 1)
+	if buf.Len() != 0 {
+		t.Fatalf("log: %q", buf.String())
+	}
+}
+
+func TestLogger_Logger_Infof_Ugly(t *testing.T) {
+	logger, buf := axLoggerBuffer(LevelInfo)
+	logger.Infof("%s", "")
+	if !strings.Contains(buf.String(), "[INFO]") {
+		t.Fatalf("log: %q", buf.String())
+	}
+}
+
+func TestLogger_Logger_Warnf_Good(t *testing.T) {
+	logger, buf := axLoggerBuffer(LevelWarn)
+	logger.Warnf("warn %d", 1)
+	if !strings.Contains(buf.String(), "warn 1") {
+		t.Fatalf("log: %q", buf.String())
+	}
+}
+
+func TestLogger_Logger_Warnf_Bad(t *testing.T) {
+	logger, buf := axLoggerBuffer(LevelError)
+	logger.Warnf("warn %d", 1)
+	if buf.Len() != 0 {
+		t.Fatalf("log: %q", buf.String())
+	}
+}
+
+func TestLogger_Logger_Warnf_Ugly(t *testing.T) {
+	logger, buf := axLoggerBuffer(LevelWarn)
+	logger.Warnf("%s", "")
+	if !strings.Contains(buf.String(), "[WARN]") {
+		t.Fatalf("log: %q", buf.String())
+	}
+}
+
+func TestLogger_Logger_Errorf_Good(t *testing.T) {
+	logger, buf := axLoggerBuffer(LevelError)
+	logger.Errorf("error %d", 1)
+	if !strings.Contains(buf.String(), "error 1") {
+		t.Fatalf("log: %q", buf.String())
+	}
+}
+
+func TestLogger_Logger_Errorf_Bad(t *testing.T) {
+	logger, buf := axLoggerBuffer(Level(99))
+	logger.Errorf("error %d", 1)
+	if buf.Len() != 0 {
+		t.Fatalf("log: %q", buf.String())
+	}
+}
+
+func TestLogger_Logger_Errorf_Ugly(t *testing.T) {
+	logger, buf := axLoggerBuffer(LevelError)
+	logger.Errorf("%s", "")
+	if !strings.Contains(buf.String(), "[ERROR]") {
+		t.Fatalf("log: %q", buf.String())
+	}
+}
+
+func TestLogger_SetGlobal_Good(t *testing.T) {
+	previous := GetGlobal()
+	logger, _ := axLoggerBuffer(LevelDebug)
+	SetGlobal(logger)
+	t.Cleanup(func() { SetGlobal(previous) })
+	if GetGlobal() != logger {
+		t.Fatal("global logger not set")
+	}
+}
+
+func TestLogger_SetGlobal_Bad(t *testing.T) {
+	previous := GetGlobal()
+	SetGlobal(nil)
+	t.Cleanup(func() { SetGlobal(previous) })
+	if GetGlobal() != nil {
+		t.Fatal("expected nil global logger")
+	}
+}
+
+func TestLogger_SetGlobal_Ugly(t *testing.T) {
+	previous := GetGlobal()
+	logger, _ := axLoggerBuffer(LevelError)
+	SetGlobal(logger)
+	SetGlobal(previous)
+	if GetGlobal() != previous {
+		t.Fatal("global logger not restored")
+	}
+}
+
+func TestLogger_GetGlobal_Good(t *testing.T) {
+	logger := GetGlobal()
+	if logger == nil {
+		t.Fatal("expected global logger")
+	}
+	if logger.GetLevel() < LevelDebug {
+		t.Fatal("unexpected level")
+	}
+}
+
+func TestLogger_GetGlobal_Bad(t *testing.T) {
+	previous := GetGlobal()
+	SetGlobal(nil)
+	t.Cleanup(func() { SetGlobal(previous) })
+	if GetGlobal() != nil {
+		t.Fatal("expected nil global logger")
+	}
+}
+
+func TestLogger_GetGlobal_Ugly(t *testing.T) {
+	previous := GetGlobal()
+	SetGlobal(previous)
+	if GetGlobal() != previous {
+		t.Fatal("global logger pointer changed")
+	}
+}
+
+func TestLogger_SetGlobalLevel_Good(t *testing.T) {
+	previous := GetGlobal()
+	logger, _ := axLoggerBuffer(LevelInfo)
+	SetGlobal(logger)
+	t.Cleanup(func() { SetGlobal(previous) })
+	SetGlobalLevel(LevelDebug)
+	if GetGlobal().GetLevel() != LevelDebug {
+		t.Fatalf("level: got %v", GetGlobal().GetLevel())
+	}
+}
+
+func TestLogger_SetGlobalLevel_Bad(t *testing.T) {
+	previous := GetGlobal()
+	logger, _ := axLoggerBuffer(LevelInfo)
+	SetGlobal(logger)
+	t.Cleanup(func() { SetGlobal(previous) })
+	SetGlobalLevel(Level(99))
+	if GetGlobal().GetLevel() != Level(99) {
+		t.Fatalf("level: got %v", GetGlobal().GetLevel())
+	}
+}
+
+func TestLogger_SetGlobalLevel_Ugly(t *testing.T) {
+	previous := GetGlobal()
+	logger, _ := axLoggerBuffer(LevelError)
+	SetGlobal(logger)
+	t.Cleanup(func() { SetGlobal(previous) })
+	SetGlobalLevel(LevelError)
+	if GetGlobal().GetLevel() != LevelError {
+		t.Fatalf("level: got %v", GetGlobal().GetLevel())
+	}
+}
+
+func TestLogger_Debug_Good(t *testing.T) {
+	previous := GetGlobal()
+	logger, buf := axLoggerBuffer(LevelDebug)
+	SetGlobal(logger)
+	t.Cleanup(func() { SetGlobal(previous) })
+	Debug("debug")
+	if !strings.Contains(buf.String(), "[DEBUG]") {
+		t.Fatalf("log: %q", buf.String())
+	}
+}
+
+func TestLogger_Debug_Bad(t *testing.T) {
+	previous := GetGlobal()
+	logger, buf := axLoggerBuffer(LevelInfo)
+	SetGlobal(logger)
+	t.Cleanup(func() { SetGlobal(previous) })
+	Debug("debug")
+	if buf.Len() != 0 {
+		t.Fatalf("log: %q", buf.String())
+	}
+}
+
+func TestLogger_Debug_Ugly(t *testing.T) {
+	previous := GetGlobal()
+	logger, buf := axLoggerBuffer(LevelDebug)
+	SetGlobal(logger)
+	t.Cleanup(func() { SetGlobal(previous) })
+	Debug("", nil)
+	if !strings.Contains(buf.String(), "[DEBUG]") {
+		t.Fatalf("log: %q", buf.String())
+	}
+}
+
+func TestLogger_Info_Good(t *testing.T) {
+	previous := GetGlobal()
+	logger, buf := axLoggerBuffer(LevelInfo)
+	SetGlobal(logger)
+	t.Cleanup(func() { SetGlobal(previous) })
+	Info("info")
+	if !strings.Contains(buf.String(), "[INFO]") {
+		t.Fatalf("log: %q", buf.String())
+	}
+}
+
+func TestLogger_Info_Bad(t *testing.T) {
+	previous := GetGlobal()
+	logger, buf := axLoggerBuffer(LevelWarn)
+	SetGlobal(logger)
+	t.Cleanup(func() { SetGlobal(previous) })
+	Info("info")
+	if buf.Len() != 0 {
+		t.Fatalf("log: %q", buf.String())
+	}
+}
+
+func TestLogger_Info_Ugly(t *testing.T) {
+	previous := GetGlobal()
+	logger, buf := axLoggerBuffer(LevelInfo)
+	SetGlobal(logger)
+	t.Cleanup(func() { SetGlobal(previous) })
+	Info("", Fields{"k": "v"})
+	if !strings.Contains(buf.String(), "k=v") {
+		t.Fatalf("log: %q", buf.String())
+	}
+}
+
+func TestLogger_Warn_Good(t *testing.T) {
+	previous := GetGlobal()
+	logger, buf := axLoggerBuffer(LevelWarn)
+	SetGlobal(logger)
+	t.Cleanup(func() { SetGlobal(previous) })
+	Warn("warn")
+	if !strings.Contains(buf.String(), "[WARN]") {
+		t.Fatalf("log: %q", buf.String())
+	}
+}
+
+func TestLogger_Warn_Bad(t *testing.T) {
+	previous := GetGlobal()
+	logger, buf := axLoggerBuffer(LevelError)
+	SetGlobal(logger)
+	t.Cleanup(func() { SetGlobal(previous) })
+	Warn("warn")
+	if buf.Len() != 0 {
+		t.Fatalf("log: %q", buf.String())
+	}
+}
+
+func TestLogger_Warn_Ugly(t *testing.T) {
+	previous := GetGlobal()
+	logger, buf := axLoggerBuffer(LevelWarn)
+	SetGlobal(logger)
+	t.Cleanup(func() { SetGlobal(previous) })
+	Warn("", Fields{"empty": true})
+	if !strings.Contains(buf.String(), "empty=true") {
+		t.Fatalf("log: %q", buf.String())
+	}
+}
+
+func TestLogger_Error_Good(t *testing.T) {
+	previous := GetGlobal()
+	logger, buf := axLoggerBuffer(LevelError)
+	SetGlobal(logger)
+	t.Cleanup(func() { SetGlobal(previous) })
+	Error("error")
+	if !strings.Contains(buf.String(), "[ERROR]") {
+		t.Fatalf("log: %q", buf.String())
+	}
+}
+
+func TestLogger_Error_Bad(t *testing.T) {
+	previous := GetGlobal()
+	logger, buf := axLoggerBuffer(Level(99))
+	SetGlobal(logger)
+	t.Cleanup(func() { SetGlobal(previous) })
+	Error("error")
+	if buf.Len() != 0 {
+		t.Fatalf("log: %q", buf.String())
+	}
+}
+
+func TestLogger_Error_Ugly(t *testing.T) {
+	previous := GetGlobal()
+	logger, buf := axLoggerBuffer(LevelError)
+	SetGlobal(logger)
+	t.Cleanup(func() { SetGlobal(previous) })
+	Error("", Fields{"code": 500})
+	if !strings.Contains(buf.String(), "code=500") {
+		t.Fatalf("log: %q", buf.String())
+	}
+}
+
+func TestLogger_Debugf_Good(t *testing.T) {
+	previous := GetGlobal()
+	logger, buf := axLoggerBuffer(LevelDebug)
+	SetGlobal(logger)
+	t.Cleanup(func() { SetGlobal(previous) })
+	Debugf("debug %d", 1)
+	if !strings.Contains(buf.String(), "debug 1") {
+		t.Fatalf("log: %q", buf.String())
+	}
+}
+
+func TestLogger_Debugf_Bad(t *testing.T) {
+	previous := GetGlobal()
+	logger, buf := axLoggerBuffer(LevelInfo)
+	SetGlobal(logger)
+	t.Cleanup(func() { SetGlobal(previous) })
+	Debugf("debug %d", 1)
+	if buf.Len() != 0 {
+		t.Fatalf("log: %q", buf.String())
+	}
+}
+
+func TestLogger_Debugf_Ugly(t *testing.T) {
+	previous := GetGlobal()
+	logger, buf := axLoggerBuffer(LevelDebug)
+	SetGlobal(logger)
+	t.Cleanup(func() { SetGlobal(previous) })
+	Debugf("%s", "")
+	if !strings.Contains(buf.String(), "[DEBUG]") {
+		t.Fatalf("log: %q", buf.String())
+	}
+}
+
+func TestLogger_Infof_Good(t *testing.T) {
+	previous := GetGlobal()
+	logger, buf := axLoggerBuffer(LevelInfo)
+	SetGlobal(logger)
+	t.Cleanup(func() { SetGlobal(previous) })
+	Infof("info %d", 1)
+	if !strings.Contains(buf.String(), "info 1") {
+		t.Fatalf("log: %q", buf.String())
+	}
+}
+
+func TestLogger_Infof_Bad(t *testing.T) {
+	previous := GetGlobal()
+	logger, buf := axLoggerBuffer(LevelWarn)
+	SetGlobal(logger)
+	t.Cleanup(func() { SetGlobal(previous) })
+	Infof("info %d", 1)
+	if buf.Len() != 0 {
+		t.Fatalf("log: %q", buf.String())
+	}
+}
+
+func TestLogger_Infof_Ugly(t *testing.T) {
+	previous := GetGlobal()
+	logger, buf := axLoggerBuffer(LevelInfo)
+	SetGlobal(logger)
+	t.Cleanup(func() { SetGlobal(previous) })
+	Infof("%s", "")
+	if !strings.Contains(buf.String(), "[INFO]") {
+		t.Fatalf("log: %q", buf.String())
+	}
+}
+
+func TestLogger_Warnf_Good(t *testing.T) {
+	previous := GetGlobal()
+	logger, buf := axLoggerBuffer(LevelWarn)
+	SetGlobal(logger)
+	t.Cleanup(func() { SetGlobal(previous) })
+	Warnf("warn %d", 1)
+	if !strings.Contains(buf.String(), "warn 1") {
+		t.Fatalf("log: %q", buf.String())
+	}
+}
+
+func TestLogger_Warnf_Bad(t *testing.T) {
+	previous := GetGlobal()
+	logger, buf := axLoggerBuffer(LevelError)
+	SetGlobal(logger)
+	t.Cleanup(func() { SetGlobal(previous) })
+	Warnf("warn %d", 1)
+	if buf.Len() != 0 {
+		t.Fatalf("log: %q", buf.String())
+	}
+}
+
+func TestLogger_Warnf_Ugly(t *testing.T) {
+	previous := GetGlobal()
+	logger, buf := axLoggerBuffer(LevelWarn)
+	SetGlobal(logger)
+	t.Cleanup(func() { SetGlobal(previous) })
+	Warnf("%s", "")
+	if !strings.Contains(buf.String(), "[WARN]") {
+		t.Fatalf("log: %q", buf.String())
+	}
+}
+
+func TestLogger_Errorf_Good(t *testing.T) {
+	previous := GetGlobal()
+	logger, buf := axLoggerBuffer(LevelError)
+	SetGlobal(logger)
+	t.Cleanup(func() { SetGlobal(previous) })
+	Errorf("error %d", 1)
+	if !strings.Contains(buf.String(), "error 1") {
+		t.Fatalf("log: %q", buf.String())
+	}
+}
+
+func TestLogger_Errorf_Bad(t *testing.T) {
+	previous := GetGlobal()
+	logger, buf := axLoggerBuffer(Level(99))
+	SetGlobal(logger)
+	t.Cleanup(func() { SetGlobal(previous) })
+	Errorf("error %d", 1)
+	if buf.Len() != 0 {
+		t.Fatalf("log: %q", buf.String())
+	}
+}
+
+func TestLogger_Errorf_Ugly(t *testing.T) {
+	previous := GetGlobal()
+	logger, buf := axLoggerBuffer(LevelError)
+	SetGlobal(logger)
+	t.Cleanup(func() { SetGlobal(previous) })
+	Errorf("%s", "")
+	if !strings.Contains(buf.String(), "[ERROR]") {
+		t.Fatalf("log: %q", buf.String())
+	}
+}
+
+func TestLogger_ParseLevel_Good(t *testing.T) {
+	level, err := ParseLevel("debug")
+	if err != nil {
+		t.Fatalf("ParseLevel: %v", err)
+	}
+	if level != LevelDebug {
+		t.Fatalf("level: got %v", level)
+	}
+}
+
+func TestLogger_ParseLevel_Bad(t *testing.T) {
+	level, err := ParseLevel("trace")
+	if err == nil {
+		t.Fatal("expected parse error")
+	}
+	if level != LevelInfo {
+		t.Fatalf("fallback level: got %v", level)
+	}
+}
+
+func TestLogger_ParseLevel_Ugly(t *testing.T) {
+	level, err := ParseLevel("WARNING")
+	if err != nil {
+		t.Fatalf("ParseLevel: %v", err)
+	}
+	if level != LevelWarn {
+		t.Fatalf("level: got %v", level)
 	}
 }
 

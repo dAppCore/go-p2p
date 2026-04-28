@@ -29,12 +29,993 @@ func setupTestPeerRegistry(t *testing.T) (*PeerRegistry, func()) {
 	return pr, cleanup
 }
 
+func tripletPeerRegistry(t *testing.T) *PeerRegistry {
+	t.Helper()
+	registry, cleanup := setupTestPeerRegistry(t)
+	t.Cleanup(func() {
+		_ = registry.Close()
+		cleanup()
+	})
+	return registry
+}
+
+func tripletPeer(id string) *Peer {
+	return &Peer{
+		ID:        id,
+		Name:      "peer-" + id,
+		PublicKey: "pub-" + id,
+		Address:   "127.0.0.1:0",
+		Role:      RoleWorker,
+		Score:     ScoreDefault,
+	}
+}
+
 func TestPeerRegistry_NewPeerRegistry(t *testing.T) {
 	pr, cleanup := setupTestPeerRegistry(t)
 	defer cleanup()
 
 	if pr.Count() != 0 {
 		t.Errorf("expected 0 peers, got %d", pr.Count())
+	}
+}
+
+func TestPeer_NewPeerRegistry_Good(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "peers.json")
+	registry, err := NewPeerRegistry(path)
+	if err != nil {
+		t.Fatalf("NewPeerRegistry: %v", err)
+	}
+	t.Cleanup(func() { registry.Close() })
+	if registry.path != path {
+		t.Fatalf("path: got %q", registry.path)
+	}
+}
+
+func TestPeer_NewPeerRegistry_Bad(t *testing.T) {
+	cleanup := setupTestEnv(t)
+	defer cleanup()
+	registry, err := NewPeerRegistry()
+	if err != nil {
+		t.Fatalf("NewPeerRegistry default: %v", err)
+	}
+	t.Cleanup(func() { registry.Close() })
+	if registry.Count() != 0 {
+		t.Fatalf("count: got %d", registry.Count())
+	}
+}
+
+func TestPeer_NewPeerRegistry_Ugly(t *testing.T) {
+	cleanup := setupTestEnv(t)
+	defer cleanup()
+	registry, err := NewPeerRegistry("")
+	if err != nil {
+		t.Fatalf("NewPeerRegistry empty path: %v", err)
+	}
+	t.Cleanup(func() { registry.Close() })
+	if registry.GetAuthMode() != PeerAuthOpen {
+		t.Fatalf("auth mode: got %v", registry.GetAuthMode())
+	}
+}
+
+func TestPeer_NewPeerRegistryWithPath_Good(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "peers.json")
+	registry, err := NewPeerRegistryWithPath(path)
+	if err != nil {
+		t.Fatalf("NewPeerRegistryWithPath: %v", err)
+	}
+	t.Cleanup(func() { registry.Close() })
+	if registry.allowlistPath != path+".allowlist.json" {
+		t.Fatalf("allowlist path: got %q", registry.allowlistPath)
+	}
+}
+
+func TestPeer_NewPeerRegistryWithPath_Bad(t *testing.T) {
+	registry, err := NewPeerRegistryWithPath("")
+	if err != nil {
+		t.Fatalf("NewPeerRegistryWithPath empty: %v", err)
+	}
+	t.Cleanup(func() { registry.Close() })
+	if registry.path != "" {
+		t.Fatalf("path: got %q", registry.path)
+	}
+}
+
+func TestPeer_NewPeerRegistryWithPath_Ugly(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "nested", "peers.json")
+	registry, err := NewPeerRegistryWithPath(path)
+	if err != nil {
+		t.Fatalf("NewPeerRegistryWithPath nested: %v", err)
+	}
+	t.Cleanup(func() { registry.Close() })
+	if registry.Count() != 0 {
+		t.Fatalf("count: got %d", registry.Count())
+	}
+}
+
+func TestPeer_PeerRegistry_SetAuthMode_Good(t *testing.T) {
+	registry := tripletPeerRegistry(t)
+	registry.SetAuthMode(PeerAuthAllowlist)
+	if registry.GetAuthMode() != PeerAuthAllowlist {
+		t.Fatalf("auth mode: got %v", registry.GetAuthMode())
+	}
+}
+
+func TestPeer_PeerRegistry_SetAuthMode_Bad(t *testing.T) {
+	registry := tripletPeerRegistry(t)
+	registry.SetAuthMode(PeerAuthMode(99))
+	if registry.GetAuthMode() != PeerAuthMode(99) {
+		t.Fatalf("auth mode: got %v", registry.GetAuthMode())
+	}
+}
+
+func TestPeer_PeerRegistry_SetAuthMode_Ugly(t *testing.T) {
+	registry := tripletPeerRegistry(t)
+	registry.SetAuthMode(PeerAuthAllowlist)
+	registry.SetAuthMode(PeerAuthOpen)
+	if registry.GetAuthMode() != PeerAuthOpen {
+		t.Fatalf("auth mode: got %v", registry.GetAuthMode())
+	}
+}
+
+func TestPeer_PeerRegistry_GetAuthMode_Good(t *testing.T) {
+	registry := tripletPeerRegistry(t)
+	if registry.GetAuthMode() != PeerAuthOpen {
+		t.Fatalf("auth mode: got %v", registry.GetAuthMode())
+	}
+}
+
+func TestPeer_PeerRegistry_GetAuthMode_Bad(t *testing.T) {
+	registry := tripletPeerRegistry(t)
+	registry.SetAuthMode(PeerAuthAllowlist)
+	if registry.GetAuthMode() == PeerAuthOpen {
+		t.Fatal("expected allowlist mode")
+	}
+}
+
+func TestPeer_PeerRegistry_GetAuthMode_Ugly(t *testing.T) {
+	registry := tripletPeerRegistry(t)
+	registry.SetAuthMode(PeerAuthMode(-1))
+	if registry.GetAuthMode() != PeerAuthMode(-1) {
+		t.Fatalf("auth mode: got %v", registry.GetAuthMode())
+	}
+}
+
+func TestPeer_PeerRegistry_AllowPublicKey_Good(t *testing.T) {
+	registry := tripletPeerRegistry(t)
+	registry.AllowPublicKey("pub")
+	if !registry.IsPublicKeyAllowed("pub") {
+		t.Fatal("public key not allowed")
+	}
+}
+
+func TestPeer_PeerRegistry_AllowPublicKey_Bad(t *testing.T) {
+	registry := tripletPeerRegistry(t)
+	registry.AllowPublicKey("")
+	if !registry.IsPublicKeyAllowed("") {
+		t.Fatal("empty key should be stored")
+	}
+}
+
+func TestPeer_PeerRegistry_AllowPublicKey_Ugly(t *testing.T) {
+	registry := tripletPeerRegistry(t)
+	registry.AllowPublicKey("pub")
+	registry.AllowPublicKey("pub")
+	if len(registry.ListAllowedPublicKeys()) != 1 {
+		t.Fatalf("keys: %#v", registry.ListAllowedPublicKeys())
+	}
+}
+
+func TestPeer_PeerRegistry_RevokePublicKey_Good(t *testing.T) {
+	registry := tripletPeerRegistry(t)
+	registry.AllowPublicKey("pub")
+	registry.RevokePublicKey("pub")
+	if registry.IsPublicKeyAllowed("pub") {
+		t.Fatal("public key should be revoked")
+	}
+}
+
+func TestPeer_PeerRegistry_RevokePublicKey_Bad(t *testing.T) {
+	registry := tripletPeerRegistry(t)
+	registry.RevokePublicKey("missing")
+	if registry.IsPublicKeyAllowed("missing") {
+		t.Fatal("missing key should not be allowed")
+	}
+}
+
+func TestPeer_PeerRegistry_RevokePublicKey_Ugly(t *testing.T) {
+	registry := tripletPeerRegistry(t)
+	registry.AllowPublicKey("")
+	registry.RevokePublicKey("")
+	if registry.IsPublicKeyAllowed("") {
+		t.Fatal("empty key should be revoked")
+	}
+}
+
+func TestPeer_PeerRegistry_IsPublicKeyAllowed_Good(t *testing.T) {
+	registry := tripletPeerRegistry(t)
+	registry.AllowPublicKey("pub")
+	if !registry.IsPublicKeyAllowed("pub") {
+		t.Fatal("expected key allowed")
+	}
+}
+
+func TestPeer_PeerRegistry_IsPublicKeyAllowed_Bad(t *testing.T) {
+	registry := tripletPeerRegistry(t)
+	if registry.IsPublicKeyAllowed("missing") {
+		t.Fatal("missing key should not be allowed")
+	}
+}
+
+func TestPeer_PeerRegistry_IsPublicKeyAllowed_Ugly(t *testing.T) {
+	registry := tripletPeerRegistry(t)
+	if registry.IsPublicKeyAllowed("") {
+		t.Fatal("empty key should start disallowed")
+	}
+}
+
+func TestPeer_PeerRegistry_IsPeerAllowed_Good(t *testing.T) {
+	registry := tripletPeerRegistry(t)
+	if !registry.IsPeerAllowed("peer", "pub") {
+		t.Fatal("open auth should allow peer")
+	}
+}
+
+func TestPeer_PeerRegistry_IsPeerAllowed_Bad(t *testing.T) {
+	registry := tripletPeerRegistry(t)
+	registry.SetAuthMode(PeerAuthAllowlist)
+	if registry.IsPeerAllowed("peer", "pub") {
+		t.Fatal("unregistered peer should be rejected")
+	}
+}
+
+func TestPeer_PeerRegistry_IsPeerAllowed_Ugly(t *testing.T) {
+	registry := tripletPeerRegistry(t)
+	registry.SetAuthMode(PeerAuthAllowlist)
+	registry.AllowPublicKey("pub")
+	if !registry.IsPeerAllowed("peer", "pub") {
+		t.Fatal("allowlisted public key should be allowed")
+	}
+}
+
+func TestPeer_PeerRegistry_ListAllowedPublicKeys_Good(t *testing.T) {
+	registry := tripletPeerRegistry(t)
+	registry.AllowPublicKey("pub")
+	keys := registry.ListAllowedPublicKeys()
+	if len(keys) != 1 || keys[0] != "pub" {
+		t.Fatalf("keys: %#v", keys)
+	}
+}
+
+func TestPeer_PeerRegistry_ListAllowedPublicKeys_Bad(t *testing.T) {
+	registry := tripletPeerRegistry(t)
+	keys := registry.ListAllowedPublicKeys()
+	if len(keys) != 0 {
+		t.Fatalf("keys: %#v", keys)
+	}
+}
+
+func TestPeer_PeerRegistry_ListAllowedPublicKeys_Ugly(t *testing.T) {
+	registry := tripletPeerRegistry(t)
+	registry.AllowPublicKey("b")
+	registry.AllowPublicKey("a")
+	keys := registry.ListAllowedPublicKeys()
+	if len(keys) != 2 {
+		t.Fatalf("keys: %#v", keys)
+	}
+}
+
+func TestPeer_PeerRegistry_AllowedPublicKeys_Good(t *testing.T) {
+	registry := tripletPeerRegistry(t)
+	registry.AllowPublicKey("pub")
+	count := 0
+	for range registry.AllowedPublicKeys() {
+		count++
+	}
+	if count != 1 {
+		t.Fatalf("key count: got %d", count)
+	}
+}
+
+func TestPeer_PeerRegistry_AllowedPublicKeys_Bad(t *testing.T) {
+	registry := tripletPeerRegistry(t)
+	count := 0
+	for range registry.AllowedPublicKeys() {
+		count++
+	}
+	if count != 0 {
+		t.Fatalf("key count: got %d", count)
+	}
+}
+
+func TestPeer_PeerRegistry_AllowedPublicKeys_Ugly(t *testing.T) {
+	registry := tripletPeerRegistry(t)
+	registry.AllowPublicKey("pub")
+	count := 0
+	for range registry.AllowedPublicKeys() {
+		count++
+		break
+	}
+	if count != 1 {
+		t.Fatalf("key count: got %d", count)
+	}
+}
+
+func TestPeer_PeerRegistry_AddPeer_Good(t *testing.T) {
+	registry := tripletPeerRegistry(t)
+	err := registry.AddPeer(tripletPeer("a"))
+	if err != nil {
+		t.Fatalf("AddPeer: %v", err)
+	}
+	if registry.Count() != 1 {
+		t.Fatalf("count: got %d", registry.Count())
+	}
+}
+
+func TestPeer_PeerRegistry_AddPeer_Bad(t *testing.T) {
+	registry := tripletPeerRegistry(t)
+	err := registry.AddPeer(&Peer{})
+	if err == nil {
+		t.Fatal("expected missing ID error")
+	}
+	if registry.Count() != 0 {
+		t.Fatalf("count: got %d", registry.Count())
+	}
+}
+
+func TestPeer_PeerRegistry_AddPeer_Ugly(t *testing.T) {
+	registry := tripletPeerRegistry(t)
+	peer := tripletPeer("a")
+	peer.Name = "-bad"
+	err := registry.AddPeer(peer)
+	if err == nil {
+		t.Fatal("expected invalid name error")
+	}
+	if registry.Count() != 0 {
+		t.Fatalf("count: got %d", registry.Count())
+	}
+}
+
+func TestPeer_PeerRegistry_UpdatePeer_Good(t *testing.T) {
+	registry := tripletPeerRegistry(t)
+	peer := tripletPeer("a")
+	_ = registry.AddPeer(peer)
+	peer.Name = "renamed"
+	err := registry.UpdatePeer(peer)
+	if err != nil {
+		t.Fatalf("UpdatePeer: %v", err)
+	}
+	if registry.GetPeer("a").Name != "renamed" {
+		t.Fatal("peer not updated")
+	}
+}
+
+func TestPeer_PeerRegistry_UpdatePeer_Bad(t *testing.T) {
+	registry := tripletPeerRegistry(t)
+	err := registry.UpdatePeer(tripletPeer("missing"))
+	if err == nil {
+		t.Fatal("expected missing peer error")
+	}
+	if registry.Count() != 0 {
+		t.Fatalf("count: got %d", registry.Count())
+	}
+}
+
+func TestPeer_PeerRegistry_UpdatePeer_Ugly(t *testing.T) {
+	registry := tripletPeerRegistry(t)
+	peer := tripletPeer("a")
+	_ = registry.AddPeer(peer)
+	peer.Score = 0
+	err := registry.UpdatePeer(peer)
+	if err != nil {
+		t.Fatalf("UpdatePeer: %v", err)
+	}
+	if registry.GetPeer("a").Score != 0 {
+		t.Fatal("score not updated")
+	}
+}
+
+func TestPeer_PeerRegistry_RemovePeer_Good(t *testing.T) {
+	registry := tripletPeerRegistry(t)
+	_ = registry.AddPeer(tripletPeer("a"))
+	err := registry.RemovePeer("a")
+	if err != nil {
+		t.Fatalf("RemovePeer: %v", err)
+	}
+	if registry.Count() != 0 {
+		t.Fatalf("count: got %d", registry.Count())
+	}
+}
+
+func TestPeer_PeerRegistry_RemovePeer_Bad(t *testing.T) {
+	registry := tripletPeerRegistry(t)
+	err := registry.RemovePeer("missing")
+	if err == nil {
+		t.Fatal("expected missing peer error")
+	}
+	if registry.Count() != 0 {
+		t.Fatalf("count: got %d", registry.Count())
+	}
+}
+
+func TestPeer_PeerRegistry_RemovePeer_Ugly(t *testing.T) {
+	registry := tripletPeerRegistry(t)
+	_ = registry.AddPeer(tripletPeer("a"))
+	_ = registry.RemovePeer("a")
+	err := registry.RemovePeer("a")
+	if err == nil {
+		t.Fatal("expected second remove error")
+	}
+}
+
+func TestPeer_PeerRegistry_GetPeer_Good(t *testing.T) {
+	registry := tripletPeerRegistry(t)
+	_ = registry.AddPeer(tripletPeer("a"))
+	peer := registry.GetPeer("a")
+	if peer == nil || peer.ID != "a" {
+		t.Fatalf("peer: %#v", peer)
+	}
+}
+
+func TestPeer_PeerRegistry_GetPeer_Bad(t *testing.T) {
+	registry := tripletPeerRegistry(t)
+	peer := registry.GetPeer("missing")
+	if peer != nil {
+		t.Fatalf("peer: got %#v, want nil", peer)
+	}
+}
+
+func TestPeer_PeerRegistry_GetPeer_Ugly(t *testing.T) {
+	registry := tripletPeerRegistry(t)
+	_ = registry.AddPeer(tripletPeer("a"))
+	peer := registry.GetPeer("a")
+	peer.Name = "mutated"
+	if registry.GetPeer("a").Name == "mutated" {
+		t.Fatal("GetPeer should return a copy")
+	}
+}
+
+func TestPeer_PeerRegistry_ListPeers_Good(t *testing.T) {
+	registry := tripletPeerRegistry(t)
+	_ = registry.AddPeer(tripletPeer("a"))
+	if len(registry.ListPeers()) != 1 {
+		t.Fatalf("peers: %#v", registry.ListPeers())
+	}
+}
+
+func TestPeer_PeerRegistry_ListPeers_Bad(t *testing.T) {
+	registry := tripletPeerRegistry(t)
+	if len(registry.ListPeers()) != 0 {
+		t.Fatalf("peers: %#v", registry.ListPeers())
+	}
+}
+
+func TestPeer_PeerRegistry_ListPeers_Ugly(t *testing.T) {
+	registry := tripletPeerRegistry(t)
+	_ = registry.AddPeer(tripletPeer("a"))
+	peers := registry.ListPeers()
+	peers[0].Name = "mutated"
+	if registry.GetPeer("a").Name == "mutated" {
+		t.Fatal("ListPeers should return copies")
+	}
+}
+
+func TestPeer_PeerRegistry_Peers_Good(t *testing.T) {
+	registry := tripletPeerRegistry(t)
+	_ = registry.AddPeer(tripletPeer("a"))
+	count := 0
+	for range registry.Peers() {
+		count++
+	}
+	if count != 1 {
+		t.Fatalf("peer count: got %d", count)
+	}
+}
+
+func TestPeer_PeerRegistry_Peers_Bad(t *testing.T) {
+	registry := tripletPeerRegistry(t)
+	count := 0
+	for range registry.Peers() {
+		count++
+	}
+	if count != 0 {
+		t.Fatalf("peer count: got %d", count)
+	}
+}
+
+func TestPeer_PeerRegistry_Peers_Ugly(t *testing.T) {
+	registry := tripletPeerRegistry(t)
+	_ = registry.AddPeer(tripletPeer("a"))
+	count := 0
+	for range registry.Peers() {
+		count++
+		break
+	}
+	if count != 1 {
+		t.Fatalf("peer count: got %d", count)
+	}
+}
+
+func TestPeer_PeerRegistry_UpdateMetrics_Good(t *testing.T) {
+	registry := tripletPeerRegistry(t)
+	_ = registry.AddPeer(tripletPeer("a"))
+	err := registry.UpdateMetrics("a", 10, 20, 1)
+	if err != nil {
+		t.Fatalf("UpdateMetrics: %v", err)
+	}
+	if registry.GetPeer("a").PingMS != 10 {
+		t.Fatal("metrics not updated")
+	}
+}
+
+func TestPeer_PeerRegistry_UpdateMetrics_Bad(t *testing.T) {
+	registry := tripletPeerRegistry(t)
+	err := registry.UpdateMetrics("missing", 10, 20, 1)
+	if err == nil {
+		t.Fatal("expected missing peer error")
+	}
+	if registry.Count() != 0 {
+		t.Fatalf("count: got %d", registry.Count())
+	}
+}
+
+func TestPeer_PeerRegistry_UpdateMetrics_Ugly(t *testing.T) {
+	registry := tripletPeerRegistry(t)
+	_ = registry.AddPeer(tripletPeer("a"))
+	err := registry.UpdateMetrics("a", -1, -2, -3)
+	if err != nil {
+		t.Fatalf("UpdateMetrics negative: %v", err)
+	}
+	if registry.GetPeer("a").Hops != -3 {
+		t.Fatal("negative hops not stored")
+	}
+}
+
+func TestPeer_PeerRegistry_UpdateScore_Good(t *testing.T) {
+	registry := tripletPeerRegistry(t)
+	_ = registry.AddPeer(tripletPeer("a"))
+	err := registry.UpdateScore("a", 80)
+	if err != nil {
+		t.Fatalf("UpdateScore: %v", err)
+	}
+	if registry.GetPeer("a").Score != 80 {
+		t.Fatal("score not updated")
+	}
+}
+
+func TestPeer_PeerRegistry_UpdateScore_Bad(t *testing.T) {
+	registry := tripletPeerRegistry(t)
+	err := registry.UpdateScore("missing", 80)
+	if err == nil {
+		t.Fatal("expected missing peer error")
+	}
+	if registry.Count() != 0 {
+		t.Fatalf("count: got %d", registry.Count())
+	}
+}
+
+func TestPeer_PeerRegistry_UpdateScore_Ugly(t *testing.T) {
+	registry := tripletPeerRegistry(t)
+	_ = registry.AddPeer(tripletPeer("a"))
+	_ = registry.UpdateScore("a", 200)
+	if registry.GetPeer("a").Score != ScoreMaximum {
+		t.Fatalf("score: got %f", registry.GetPeer("a").Score)
+	}
+}
+
+func TestPeer_PeerRegistry_SetConnected_Good(t *testing.T) {
+	registry := tripletPeerRegistry(t)
+	_ = registry.AddPeer(tripletPeer("a"))
+	registry.SetConnected("a", true)
+	if !registry.GetPeer("a").Connected {
+		t.Fatal("peer should be connected")
+	}
+}
+
+func TestPeer_PeerRegistry_SetConnected_Bad(t *testing.T) {
+	registry := tripletPeerRegistry(t)
+	registry.SetConnected("missing", true)
+	if registry.Count() != 0 {
+		t.Fatalf("count: got %d", registry.Count())
+	}
+}
+
+func TestPeer_PeerRegistry_SetConnected_Ugly(t *testing.T) {
+	registry := tripletPeerRegistry(t)
+	_ = registry.AddPeer(tripletPeer("a"))
+	registry.SetConnected("a", true)
+	registry.SetConnected("a", false)
+	if registry.GetPeer("a").Connected {
+		t.Fatal("peer should be disconnected")
+	}
+}
+
+func TestPeer_PeerRegistry_MarkSeen_Good(t *testing.T) {
+	registry := tripletPeerRegistry(t)
+	peer := tripletPeer("a")
+	_ = registry.AddPeer(peer)
+	before := registry.GetPeer("a").LastSeen
+	registry.MarkSeen("a")
+	if !registry.GetPeer("a").LastSeen.After(before) && registry.GetPeer("a").LastSeen.Equal(before) {
+		t.Fatal("LastSeen not updated")
+	}
+}
+
+func TestPeer_PeerRegistry_MarkSeen_Bad(t *testing.T) {
+	registry := tripletPeerRegistry(t)
+	registry.MarkSeen("missing")
+	if registry.Count() != 0 {
+		t.Fatalf("count: got %d", registry.Count())
+	}
+}
+
+func TestPeer_PeerRegistry_MarkSeen_Ugly(t *testing.T) {
+	registry := tripletPeerRegistry(t)
+	peer := tripletPeer("a")
+	peer.LastSeen = time.Time{}
+	_ = registry.AddPeer(peer)
+	registry.MarkSeen("a")
+	if registry.GetPeer("a").LastSeen.IsZero() {
+		t.Fatal("LastSeen should be set")
+	}
+}
+
+func TestPeer_PeerRegistry_RecordSuccess_Good(t *testing.T) {
+	registry := tripletPeerRegistry(t)
+	peer := tripletPeer("a")
+	peer.Score = 50
+	_ = registry.AddPeer(peer)
+	registry.RecordSuccess("a")
+	if registry.GetPeer("a").Score <= 50 {
+		t.Fatal("score should increase")
+	}
+}
+
+func TestPeer_PeerRegistry_RecordSuccess_Bad(t *testing.T) {
+	registry := tripletPeerRegistry(t)
+	registry.RecordSuccess("missing")
+	if registry.Count() != 0 {
+		t.Fatalf("count: got %d", registry.Count())
+	}
+}
+
+func TestPeer_PeerRegistry_RecordSuccess_Ugly(t *testing.T) {
+	registry := tripletPeerRegistry(t)
+	peer := tripletPeer("a")
+	peer.Score = ScoreMaximum
+	_ = registry.AddPeer(peer)
+	registry.RecordSuccess("a")
+	if registry.GetPeer("a").Score != ScoreMaximum {
+		t.Fatal("score should clamp at maximum")
+	}
+}
+
+func TestPeer_PeerRegistry_RecordFailure_Good(t *testing.T) {
+	registry := tripletPeerRegistry(t)
+	peer := tripletPeer("a")
+	peer.Score = 50
+	_ = registry.AddPeer(peer)
+	registry.RecordFailure("a")
+	if registry.GetPeer("a").Score >= 50 {
+		t.Fatal("score should decrease")
+	}
+}
+
+func TestPeer_PeerRegistry_RecordFailure_Bad(t *testing.T) {
+	registry := tripletPeerRegistry(t)
+	registry.RecordFailure("missing")
+	if registry.Count() != 0 {
+		t.Fatalf("count: got %d", registry.Count())
+	}
+}
+
+func TestPeer_PeerRegistry_RecordFailure_Ugly(t *testing.T) {
+	registry := tripletPeerRegistry(t)
+	peer := tripletPeer("a")
+	peer.Score = 1
+	_ = registry.AddPeer(peer)
+	registry.RecordFailure("a")
+	if registry.GetPeer("a").Score != ScoreMinimum {
+		t.Fatal("score should clamp at minimum")
+	}
+}
+
+func TestPeer_PeerRegistry_RecordTimeout_Good(t *testing.T) {
+	registry := tripletPeerRegistry(t)
+	peer := tripletPeer("a")
+	peer.Score = 50
+	_ = registry.AddPeer(peer)
+	registry.RecordTimeout("a")
+	if registry.GetPeer("a").Score >= 50 {
+		t.Fatal("score should decrease")
+	}
+}
+
+func TestPeer_PeerRegistry_RecordTimeout_Bad(t *testing.T) {
+	registry := tripletPeerRegistry(t)
+	registry.RecordTimeout("missing")
+	if registry.Count() != 0 {
+		t.Fatalf("count: got %d", registry.Count())
+	}
+}
+
+func TestPeer_PeerRegistry_RecordTimeout_Ugly(t *testing.T) {
+	registry := tripletPeerRegistry(t)
+	peer := tripletPeer("a")
+	peer.Score = 1
+	_ = registry.AddPeer(peer)
+	registry.RecordTimeout("a")
+	if registry.GetPeer("a").Score != ScoreMinimum {
+		t.Fatal("score should clamp at minimum")
+	}
+}
+
+func TestPeer_PeerRegistry_GetPeersByScore_Good(t *testing.T) {
+	registry := tripletPeerRegistry(t)
+	a := tripletPeer("a")
+	b := tripletPeer("b")
+	a.Score = 10
+	b.Score = 90
+	_ = registry.AddPeer(a)
+	_ = registry.AddPeer(b)
+	peers := registry.GetPeersByScore()
+	if peers[0].ID != "b" {
+		t.Fatalf("peers: %#v", peers)
+	}
+}
+
+func TestPeer_PeerRegistry_GetPeersByScore_Bad(t *testing.T) {
+	registry := tripletPeerRegistry(t)
+	peers := registry.GetPeersByScore()
+	if len(peers) != 0 {
+		t.Fatalf("peers: %#v", peers)
+	}
+}
+
+func TestPeer_PeerRegistry_GetPeersByScore_Ugly(t *testing.T) {
+	registry := tripletPeerRegistry(t)
+	_ = registry.AddPeer(tripletPeer("a"))
+	peers := registry.GetPeersByScore()
+	peers[0].Name = "mutated"
+	if registry.GetPeer("a").Name == "mutated" {
+		t.Fatal("GetPeersByScore should return copies")
+	}
+}
+
+func TestPeer_PeerRegistry_PeersByScore_Good(t *testing.T) {
+	registry := tripletPeerRegistry(t)
+	_ = registry.AddPeer(tripletPeer("a"))
+	count := 0
+	for range registry.PeersByScore() {
+		count++
+	}
+	if count != 1 {
+		t.Fatalf("peer count: got %d", count)
+	}
+}
+
+func TestPeer_PeerRegistry_PeersByScore_Bad(t *testing.T) {
+	registry := tripletPeerRegistry(t)
+	count := 0
+	for range registry.PeersByScore() {
+		count++
+	}
+	if count != 0 {
+		t.Fatalf("peer count: got %d", count)
+	}
+}
+
+func TestPeer_PeerRegistry_PeersByScore_Ugly(t *testing.T) {
+	registry := tripletPeerRegistry(t)
+	_ = registry.AddPeer(tripletPeer("a"))
+	count := 0
+	for range registry.PeersByScore() {
+		count++
+		break
+	}
+	if count != 1 {
+		t.Fatalf("peer count: got %d", count)
+	}
+}
+
+func TestPeer_PeerRegistry_SelectOptimalPeer_Good(t *testing.T) {
+	registry := tripletPeerRegistry(t)
+	peer := tripletPeer("a")
+	peer.Score = 100
+	_ = registry.AddPeer(peer)
+	if registry.SelectOptimalPeer().ID != "a" {
+		t.Fatal("expected optimal peer")
+	}
+}
+
+func TestPeer_PeerRegistry_SelectOptimalPeer_Bad(t *testing.T) {
+	registry := tripletPeerRegistry(t)
+	if registry.SelectOptimalPeer() != nil {
+		t.Fatal("empty registry should have no optimal peer")
+	}
+}
+
+func TestPeer_PeerRegistry_SelectOptimalPeer_Ugly(t *testing.T) {
+	registry := tripletPeerRegistry(t)
+	_ = registry.AddPeer(tripletPeer("a"))
+	peer := registry.SelectOptimalPeer()
+	peer.Name = "mutated"
+	if registry.GetPeer("a").Name == "mutated" {
+		t.Fatal("SelectOptimalPeer should return a copy")
+	}
+}
+
+func TestPeer_PeerRegistry_SelectNearestPeers_Good(t *testing.T) {
+	registry := tripletPeerRegistry(t)
+	_ = registry.AddPeer(tripletPeer("a"))
+	peers := registry.SelectNearestPeers(1)
+	if len(peers) != 1 {
+		t.Fatalf("peers: %#v", peers)
+	}
+}
+
+func TestPeer_PeerRegistry_SelectNearestPeers_Bad(t *testing.T) {
+	registry := tripletPeerRegistry(t)
+	peers := registry.SelectNearestPeers(1)
+	if peers != nil {
+		t.Fatalf("peers: %#v", peers)
+	}
+}
+
+func TestPeer_PeerRegistry_SelectNearestPeers_Ugly(t *testing.T) {
+	registry := tripletPeerRegistry(t)
+	_ = registry.AddPeer(tripletPeer("a"))
+	peers := registry.SelectNearestPeers(0)
+	if len(peers) != 0 {
+		t.Fatalf("peers: %#v", peers)
+	}
+}
+
+func TestPeer_PeerRegistry_FindNearby_Good(t *testing.T) {
+	registry := tripletPeerRegistry(t)
+	peer := tripletPeer("a")
+	peer.Latitude = 1
+	peer.Longitude = 1
+	_ = registry.AddPeer(peer)
+	peers, err := registry.FindNearby(1, 1, 0, 1)
+	if err != nil || len(peers) != 1 {
+		t.Fatalf("peers=%#v err=%v", peers, err)
+	}
+}
+
+func TestPeer_PeerRegistry_FindNearby_Bad(t *testing.T) {
+	registry := tripletPeerRegistry(t)
+	peers, err := registry.FindNearby(0, 0, 0, 0)
+	if err != nil || len(peers) != 0 {
+		t.Fatalf("peers=%#v err=%v", peers, err)
+	}
+}
+
+func TestPeer_PeerRegistry_FindNearby_Ugly(t *testing.T) {
+	registry := tripletPeerRegistry(t)
+	_ = registry.AddPeer(tripletPeer("a"))
+	peers, err := registry.FindNearby(0, 0, 0, 5)
+	if err != nil || len(peers) != 1 {
+		t.Fatalf("peers=%#v err=%v", peers, err)
+	}
+}
+
+func TestPeer_PeerRegistry_GetConnectedPeers_Good(t *testing.T) {
+	registry := tripletPeerRegistry(t)
+	_ = registry.AddPeer(tripletPeer("a"))
+	registry.SetConnected("a", true)
+	if len(registry.GetConnectedPeers()) != 1 {
+		t.Fatalf("connected: %#v", registry.GetConnectedPeers())
+	}
+}
+
+func TestPeer_PeerRegistry_GetConnectedPeers_Bad(t *testing.T) {
+	registry := tripletPeerRegistry(t)
+	if len(registry.GetConnectedPeers()) != 0 {
+		t.Fatalf("connected: %#v", registry.GetConnectedPeers())
+	}
+}
+
+func TestPeer_PeerRegistry_GetConnectedPeers_Ugly(t *testing.T) {
+	registry := tripletPeerRegistry(t)
+	_ = registry.AddPeer(tripletPeer("a"))
+	registry.SetConnected("a", false)
+	if len(registry.GetConnectedPeers()) != 0 {
+		t.Fatalf("connected: %#v", registry.GetConnectedPeers())
+	}
+}
+
+func TestPeer_PeerRegistry_ConnectedPeers_Good(t *testing.T) {
+	registry := tripletPeerRegistry(t)
+	_ = registry.AddPeer(tripletPeer("a"))
+	registry.SetConnected("a", true)
+	count := 0
+	for range registry.ConnectedPeers() {
+		count++
+	}
+	if count != 1 {
+		t.Fatalf("connected count: got %d", count)
+	}
+}
+
+func TestPeer_PeerRegistry_ConnectedPeers_Bad(t *testing.T) {
+	registry := tripletPeerRegistry(t)
+	count := 0
+	for range registry.ConnectedPeers() {
+		count++
+	}
+	if count != 0 {
+		t.Fatalf("connected count: got %d", count)
+	}
+}
+
+func TestPeer_PeerRegistry_ConnectedPeers_Ugly(t *testing.T) {
+	registry := tripletPeerRegistry(t)
+	_ = registry.AddPeer(tripletPeer("a"))
+	registry.SetConnected("a", true)
+	count := 0
+	for range registry.ConnectedPeers() {
+		count++
+		break
+	}
+	if count != 1 {
+		t.Fatalf("connected count: got %d", count)
+	}
+}
+
+func TestPeer_PeerRegistry_Count_Good(t *testing.T) {
+	registry := tripletPeerRegistry(t)
+	_ = registry.AddPeer(tripletPeer("a"))
+	if registry.Count() != 1 {
+		t.Fatalf("count: got %d", registry.Count())
+	}
+}
+
+func TestPeer_PeerRegistry_Count_Bad(t *testing.T) {
+	registry := tripletPeerRegistry(t)
+	if registry.Count() != 0 {
+		t.Fatalf("count: got %d", registry.Count())
+	}
+}
+
+func TestPeer_PeerRegistry_Count_Ugly(t *testing.T) {
+	registry := tripletPeerRegistry(t)
+	_ = registry.AddPeer(tripletPeer("a"))
+	_ = registry.RemovePeer("a")
+	if registry.Count() != 0 {
+		t.Fatalf("count: got %d", registry.Count())
+	}
+}
+
+func TestPeer_PeerRegistry_Close_Good(t *testing.T) {
+	registry, cleanup := setupTestPeerRegistry(t)
+	defer cleanup()
+	_ = registry.AddPeer(tripletPeer("a"))
+	if err := registry.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	if registry.dirty {
+		t.Fatal("dirty flag should be cleared")
+	}
+}
+
+func TestPeer_PeerRegistry_Close_Bad(t *testing.T) {
+	registry, cleanup := setupTestPeerRegistry(t)
+	defer cleanup()
+	if err := registry.Close(); err != nil {
+		t.Fatalf("Close clean: %v", err)
+	}
+	if registry.dirty {
+		t.Fatal("dirty flag should remain false")
+	}
+}
+
+func TestPeer_PeerRegistry_Close_Ugly(t *testing.T) {
+	registry, cleanup := setupTestPeerRegistry(t)
+	defer cleanup()
+	_ = registry.Close()
+	if err := registry.Close(); err != nil {
+		t.Fatalf("second Close: %v", err)
 	}
 }
 

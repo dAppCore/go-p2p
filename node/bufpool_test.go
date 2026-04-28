@@ -36,6 +36,36 @@ func TestGetBuffer_ReturnsResetBuffer(t *testing.T) {
 	})
 }
 
+func TestBufpool_MarshalJSON_Good(t *testing.T) {
+	data, err := MarshalJSON(map[string]string{"name": "node"})
+	if err != nil {
+		t.Fatalf("MarshalJSON: %v", err)
+	}
+	if !bytes.Contains(data, []byte(`"name":"node"`)) {
+		t.Fatalf("json: %s", data)
+	}
+}
+
+func TestBufpool_MarshalJSON_Bad(t *testing.T) {
+	data, err := MarshalJSON(func() {})
+	if err == nil {
+		t.Fatal("expected marshal error")
+	}
+	if data != nil {
+		t.Fatalf("data: got %s, want nil", data)
+	}
+}
+
+func TestBufpool_MarshalJSON_Ugly(t *testing.T) {
+	data, err := MarshalJSON(map[string]string{"html": "<tag>"})
+	if err != nil {
+		t.Fatalf("MarshalJSON: %v", err)
+	}
+	if strings.Contains(string(data), `\u003c`) {
+		t.Fatalf("expected unescaped HTML, got %s", data)
+	}
+}
+
 func TestPutBuffer_DiscardsOversizedBuffers(t *testing.T) {
 	t.Run("buffer at 64KB limit is pooled", func(t *testing.T) {
 		buf := getBuffer()

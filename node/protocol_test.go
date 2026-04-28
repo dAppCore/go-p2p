@@ -51,6 +51,219 @@ func TestResponseHandler_ValidateResponse(t *testing.T) {
 	})
 }
 
+func TestProtocol_ProtocolError_Error_Good(t *testing.T) {
+	err := &ProtocolError{Code: 4, Message: "failed"}
+	if err.Error() != "remote error (4): failed" {
+		t.Fatalf("error: got %q", err.Error())
+	}
+	if !IsProtocolError(err) {
+		t.Fatal("expected protocol error")
+	}
+}
+
+func TestProtocol_ProtocolError_Error_Bad(t *testing.T) {
+	err := &ProtocolError{}
+	if err.Error() != "remote error (0): " {
+		t.Fatalf("error: got %q", err.Error())
+	}
+	if GetProtocolErrorCode(err) != 0 {
+		t.Fatal("expected zero code")
+	}
+}
+
+func TestProtocol_ProtocolError_Error_Ugly(t *testing.T) {
+	err := &ProtocolError{Code: -1, Message: "x"}
+	if err.Error() != "remote error (-1): x" {
+		t.Fatalf("error: got %q", err.Error())
+	}
+	if GetProtocolErrorCode(err) != -1 {
+		t.Fatal("expected negative code")
+	}
+}
+
+func TestProtocol_ResponseHandler_ValidateResponse_Good(t *testing.T) {
+	handler := &ResponseHandler{}
+	msg, err := NewMessage(MsgStats, "from", "to", StatsPayload{})
+	if err != nil {
+		t.Fatalf("NewMessage: %v", err)
+	}
+	if err := handler.ValidateResponse(msg, MsgStats); err != nil {
+		t.Fatalf("ValidateResponse: %v", err)
+	}
+}
+
+func TestProtocol_ResponseHandler_ValidateResponse_Bad(t *testing.T) {
+	handler := &ResponseHandler{}
+	err := handler.ValidateResponse(nil, MsgStats)
+	if err == nil {
+		t.Fatal("expected nil response error")
+	}
+	if IsProtocolError(err) {
+		t.Fatal("nil response should not be protocol error")
+	}
+}
+
+func TestProtocol_ResponseHandler_ValidateResponse_Ugly(t *testing.T) {
+	handler := &ResponseHandler{}
+	msg, _ := NewErrorMessage("from", "to", ErrCodeAuthFailed, "denied", "")
+	err := handler.ValidateResponse(msg, MsgStats)
+	if !IsProtocolError(err) {
+		t.Fatalf("expected protocol error, got %T", err)
+	}
+	if GetProtocolErrorCode(err) != ErrCodeAuthFailed {
+		t.Fatalf("code: got %d", GetProtocolErrorCode(err))
+	}
+}
+
+func TestProtocol_ResponseHandler_ParseResponse_Good(t *testing.T) {
+	handler := &ResponseHandler{}
+	msg, _ := NewMessage(MsgStats, "from", "to", StatsPayload{NodeID: "node"})
+	var payload StatsPayload
+	err := handler.ParseResponse(msg, MsgStats, &payload)
+	if err != nil || payload.NodeID != "node" {
+		t.Fatalf("payload: %#v err=%v", payload, err)
+	}
+}
+
+func TestProtocol_ResponseHandler_ParseResponse_Bad(t *testing.T) {
+	handler := &ResponseHandler{}
+	msg, _ := NewMessage(MsgPong, "from", "to", nil)
+	err := handler.ParseResponse(msg, MsgStats, &StatsPayload{})
+	if err == nil {
+		t.Fatal("expected wrong type error")
+	}
+	if IsProtocolError(err) {
+		t.Fatal("wrong type should not be protocol error")
+	}
+}
+
+func TestProtocol_ResponseHandler_ParseResponse_Ugly(t *testing.T) {
+	handler := &ResponseHandler{}
+	msg, _ := NewMessage(MsgStats, "from", "to", StatsPayload{NodeID: "node"})
+	err := handler.ParseResponse(msg, MsgStats, nil)
+	if err != nil {
+		t.Fatalf("ParseResponse nil target: %v", err)
+	}
+}
+
+func TestProtocol_ValidateResponse_Good(t *testing.T) {
+	msg, err := NewMessage(MsgPong, "from", "to", PongPayload{})
+	if err != nil {
+		t.Fatalf("NewMessage: %v", err)
+	}
+	if err := ValidateResponse(msg, MsgPong); err != nil {
+		t.Fatalf("ValidateResponse: %v", err)
+	}
+}
+
+func TestProtocol_ValidateResponse_Bad(t *testing.T) {
+	err := ValidateResponse(nil, MsgPong)
+	if err == nil {
+		t.Fatal("expected nil response error")
+	}
+	if IsProtocolError(err) {
+		t.Fatal("nil response should not be protocol error")
+	}
+}
+
+func TestProtocol_ValidateResponse_Ugly(t *testing.T) {
+	msg, _ := NewErrorMessage("from", "to", ErrCodeTimeout, "timeout", "")
+	err := ValidateResponse(msg, MsgPong)
+	if !IsProtocolError(err) {
+		t.Fatalf("expected protocol error, got %T", err)
+	}
+	if GetProtocolErrorCode(err) != ErrCodeTimeout {
+		t.Fatalf("code: got %d", GetProtocolErrorCode(err))
+	}
+}
+
+func TestProtocol_ParseResponse_Good(t *testing.T) {
+	msg, _ := NewMessage(MsgPong, "from", "to", PongPayload{SentAt: 5})
+	var payload PongPayload
+	err := ParseResponse(msg, MsgPong, &payload)
+	if err != nil || payload.SentAt != 5 {
+		t.Fatalf("payload: %#v err=%v", payload, err)
+	}
+}
+
+func TestProtocol_ParseResponse_Bad(t *testing.T) {
+	msg, _ := NewMessage(MsgPing, "from", "to", nil)
+	err := ParseResponse(msg, MsgPong, &PongPayload{})
+	if err == nil {
+		t.Fatal("expected wrong type error")
+	}
+	if IsProtocolError(err) {
+		t.Fatal("wrong type should not be protocol error")
+	}
+}
+
+func TestProtocol_ParseResponse_Ugly(t *testing.T) {
+	msg, _ := NewMessage(MsgPong, "from", "to", nil)
+	err := ParseResponse(msg, MsgPong, nil)
+	if err != nil {
+		t.Fatalf("ParseResponse nil target: %v", err)
+	}
+}
+
+func TestProtocol_IsProtocolError_Good(t *testing.T) {
+	err := &ProtocolError{Code: 1, Message: "missing"}
+	if !IsProtocolError(err) {
+		t.Fatal("expected protocol error")
+	}
+	if fmt.Sprint(err) == "" {
+		t.Fatal("expected error text")
+	}
+}
+
+func TestProtocol_IsProtocolError_Bad(t *testing.T) {
+	err := fmt.Errorf("plain")
+	if IsProtocolError(err) {
+		t.Fatal("plain error should not be protocol error")
+	}
+	if err.Error() != "plain" {
+		t.Fatal("plain error changed")
+	}
+}
+
+func TestProtocol_IsProtocolError_Ugly(t *testing.T) {
+	if IsProtocolError(nil) {
+		t.Fatal("nil should not be protocol error")
+	}
+	if GetProtocolErrorCode(nil) != 0 {
+		t.Fatal("nil code should be zero")
+	}
+}
+
+func TestProtocol_GetProtocolErrorCode_Good(t *testing.T) {
+	code := GetProtocolErrorCode(&ProtocolError{Code: 7, Message: "x"})
+	if code != 7 {
+		t.Fatalf("code: got %d", code)
+	}
+	if code == 0 {
+		t.Fatal("expected non-zero code")
+	}
+}
+
+func TestProtocol_GetProtocolErrorCode_Bad(t *testing.T) {
+	code := GetProtocolErrorCode(fmt.Errorf("plain"))
+	if code != 0 {
+		t.Fatalf("code: got %d", code)
+	}
+	if IsProtocolError(fmt.Errorf("plain")) {
+		t.Fatal("plain error should not be protocol error")
+	}
+}
+
+func TestProtocol_GetProtocolErrorCode_Ugly(t *testing.T) {
+	code := GetProtocolErrorCode(nil)
+	if code != 0 {
+		t.Fatalf("code: got %d", code)
+	}
+	if IsProtocolError(nil) {
+		t.Fatal("nil should not be protocol error")
+	}
+}
+
 func TestResponseHandler_ParseResponse(t *testing.T) {
 	handler := &ResponseHandler{}
 

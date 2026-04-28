@@ -1,6 +1,7 @@
 package node
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"testing"
@@ -256,6 +257,442 @@ func TestNodeIdentity(t *testing.T) {
 			t.Fatalf("expected identity config to be persisted: %v", err)
 		}
 	})
+}
+
+func TestIdentity_GenerateChallenge_Good(t *testing.T) {
+	challenge, err := GenerateChallenge()
+	if err != nil {
+		t.Fatalf("GenerateChallenge: %v", err)
+	}
+	if len(challenge) != ChallengeSize {
+		t.Fatalf("challenge length: got %d", len(challenge))
+	}
+}
+
+func TestIdentity_GenerateChallenge_Bad(t *testing.T) {
+	challenge, err := GenerateChallenge()
+	if err != nil {
+		t.Fatalf("GenerateChallenge: %v", err)
+	}
+	if challenge == nil {
+		t.Fatal("challenge should not be nil")
+	}
+}
+
+func TestIdentity_GenerateChallenge_Ugly(t *testing.T) {
+	first, err := GenerateChallenge()
+	if err != nil {
+		t.Fatalf("GenerateChallenge first: %v", err)
+	}
+	second, err := GenerateChallenge()
+	if err != nil {
+		t.Fatalf("GenerateChallenge second: %v", err)
+	}
+	if bytes.Equal(first, second) {
+		t.Fatal("two random challenges unexpectedly matched")
+	}
+}
+
+func TestIdentity_SignChallenge_Good(t *testing.T) {
+	signature := SignChallenge([]byte("challenge"), []byte("secret"))
+	if len(signature) != 32 {
+		t.Fatalf("signature length: got %d", len(signature))
+	}
+	if !VerifyChallenge([]byte("challenge"), signature, []byte("secret")) {
+		t.Fatal("signature should verify")
+	}
+}
+
+func TestIdentity_SignChallenge_Bad(t *testing.T) {
+	signature := SignChallenge([]byte("challenge"), nil)
+	if len(signature) != 32 {
+		t.Fatalf("signature length: got %d", len(signature))
+	}
+	if VerifyChallenge([]byte("challenge"), signature, []byte("other")) {
+		t.Fatal("signature should not verify with other secret")
+	}
+}
+
+func TestIdentity_SignChallenge_Ugly(t *testing.T) {
+	signature := SignChallenge(nil, nil)
+	if len(signature) != 32 {
+		t.Fatalf("signature length: got %d", len(signature))
+	}
+	if !VerifyChallenge(nil, signature, nil) {
+		t.Fatal("empty challenge and secret should verify against same inputs")
+	}
+}
+
+func TestIdentity_VerifyChallenge_Good(t *testing.T) {
+	response := SignChallenge([]byte("challenge"), []byte("secret"))
+	if !VerifyChallenge([]byte("challenge"), response, []byte("secret")) {
+		t.Fatal("expected challenge verification")
+	}
+	if len(response) == 0 {
+		t.Fatal("expected response")
+	}
+}
+
+func TestIdentity_VerifyChallenge_Bad(t *testing.T) {
+	response := SignChallenge([]byte("challenge"), []byte("secret"))
+	if VerifyChallenge([]byte("challenge"), response, []byte("wrong")) {
+		t.Fatal("wrong secret should not verify")
+	}
+	if VerifyChallenge([]byte("other"), response, []byte("secret")) {
+		t.Fatal("wrong challenge should not verify")
+	}
+}
+
+func TestIdentity_VerifyChallenge_Ugly(t *testing.T) {
+	if !VerifyChallenge(nil, SignChallenge(nil, nil), nil) {
+		t.Fatal("nil inputs should verify when signed the same way")
+	}
+	if VerifyChallenge(nil, nil, nil) {
+		t.Fatal("nil response should not verify")
+	}
+}
+
+func TestIdentity_NewNodeManager_Good(t *testing.T) {
+	cleanup := setupTestEnv(t)
+	defer cleanup()
+	nm, err := NewNodeManager()
+	if err != nil {
+		t.Fatalf("NewNodeManager: %v", err)
+	}
+	if nm == nil {
+		t.Fatal("expected node manager")
+	}
+}
+
+func TestIdentity_NewNodeManager_Bad(t *testing.T) {
+	cleanup := setupTestEnv(t)
+	defer cleanup()
+	nm, err := NewNodeManager()
+	if err != nil {
+		t.Fatalf("NewNodeManager: %v", err)
+	}
+	if nm.keyPath == "" {
+		t.Fatal("expected key path")
+	}
+	if nm.configPath == "" {
+		t.Fatal("expected config path")
+	}
+}
+
+func TestIdentity_NewNodeManager_Ugly(t *testing.T) {
+	cleanup := setupTestEnv(t)
+	defer cleanup()
+	first, err := NewNodeManager()
+	if err != nil {
+		t.Fatalf("NewNodeManager first: %v", err)
+	}
+	second, err := NewNodeManager()
+	if err != nil {
+		t.Fatalf("NewNodeManager second: %v", err)
+	}
+	if first.configPath != second.configPath {
+		t.Fatal("default config path should be stable")
+	}
+}
+
+func TestIdentity_NewNodeManagerWithPaths_Good(t *testing.T) {
+	dir := t.TempDir()
+	nm, err := NewNodeManagerWithPaths(filepath.Join(dir, "private.key"), filepath.Join(dir, "node.json"))
+	if err != nil {
+		t.Fatalf("NewNodeManagerWithPaths: %v", err)
+	}
+	if nm.keyPath == "" || nm.configPath == "" {
+		t.Fatalf("paths not set: %#v", nm)
+	}
+}
+
+func TestIdentity_NewNodeManagerWithPaths_Bad(t *testing.T) {
+	nm, err := NewNodeManagerWithPaths("", "")
+	if err != nil {
+		t.Fatalf("NewNodeManagerWithPaths empty paths: %v", err)
+	}
+	if nm.HasIdentity() {
+		t.Fatal("empty-path manager should not have identity")
+	}
+}
+
+func TestIdentity_NewNodeManagerWithPaths_Ugly(t *testing.T) {
+	dir := t.TempDir()
+	nm, err := NewNodeManagerWithPaths(filepath.Join(dir, "nested", "private.key"), filepath.Join(dir, "nested", "node.json"))
+	if err != nil {
+		t.Fatalf("NewNodeManagerWithPaths nested: %v", err)
+	}
+	if nm.GetIdentity() != nil {
+		t.Fatal("new nested manager should not have identity")
+	}
+}
+
+func TestIdentity_LoadOrCreateIdentity_Good(t *testing.T) {
+	cleanup := setupTestEnv(t)
+	defer cleanup()
+	nm, err := LoadOrCreateIdentity()
+	if err != nil {
+		t.Fatalf("LoadOrCreateIdentity: %v", err)
+	}
+	if !nm.HasIdentity() {
+		t.Fatal("expected identity")
+	}
+}
+
+func TestIdentity_LoadOrCreateIdentity_Bad(t *testing.T) {
+	cleanup := setupTestEnv(t)
+	defer cleanup()
+	nm, err := LoadOrCreateIdentity()
+	if err != nil {
+		t.Fatalf("LoadOrCreateIdentity: %v", err)
+	}
+	if !nm.HasIdentity() {
+		t.Fatal("expected identity")
+	}
+	if nm.GetIdentity().ID == "" {
+		t.Fatal("expected identity ID")
+	}
+}
+
+func TestIdentity_LoadOrCreateIdentity_Ugly(t *testing.T) {
+	cleanup := setupTestEnv(t)
+	defer cleanup()
+	first, err := LoadOrCreateIdentity()
+	if err != nil {
+		t.Fatalf("LoadOrCreateIdentity first: %v", err)
+	}
+	second, err := LoadOrCreateIdentity()
+	if err != nil {
+		t.Fatalf("LoadOrCreateIdentity second: %v", err)
+	}
+	if first.GetIdentity().ID != second.GetIdentity().ID {
+		t.Fatal("expected persisted identity to reload")
+	}
+}
+
+func TestIdentity_LoadOrCreateIdentityWithPaths_Good(t *testing.T) {
+	dir := t.TempDir()
+	nm, err := LoadOrCreateIdentityWithPaths(filepath.Join(dir, "private.key"), filepath.Join(dir, "node.json"))
+	if err != nil {
+		t.Fatalf("LoadOrCreateIdentityWithPaths: %v", err)
+	}
+	if !nm.HasIdentity() {
+		t.Fatal("expected identity")
+	}
+}
+
+func TestIdentity_LoadOrCreateIdentityWithPaths_Bad(t *testing.T) {
+	dir := t.TempDir()
+	err := os.Mkdir(filepath.Join(dir, "private.key"), 0755)
+	if err != nil {
+		t.Fatalf("mkdir private key path: %v", err)
+	}
+	nm, err := LoadOrCreateIdentityWithPaths(filepath.Join(dir, "private.key"), filepath.Join(dir, "node.json"))
+	if err == nil {
+		t.Fatal("expected write error")
+	}
+	if nm != nil {
+		t.Fatalf("manager: got %#v, want nil", nm)
+	}
+}
+
+func TestIdentity_LoadOrCreateIdentityWithPaths_Ugly(t *testing.T) {
+	dir := t.TempDir()
+	keyPath := filepath.Join(dir, "private.key")
+	configPath := filepath.Join(dir, "node.json")
+	first, err := LoadOrCreateIdentityWithPaths(keyPath, configPath)
+	if err != nil {
+		t.Fatalf("first load: %v", err)
+	}
+	second, err := LoadOrCreateIdentityWithPaths(keyPath, configPath)
+	if err != nil {
+		t.Fatalf("second load: %v", err)
+	}
+	if first.GetIdentity().ID != second.GetIdentity().ID {
+		t.Fatal("expected same identity")
+	}
+}
+
+func TestIdentity_NodeManager_HasIdentity_Good(t *testing.T) {
+	nm, cleanup := setupTestNodeManager(t)
+	defer cleanup()
+	if err := nm.GenerateIdentity("node", RoleDual); err != nil {
+		t.Fatalf("GenerateIdentity: %v", err)
+	}
+	if !nm.HasIdentity() {
+		t.Fatal("expected identity")
+	}
+}
+
+func TestIdentity_NodeManager_HasIdentity_Bad(t *testing.T) {
+	nm, cleanup := setupTestNodeManager(t)
+	defer cleanup()
+	if nm.HasIdentity() {
+		t.Fatal("new manager should not have identity")
+	}
+	if nm.GetIdentity() != nil {
+		t.Fatal("identity should be nil")
+	}
+}
+
+func TestIdentity_NodeManager_HasIdentity_Ugly(t *testing.T) {
+	nm, cleanup := setupTestNodeManager(t)
+	defer cleanup()
+	_ = nm.Delete()
+	if nm.HasIdentity() {
+		t.Fatal("deleted manager should not have identity")
+	}
+}
+
+func TestIdentity_NodeManager_GetIdentity_Good(t *testing.T) {
+	nm, cleanup := setupTestNodeManager(t)
+	defer cleanup()
+	if err := nm.GenerateIdentity("node", RoleWorker); err != nil {
+		t.Fatalf("GenerateIdentity: %v", err)
+	}
+	identity := nm.GetIdentity()
+	if identity == nil || identity.Name != "node" {
+		t.Fatalf("identity: %#v", identity)
+	}
+}
+
+func TestIdentity_NodeManager_GetIdentity_Bad(t *testing.T) {
+	nm, cleanup := setupTestNodeManager(t)
+	defer cleanup()
+	identity := nm.GetIdentity()
+	if identity != nil {
+		t.Fatalf("identity: got %#v, want nil", identity)
+	}
+}
+
+func TestIdentity_NodeManager_GetIdentity_Ugly(t *testing.T) {
+	nm, cleanup := setupTestNodeManager(t)
+	defer cleanup()
+	if err := nm.GenerateIdentity("node", RoleDual); err != nil {
+		t.Fatalf("GenerateIdentity: %v", err)
+	}
+	identity := nm.GetIdentity()
+	identity.Name = "mutated"
+	if nm.GetIdentity().Name == "mutated" {
+		t.Fatal("GetIdentity should return a copy")
+	}
+}
+
+func TestIdentity_NodeManager_GenerateIdentity_Good(t *testing.T) {
+	nm, cleanup := setupTestNodeManager(t)
+	defer cleanup()
+	err := nm.GenerateIdentity("node", RoleController)
+	if err != nil {
+		t.Fatalf("GenerateIdentity: %v", err)
+	}
+	if nm.GetIdentity().Role != RoleController {
+		t.Fatalf("role: got %s", nm.GetIdentity().Role)
+	}
+}
+
+func TestIdentity_NodeManager_GenerateIdentity_Bad(t *testing.T) {
+	dir := t.TempDir()
+	err := os.Mkdir(filepath.Join(dir, "private.key"), 0755)
+	if err != nil {
+		t.Fatalf("mkdir private key path: %v", err)
+	}
+	nm, err := NewNodeManagerWithPaths(filepath.Join(dir, "private.key"), filepath.Join(dir, "node.json"))
+	if err != nil {
+		t.Fatalf("NewNodeManagerWithPaths: %v", err)
+	}
+	err = nm.GenerateIdentity("node", RoleDual)
+	if err == nil {
+		t.Fatal("expected save private key error")
+	}
+}
+
+func TestIdentity_NodeManager_GenerateIdentity_Ugly(t *testing.T) {
+	nm, cleanup := setupTestNodeManager(t)
+	defer cleanup()
+	err := nm.GenerateIdentity("", "")
+	if err != nil {
+		t.Fatalf("GenerateIdentity empty fields: %v", err)
+	}
+	if nm.GetIdentity().Name != "" || nm.GetIdentity().Role != "" {
+		t.Fatalf("identity: %#v", nm.GetIdentity())
+	}
+}
+
+func TestIdentity_NodeManager_DeriveSharedSecret_Good(t *testing.T) {
+	left, cleanupLeft := setupTestNodeManager(t)
+	defer cleanupLeft()
+	right, cleanupRight := setupTestNodeManager(t)
+	defer cleanupRight()
+	_ = left.GenerateIdentity("left", RoleDual)
+	_ = right.GenerateIdentity("right", RoleDual)
+	secret, err := left.DeriveSharedSecret(right.GetIdentity().PublicKey)
+	if err != nil {
+		t.Fatalf("DeriveSharedSecret: %v", err)
+	}
+	if len(secret) != 32 {
+		t.Fatalf("secret length: got %d", len(secret))
+	}
+}
+
+func TestIdentity_NodeManager_DeriveSharedSecret_Bad(t *testing.T) {
+	nm, cleanup := setupTestNodeManager(t)
+	defer cleanup()
+	secret, err := nm.DeriveSharedSecret("invalid")
+	if err == nil {
+		t.Fatal("expected identity error")
+	}
+	if secret != nil {
+		t.Fatalf("secret: got %x, want nil", secret)
+	}
+}
+
+func TestIdentity_NodeManager_DeriveSharedSecret_Ugly(t *testing.T) {
+	nm, cleanup := setupTestNodeManager(t)
+	defer cleanup()
+	_ = nm.GenerateIdentity("node", RoleDual)
+	secret, err := nm.DeriveSharedSecret("invalid")
+	if err == nil {
+		t.Fatal("expected invalid public key error")
+	}
+	if secret != nil {
+		t.Fatalf("secret: got %x, want nil", secret)
+	}
+}
+
+func TestIdentity_NodeManager_Delete_Good(t *testing.T) {
+	nm, cleanup := setupTestNodeManager(t)
+	defer cleanup()
+	_ = nm.GenerateIdentity("node", RoleDual)
+	err := nm.Delete()
+	if err != nil {
+		t.Fatalf("Delete: %v", err)
+	}
+	if nm.HasIdentity() {
+		t.Fatal("identity should be cleared")
+	}
+}
+
+func TestIdentity_NodeManager_Delete_Bad(t *testing.T) {
+	nm, cleanup := setupTestNodeManager(t)
+	defer cleanup()
+	err := nm.Delete()
+	if err != nil {
+		t.Fatalf("Delete without files: %v", err)
+	}
+	if nm.GetIdentity() != nil {
+		t.Fatal("identity should be nil")
+	}
+}
+
+func TestIdentity_NodeManager_Delete_Ugly(t *testing.T) {
+	nm, cleanup := setupTestNodeManager(t)
+	defer cleanup()
+	_ = nm.GenerateIdentity("node", RoleDual)
+	_ = nm.Delete()
+	err := nm.Delete()
+	if err != nil {
+		t.Fatalf("second Delete: %v", err)
+	}
 }
 
 func TestNodeRoles(t *testing.T) {

@@ -72,6 +72,141 @@ func TestDispatcher_RegisterAndDispatch(t *testing.T) {
 	})
 }
 
+func TestDispatcher_NewDispatcher_Good(t *testing.T) {
+	d := NewDispatcher()
+	if d == nil {
+		t.Fatal("expected dispatcher")
+	}
+	if len(d.handlers) != 0 {
+		t.Fatalf("handlers: got %d", len(d.handlers))
+	}
+}
+
+func TestDispatcher_NewDispatcher_Bad(t *testing.T) {
+	d := NewDispatcher()
+	if d.log == nil {
+		t.Fatal("expected logger")
+	}
+	if d.handlers == nil {
+		t.Fatal("expected handler map")
+	}
+}
+
+func TestDispatcher_NewDispatcher_Ugly(t *testing.T) {
+	first := NewDispatcher()
+	second := NewDispatcher()
+	if first == second {
+		t.Fatal("expected distinct dispatchers")
+	}
+	if fmt.Sprintf("%p", first.handlers) == fmt.Sprintf("%p", second.handlers) {
+		t.Fatal("expected distinct handler maps")
+	}
+}
+
+func TestDispatcher_Dispatcher_RegisterHandler_Good(t *testing.T) {
+	d := NewDispatcher()
+	d.RegisterHandler(IntentHandshake, func(*ueps.ParsedPacket) error { return nil })
+	if len(d.handlers) != 1 {
+		t.Fatalf("handlers: got %d", len(d.handlers))
+	}
+	if d.handlers[IntentHandshake] == nil {
+		t.Fatal("handler not registered")
+	}
+}
+
+func TestDispatcher_Dispatcher_RegisterHandler_Bad(t *testing.T) {
+	d := NewDispatcher()
+	d.RegisterHandler(IntentHandshake, nil)
+	if _, ok := d.handlers[IntentHandshake]; !ok {
+		t.Fatal("nil handler should still be recorded")
+	}
+	if d.handlers[IntentHandshake] != nil {
+		t.Fatal("expected nil handler")
+	}
+}
+
+func TestDispatcher_Dispatcher_RegisterHandler_Ugly(t *testing.T) {
+	d := NewDispatcher()
+	first := func(*ueps.ParsedPacket) error { return errors.New("first") }
+	second := func(*ueps.ParsedPacket) error { return nil }
+	d.RegisterHandler(IntentHandshake, first)
+	d.RegisterHandler(IntentHandshake, second)
+	if err := d.Dispatch(makePacket(IntentHandshake, 0, nil)); err != nil {
+		t.Fatalf("replacement handler not used: %v", err)
+	}
+}
+
+func TestDispatcher_Dispatcher_Handlers_Good(t *testing.T) {
+	d := NewDispatcher()
+	d.RegisterHandler(IntentHandshake, func(*ueps.ParsedPacket) error { return nil })
+	count := 0
+	for range d.Handlers() {
+		count++
+	}
+	if count != 1 {
+		t.Fatalf("handler count: got %d", count)
+	}
+}
+
+func TestDispatcher_Dispatcher_Handlers_Bad(t *testing.T) {
+	d := NewDispatcher()
+	count := 0
+	for range d.Handlers() {
+		count++
+	}
+	if count != 0 {
+		t.Fatalf("handler count: got %d", count)
+	}
+}
+
+func TestDispatcher_Dispatcher_Handlers_Ugly(t *testing.T) {
+	d := NewDispatcher()
+	d.RegisterHandler(IntentHandshake, func(*ueps.ParsedPacket) error { return nil })
+	count := 0
+	for range d.Handlers() {
+		count++
+		break
+	}
+	if count != 1 {
+		t.Fatalf("handler count: got %d", count)
+	}
+}
+
+func TestDispatcher_Dispatcher_Dispatch_Good(t *testing.T) {
+	d := NewDispatcher()
+	called := false
+	d.RegisterHandler(IntentHandshake, func(pkt *ueps.ParsedPacket) error {
+		called = pkt.Header.IntentID == IntentHandshake
+		return nil
+	})
+	err := d.Dispatch(makePacket(IntentHandshake, 0, []byte("hello")))
+	if err != nil || !called {
+		t.Fatalf("dispatch err=%v called=%v", err, called)
+	}
+}
+
+func TestDispatcher_Dispatcher_Dispatch_Bad(t *testing.T) {
+	d := NewDispatcher()
+	err := d.Dispatch(nil)
+	if !errors.Is(err, ErrNilPacket) {
+		t.Fatalf("error: got %v", err)
+	}
+	if len(d.handlers) != 0 {
+		t.Fatalf("handlers: got %d", len(d.handlers))
+	}
+}
+
+func TestDispatcher_Dispatcher_Dispatch_Ugly(t *testing.T) {
+	d := NewDispatcher()
+	err := d.Dispatch(makePacket(IntentHandshake, ThreatScoreThreshold+1, nil))
+	if !errors.Is(err, ErrThreatScoreExceeded) {
+		t.Fatalf("error: got %v", err)
+	}
+	if len(d.handlers) != 0 {
+		t.Fatalf("handlers: got %d", len(d.handlers))
+	}
+}
+
 func TestDispatcher_ThreatCircuitBreaker(t *testing.T) {
 	tests := []struct {
 		name        string

@@ -277,6 +277,622 @@ func TestMessageDeduplicator(t *testing.T) {
 	})
 }
 
+func TestTransport_DefaultTransportConfig_Good(t *testing.T) {
+	cfg := DefaultTransportConfig()
+	if cfg.ListenAddr != ":9091" {
+		t.Fatalf("listen addr: got %q", cfg.ListenAddr)
+	}
+	if cfg.MaxMessageSize != DefaultMaxMessageSize {
+		t.Fatalf("max size: got %d", cfg.MaxMessageSize)
+	}
+}
+
+func TestTransport_DefaultTransportConfig_Bad(t *testing.T) {
+	cfg := DefaultTransportConfig()
+	if cfg.WSPath == "" {
+		t.Fatal("expected websocket path")
+	}
+	if cfg.MaxConns <= 0 {
+		t.Fatalf("max conns: got %d", cfg.MaxConns)
+	}
+}
+
+func TestTransport_DefaultTransportConfig_Ugly(t *testing.T) {
+	cfg := DefaultTransportConfig()
+	cfg.ListenAddr = "127.0.0.1:0"
+	if cfg.ListenAddr != "127.0.0.1:0" {
+		t.Fatal("config should be a mutable value copy")
+	}
+	if DefaultTransportConfig().ListenAddr == "127.0.0.1:0" {
+		t.Fatal("default config should not be mutated")
+	}
+}
+
+func TestTransport_NewMessageDeduplicator_Good(t *testing.T) {
+	d := NewMessageDeduplicator(time.Minute)
+	if d == nil {
+		t.Fatal("expected deduplicator")
+	}
+	if d.ttl != time.Minute {
+		t.Fatalf("ttl: got %v", d.ttl)
+	}
+}
+
+func TestTransport_NewMessageDeduplicator_Bad(t *testing.T) {
+	d := NewMessageDeduplicator(0)
+	d.Mark("id")
+	if !d.IsDuplicate("id") {
+		t.Fatal("zero ttl should keep immediate duplicate")
+	}
+}
+
+func TestTransport_NewMessageDeduplicator_Ugly(t *testing.T) {
+	d := NewMessageDeduplicator(-time.Second)
+	d.Mark("id")
+	if !d.IsDuplicate("id") {
+		t.Fatal("negative ttl keeps immediate duplicate")
+	}
+}
+
+func TestTransport_MessageDeduplicator_IsDuplicate_Good(t *testing.T) {
+	d := NewMessageDeduplicator(time.Minute)
+	d.Mark("id")
+	if !d.IsDuplicate("id") {
+		t.Fatal("expected duplicate")
+	}
+}
+
+func TestTransport_MessageDeduplicator_IsDuplicate_Bad(t *testing.T) {
+	d := NewMessageDeduplicator(time.Minute)
+	if d.IsDuplicate("missing") {
+		t.Fatal("missing id should not be duplicate")
+	}
+	if len(d.seen) != 0 {
+		t.Fatal("missing lookup should not mark id")
+	}
+}
+
+func TestTransport_MessageDeduplicator_IsDuplicate_Ugly(t *testing.T) {
+	d := NewMessageDeduplicator(time.Nanosecond)
+	d.Mark("expired")
+	time.Sleep(time.Millisecond)
+	if d.IsDuplicate("expired") {
+		t.Fatal("expired id should not be duplicate")
+	}
+}
+
+func TestTransport_MessageDeduplicator_Mark_Good(t *testing.T) {
+	d := NewMessageDeduplicator(time.Minute)
+	d.Mark("id")
+	if _, ok := d.seen["id"]; !ok {
+		t.Fatal("id not marked")
+	}
+}
+
+func TestTransport_MessageDeduplicator_Mark_Bad(t *testing.T) {
+	d := NewMessageDeduplicator(time.Minute)
+	d.Mark("")
+	if _, ok := d.seen[""]; !ok {
+		t.Fatal("empty id should be recorded")
+	}
+}
+
+func TestTransport_MessageDeduplicator_Mark_Ugly(t *testing.T) {
+	d := NewMessageDeduplicator(time.Minute)
+	d.Mark("id")
+	first := d.seen["id"]
+	d.Mark("id")
+	if d.seen["id"].Before(first) {
+		t.Fatal("mark should refresh timestamp")
+	}
+}
+
+func TestTransport_MessageDeduplicator_Cleanup_Good(t *testing.T) {
+	d := NewMessageDeduplicator(time.Nanosecond)
+	d.Mark("id")
+	time.Sleep(time.Millisecond)
+	d.Cleanup()
+	if len(d.seen) != 0 {
+		t.Fatalf("seen: got %d", len(d.seen))
+	}
+}
+
+func TestTransport_MessageDeduplicator_Cleanup_Bad(t *testing.T) {
+	d := NewMessageDeduplicator(time.Minute)
+	d.Mark("id")
+	d.Cleanup()
+	if len(d.seen) != 1 {
+		t.Fatalf("seen: got %d", len(d.seen))
+	}
+}
+
+func TestTransport_MessageDeduplicator_Cleanup_Ugly(t *testing.T) {
+	d := NewMessageDeduplicator(0)
+	d.Cleanup()
+	if len(d.seen) != 0 {
+		t.Fatalf("seen: got %d", len(d.seen))
+	}
+}
+
+func TestTransport_NewPeerRateLimiter_Good(t *testing.T) {
+	limiter := NewPeerRateLimiter(2, 1)
+	if limiter == nil {
+		t.Fatal("expected limiter")
+	}
+	if !limiter.Allow() {
+		t.Fatal("first token should be allowed")
+	}
+}
+
+func TestTransport_NewPeerRateLimiter_Bad(t *testing.T) {
+	limiter := NewPeerRateLimiter(0, 0)
+	if limiter.Allow() {
+		t.Fatal("zero-token limiter should reject")
+	}
+	if limiter.maxTokens != 0 {
+		t.Fatalf("max tokens: got %d", limiter.maxTokens)
+	}
+}
+
+func TestTransport_NewPeerRateLimiter_Ugly(t *testing.T) {
+	limiter := NewPeerRateLimiter(1, 1000)
+	if !limiter.Allow() {
+		t.Fatal("initial token should be allowed")
+	}
+	if limiter.Allow() {
+		t.Fatal("single token should be consumed")
+	}
+}
+
+func TestTransport_PeerRateLimiter_Allow_Good(t *testing.T) {
+	limiter := NewPeerRateLimiter(1, 1)
+	if !limiter.Allow() {
+		t.Fatal("expected allow")
+	}
+	if limiter.tokens != 0 {
+		t.Fatalf("tokens: got %d", limiter.tokens)
+	}
+}
+
+func TestTransport_PeerRateLimiter_Allow_Bad(t *testing.T) {
+	limiter := NewPeerRateLimiter(0, 1)
+	if limiter.Allow() {
+		t.Fatal("expected reject")
+	}
+	if limiter.tokens != 0 {
+		t.Fatalf("tokens: got %d", limiter.tokens)
+	}
+}
+
+func TestTransport_PeerRateLimiter_Allow_Ugly(t *testing.T) {
+	limiter := NewPeerRateLimiter(1, 10)
+	limiter.Allow()
+	limiter.lastRefill = time.Now().Add(-time.Second)
+	if !limiter.Allow() {
+		t.Fatal("expected refill allow")
+	}
+}
+
+func TestTransport_NewTransport_Good(t *testing.T) {
+	node := testNode(t, "node", RoleDual)
+	registry := testRegistry(t)
+	transport := NewTransport(node, registry, DefaultTransportConfig())
+	if transport == nil {
+		t.Fatal("expected transport")
+	}
+	if transport.node != node || transport.registry != registry {
+		t.Fatal("transport dependencies not retained")
+	}
+}
+
+func TestTransport_NewTransport_Bad(t *testing.T) {
+	transport := NewTransport(nil, nil, TransportConfig{})
+	if transport == nil {
+		t.Fatal("expected transport")
+	}
+	if transport.config.MaxMessageSize != 0 {
+		t.Fatalf("max size: got %d", transport.config.MaxMessageSize)
+	}
+}
+
+func TestTransport_NewTransport_Ugly(t *testing.T) {
+	transport := NewTransport(nil, nil, TransportConfig{WSPath: ""})
+	if transport.dedup == nil {
+		t.Fatal("expected deduplicator")
+	}
+	if transport.ctx == nil || transport.cancel == nil {
+		t.Fatal("expected context")
+	}
+}
+
+func TestTransport_Transport_Start_Good(t *testing.T) {
+	node := testNode(t, "node", RoleDual)
+	registry := testRegistry(t)
+	cfg := DefaultTransportConfig()
+	cfg.ListenAddr = "127.0.0.1:0"
+	transport := NewTransport(node, registry, cfg)
+	if err := transport.Start(); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	if err := transport.Stop(); err != nil {
+		t.Fatalf("Stop: %v", err)
+	}
+}
+
+func TestTransport_Transport_Start_Bad(t *testing.T) {
+	transport := NewTransport(nil, nil, TransportConfig{ListenAddr: "127.0.0.1:0", WSPath: "/ws"})
+	err := transport.Start()
+	if err != nil {
+		t.Fatalf("Start with nil deps: %v", err)
+	}
+	if transport.server == nil {
+		t.Fatal("server should be created")
+	}
+	_ = transport.Stop()
+}
+
+func TestTransport_Transport_Start_Ugly(t *testing.T) {
+	node := testNode(t, "node", RoleDual)
+	registry := testRegistry(t)
+	cfg := DefaultTransportConfig()
+	cfg.ListenAddr = "127.0.0.1:0"
+	cfg.WSPath = "/"
+	transport := NewTransport(node, registry, cfg)
+	if err := transport.Start(); err != nil {
+		t.Fatalf("Start root path: %v", err)
+	}
+	_ = transport.Stop()
+}
+
+func TestTransport_Transport_Stop_Good(t *testing.T) {
+	node := testNode(t, "node", RoleDual)
+	registry := testRegistry(t)
+	transport := NewTransport(node, registry, DefaultTransportConfig())
+	if err := transport.Stop(); err != nil {
+		t.Fatalf("Stop unstarted: %v", err)
+	}
+}
+
+func TestTransport_Transport_Stop_Bad(t *testing.T) {
+	transport := NewTransport(nil, nil, TransportConfig{})
+	if err := transport.Stop(); err != nil {
+		t.Fatalf("Stop nil deps: %v", err)
+	}
+	if transport.ctx.Err() == nil {
+		t.Fatal("context should be canceled")
+	}
+}
+
+func TestTransport_Transport_Stop_Ugly(t *testing.T) {
+	node := testNode(t, "node", RoleDual)
+	registry := testRegistry(t)
+	transport := NewTransport(node, registry, DefaultTransportConfig())
+	_ = transport.Stop()
+	if err := transport.Stop(); err != nil {
+		t.Fatalf("second Stop: %v", err)
+	}
+}
+
+func TestTransport_Transport_OnMessage_Good(t *testing.T) {
+	transport := NewTransport(nil, nil, TransportConfig{})
+	handler := func(*PeerConnection, *Message) {}
+	transport.OnMessage(handler)
+	if transport.handler == nil {
+		t.Fatal("handler not set")
+	}
+}
+
+func TestTransport_Transport_OnMessage_Bad(t *testing.T) {
+	transport := NewTransport(nil, nil, TransportConfig{})
+	transport.OnMessage(nil)
+	if transport.handler != nil {
+		t.Fatal("handler should be nil")
+	}
+}
+
+func TestTransport_Transport_OnMessage_Ugly(t *testing.T) {
+	transport := NewTransport(nil, nil, TransportConfig{})
+	first := func(*PeerConnection, *Message) {}
+	second := func(*PeerConnection, *Message) {}
+	transport.OnMessage(first)
+	transport.OnMessage(second)
+	if transport.handler == nil {
+		t.Fatal("handler should be set")
+	}
+}
+
+func TestTransport_Transport_Connect_Good(t *testing.T) {
+	tp := setupTestTransportPair(t)
+	peer := &Peer{ID: tp.ServerNode.GetIdentity().ID, Name: "server", Address: tp.ServerAddr, Role: RoleWorker}
+	tp.ClientReg.AddPeer(peer)
+	conn, err := tp.Client.Connect(peer)
+	if err != nil {
+		t.Fatalf("Connect: %v", err)
+	}
+	if conn.SharedSecret == nil {
+		t.Fatal("shared secret not set")
+	}
+}
+
+func TestTransport_Transport_Connect_Bad(t *testing.T) {
+	tp := setupTestTransportPair(t)
+	peer := &Peer{ID: "missing", Address: "127.0.0.1:1"}
+	conn, err := tp.Client.Connect(peer)
+	if err == nil {
+		t.Fatal("expected connect error")
+	}
+	if conn != nil {
+		t.Fatalf("connection: got %#v, want nil", conn)
+	}
+}
+
+func TestTransport_Transport_Connect_Ugly(t *testing.T) {
+	tp := setupTestTransportPair(t)
+	peer := &Peer{ID: tp.ServerNode.GetIdentity().ID, Name: "server", Address: tp.ServerAddr, Role: RoleWorker}
+	conn, err := tp.Client.Connect(peer)
+	if err != nil {
+		t.Fatalf("Connect: %v", err)
+	}
+	if conn.Peer.ID != tp.ServerNode.GetIdentity().ID {
+		t.Fatalf("peer ID: got %s", conn.Peer.ID)
+	}
+}
+
+func TestTransport_Transport_Send_Good(t *testing.T) {
+	tp := setupTestTransportPair(t)
+	received := make(chan *Message, 1)
+	tp.Server.OnMessage(func(_ *PeerConnection, msg *Message) { received <- msg })
+	tp.connectClient(t)
+	msg, _ := NewMessage(MsgPing, tp.ClientNode.GetIdentity().ID, tp.ServerNode.GetIdentity().ID, PingPayload{SentAt: 1})
+	if err := tp.Client.Send(tp.ServerNode.GetIdentity().ID, msg); err != nil {
+		t.Fatalf("Send: %v", err)
+	}
+	select {
+	case got := <-received:
+		if got.Type != MsgPing {
+			t.Fatalf("message: %#v", got)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timeout waiting for message")
+	}
+}
+
+func TestTransport_Transport_Send_Bad(t *testing.T) {
+	transport := NewTransport(nil, nil, TransportConfig{})
+	msg, _ := NewMessage(MsgPing, "from", "to", nil)
+	err := transport.Send("missing", msg)
+	if err == nil {
+		t.Fatal("expected missing peer error")
+	}
+}
+
+func TestTransport_Transport_Send_Ugly(t *testing.T) {
+	transport := NewTransport(nil, nil, TransportConfig{})
+	err := transport.Send("", nil)
+	if err == nil {
+		t.Fatal("expected missing peer error")
+	}
+}
+
+func TestTransport_Transport_Connections_Good(t *testing.T) {
+	tp := setupTestTransportPair(t)
+	tp.connectClient(t)
+	count := 0
+	for range tp.Client.Connections() {
+		count++
+	}
+	if count != 1 {
+		t.Fatalf("connection count: got %d", count)
+	}
+}
+
+func TestTransport_Transport_Connections_Bad(t *testing.T) {
+	transport := NewTransport(nil, nil, TransportConfig{})
+	count := 0
+	for range transport.Connections() {
+		count++
+	}
+	if count != 0 {
+		t.Fatalf("connection count: got %d", count)
+	}
+}
+
+func TestTransport_Transport_Connections_Ugly(t *testing.T) {
+	tp := setupTestTransportPair(t)
+	tp.connectClient(t)
+	count := 0
+	for range tp.Client.Connections() {
+		count++
+		break
+	}
+	if count != 1 {
+		t.Fatalf("connection count: got %d", count)
+	}
+}
+
+func TestTransport_Transport_Broadcast_Good(t *testing.T) {
+	tp := setupTestTransportPair(t)
+	received := make(chan *Message, 1)
+	tp.Server.OnMessage(func(_ *PeerConnection, msg *Message) { received <- msg })
+	tp.connectClient(t)
+	msg, _ := NewMessage(MsgPing, tp.ClientNode.GetIdentity().ID, "", PingPayload{SentAt: 1})
+	if err := tp.Client.Broadcast(msg); err != nil {
+		t.Fatalf("Broadcast: %v", err)
+	}
+	select {
+	case got := <-received:
+		if got.Type != MsgPing {
+			t.Fatalf("message: %#v", got)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timeout waiting for broadcast")
+	}
+}
+
+func TestTransport_Transport_Broadcast_Bad(t *testing.T) {
+	transport := NewTransport(nil, nil, TransportConfig{})
+	msg, _ := NewMessage(MsgPing, "from", "", nil)
+	if err := transport.Broadcast(msg); err != nil {
+		t.Fatalf("Broadcast empty: %v", err)
+	}
+}
+
+func TestTransport_Transport_Broadcast_Ugly(t *testing.T) {
+	tp := setupTestTransportPair(t)
+	tp.connectClient(t)
+	msg, _ := NewMessage(MsgPing, tp.ServerNode.GetIdentity().ID, "", nil)
+	if err := tp.Client.Broadcast(msg); err != nil {
+		t.Fatalf("Broadcast skip sender: %v", err)
+	}
+}
+
+func TestTransport_Transport_GetConnection_Good(t *testing.T) {
+	tp := setupTestTransportPair(t)
+	tp.connectClient(t)
+	conn := tp.Client.GetConnection(tp.ServerNode.GetIdentity().ID)
+	if conn == nil {
+		t.Fatal("expected connection")
+	}
+}
+
+func TestTransport_Transport_GetConnection_Bad(t *testing.T) {
+	transport := NewTransport(nil, nil, TransportConfig{})
+	conn := transport.GetConnection("missing")
+	if conn != nil {
+		t.Fatalf("connection: got %#v, want nil", conn)
+	}
+}
+
+func TestTransport_Transport_GetConnection_Ugly(t *testing.T) {
+	tp := setupTestTransportPair(t)
+	conn := tp.connectClient(t)
+	_ = conn.Close()
+	if got := tp.Client.GetConnection(tp.ServerNode.GetIdentity().ID); got != nil {
+		t.Fatalf("connection: got %#v, want nil", got)
+	}
+}
+
+func TestTransport_Transport_ConnectedPeers_Good(t *testing.T) {
+	tp := setupTestTransportPair(t)
+	tp.connectClient(t)
+	if tp.Client.ConnectedPeers() != 1 {
+		t.Fatalf("connected peers: got %d", tp.Client.ConnectedPeers())
+	}
+}
+
+func TestTransport_Transport_ConnectedPeers_Bad(t *testing.T) {
+	transport := NewTransport(nil, nil, TransportConfig{})
+	if transport.ConnectedPeers() != 0 {
+		t.Fatalf("connected peers: got %d", transport.ConnectedPeers())
+	}
+}
+
+func TestTransport_Transport_ConnectedPeers_Ugly(t *testing.T) {
+	tp := setupTestTransportPair(t)
+	conn := tp.connectClient(t)
+	_ = conn.Close()
+	if tp.Client.ConnectedPeers() != 0 {
+		t.Fatalf("connected peers: got %d", tp.Client.ConnectedPeers())
+	}
+}
+
+func TestTransport_PeerConnection_Send_Good(t *testing.T) {
+	tp := setupTestTransportPair(t)
+	received := make(chan *Message, 1)
+	tp.Server.OnMessage(func(_ *PeerConnection, msg *Message) { received <- msg })
+	conn := tp.connectClient(t)
+	msg, _ := NewMessage(MsgPing, tp.ClientNode.GetIdentity().ID, tp.ServerNode.GetIdentity().ID, nil)
+	if err := conn.Send(msg); err != nil {
+		t.Fatalf("PeerConnection.Send: %v", err)
+	}
+	select {
+	case <-received:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timeout waiting for message")
+	}
+}
+
+func TestTransport_PeerConnection_Send_Bad(t *testing.T) {
+	tp := setupTestTransportPair(t)
+	conn := tp.connectClient(t)
+	conn.SharedSecret = nil
+	msg, _ := NewMessage(MsgPing, "from", "to", nil)
+	err := conn.Send(msg)
+	if err == nil {
+		t.Fatal("expected key derivation error")
+	}
+}
+
+func TestTransport_PeerConnection_Send_Ugly(t *testing.T) {
+	tp := setupTestTransportPair(t)
+	conn := tp.connectClient(t)
+	err := conn.Send(nil)
+	if err != nil {
+		t.Fatalf("nil message should marshal as JSON null: %v", err)
+	}
+}
+
+func TestTransport_PeerConnection_Close_Good(t *testing.T) {
+	tp := setupTestTransportPair(t)
+	conn := tp.connectClient(t)
+	if err := conn.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	if tp.Client.GetConnection(tp.ServerNode.GetIdentity().ID) != nil {
+		t.Fatal("connection should be removed")
+	}
+}
+
+func TestTransport_PeerConnection_Close_Bad(t *testing.T) {
+	tp := setupTestTransportPair(t)
+	conn := tp.connectClient(t)
+	_ = conn.Close()
+	if err := conn.Close(); err != nil {
+		t.Fatalf("second Close: %v", err)
+	}
+}
+
+func TestTransport_PeerConnection_Close_Ugly(t *testing.T) {
+	tp := setupTestTransportPair(t)
+	conn := tp.connectClient(t)
+	conn.transport = nil
+	if err := conn.Close(); err != nil {
+		t.Fatalf("Close without transport: %v", err)
+	}
+}
+
+func TestTransport_PeerConnection_GracefulClose_Good(t *testing.T) {
+	tp := setupTestTransportPair(t)
+	conn := tp.connectClient(t)
+	if err := conn.GracefulClose("bye", DisconnectNormal); err != nil {
+		t.Fatalf("GracefulClose: %v", err)
+	}
+	if tp.Client.GetConnection(tp.ServerNode.GetIdentity().ID) != nil {
+		t.Fatal("connection should be removed")
+	}
+}
+
+func TestTransport_PeerConnection_GracefulClose_Bad(t *testing.T) {
+	tp := setupTestTransportPair(t)
+	conn := tp.connectClient(t)
+	conn.SharedSecret = nil
+	if err := conn.GracefulClose("bye", DisconnectNormal); err != nil {
+		t.Fatalf("GracefulClose without secret: %v", err)
+	}
+	if tp.Client.GetConnection(tp.ServerNode.GetIdentity().ID) != nil {
+		t.Fatal("connection should be removed")
+	}
+}
+
+func TestTransport_PeerConnection_GracefulClose_Ugly(t *testing.T) {
+	tp := setupTestTransportPair(t)
+	conn := tp.connectClient(t)
+	_ = conn.GracefulClose("", 0)
+	if err := conn.GracefulClose("", 0); err != nil {
+		t.Fatalf("second GracefulClose: %v", err)
+	}
+}
+
 func TestPeerRateLimiter(t *testing.T) {
 	t.Run("AllowUpToBurst", func(t *testing.T) {
 		rl := NewPeerRateLimiter(10, 5)
