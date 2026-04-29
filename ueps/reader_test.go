@@ -2,9 +2,8 @@ package ueps
 
 import (
 	"bufio"
-	"bytes"
+	core "dappco.re/go"
 	"io"
-	"strings"
 	"testing"
 )
 
@@ -13,11 +12,11 @@ func TestReader_ReadAndVerify_Good(t *testing.T) {
 	if err != nil {
 		t.Fatalf("MarshalAndSign: %v", err)
 	}
-	parsed, err := ReadAndVerify(bufio.NewReader(bytes.NewReader(frame)), testSecret)
+	parsed, err := ReadAndVerify(bufio.NewReader(core.NewBuffer(frame)), testSecret)
 	if err != nil {
 		t.Fatalf("ReadAndVerify: %v", err)
 	}
-	if !bytes.Equal(parsed.Payload, []byte("payload")) {
+	if !core.DeepEqual(parsed.Payload, []byte("payload")) {
 		t.Fatalf("payload: got %q", parsed.Payload)
 	}
 }
@@ -27,17 +26,17 @@ func TestReader_ReadAndVerify_Bad(t *testing.T) {
 	if err != nil {
 		t.Fatalf("MarshalAndSign: %v", err)
 	}
-	_, err = ReadAndVerify(bufio.NewReader(bytes.NewReader(frame)), []byte("wrong-secret"))
+	_, err = ReadAndVerify(bufio.NewReader(core.NewBuffer(frame)), []byte("wrong-secret"))
 	if err == nil {
 		t.Fatal("expected HMAC mismatch")
 	}
-	if !strings.Contains(err.Error(), "integrity violation") {
+	if !core.Contains(err.Error(), "integrity violation") {
 		t.Fatalf("error: got %v", err)
 	}
 }
 
 func TestReader_ReadAndVerify_Ugly(t *testing.T) {
-	parsed, err := ReadAndVerify(bufio.NewReader(bytes.NewReader(nil)), testSecret)
+	parsed, err := ReadAndVerify(bufio.NewReader(core.NewBuffer(nil)), testSecret)
 	if err != io.EOF {
 		t.Fatalf("error: got %v, want EOF", err)
 	}

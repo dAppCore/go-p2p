@@ -3,10 +3,9 @@
 package api
 
 import (
+	core "dappco.re/go"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
-	"strings"
 	"testing"
 
 	coreapi "dappco.re/go/api"
@@ -98,7 +97,7 @@ func TestProvider_P2PProvider_Name_Bad(t *testing.T) {
 func TestProvider_P2PProvider_Name_Ugly(t *testing.T) {
 	provider := NewProvider(newProviderTestRegistry(t), nil)
 	got := provider.Name()
-	if strings.TrimSpace(got) != got {
+	if core.Trim(got) != got {
 		t.Fatalf("name has whitespace: %q", got)
 	}
 }
@@ -124,7 +123,7 @@ func TestProvider_P2PProvider_BasePath_Bad(t *testing.T) {
 func TestProvider_P2PProvider_BasePath_Ugly(t *testing.T) {
 	provider := NewProvider(newProviderTestRegistry(t), nil)
 	got := provider.BasePath()
-	if strings.Contains(got, "//") {
+	if core.Contains(got, "//") {
 		t.Fatalf("base path contains duplicate slash: %q", got)
 	}
 }
@@ -234,7 +233,7 @@ func TestNewProvider_Ugly(t *testing.T) {
 
 func newProviderTestRegistry(t *testing.T) *p2pnode.PeerRegistry {
 	t.Helper()
-	registry, err := p2pnode.NewPeerRegistryWithPath(filepath.Join(t.TempDir(), "peers.json"))
+	registry, err := p2pnode.NewPeerRegistryWithPath(core.PathJoin(t.TempDir(), "peers.json"))
 	if err != nil {
 		t.Fatalf("create peer registry: %v", err)
 	}
@@ -256,7 +255,7 @@ func newProviderTestRouter(provider *P2PProvider) *gin.Engine {
 }
 
 func performProviderRequest(router *gin.Engine, method string, path string, body string) *httptest.ResponseRecorder {
-	request := httptest.NewRequest(method, path, strings.NewReader(body))
+	request := httptest.NewRequest(method, path, core.NewReader(body))
 	if body != "" {
 		request.Header.Set("Content-Type", "application/json")
 	}

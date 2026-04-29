@@ -2,23 +2,74 @@ package node
 
 import (
 	"archive/tar"
-	"bytes"
-	"errors"
-	"os"
-	"path/filepath"
+	core "dappco.re/go"
 	"testing"
 )
 
 type errBundleWriter struct{}
 
 func (errBundleWriter) Write([]byte) (int, error) {
-	return 0, errors.New("write failed")
+	return 0, core.NewError("write failed")
+}
+
+func resultErr(r core.Result) error {
+	if r.OK {
+		return nil
+	}
+	if err, ok := r.Value.(error); ok {
+		return err
+	}
+	return core.NewError("operation failed")
+}
+
+func testWriteFile(path string, data []byte, mode core.FileMode) error {
+	return resultErr(core.WriteFile(path, data, mode))
+}
+
+func testReadFile(path string) ([]byte, error) {
+	r := core.ReadFile(path)
+	if !r.OK {
+		return nil, resultErr(r)
+	}
+	return r.Value.([]byte), nil
+}
+
+func testStat(path string) (core.FsFileInfo, error) {
+	r := core.Stat(path)
+	if !r.OK {
+		return nil, resultErr(r)
+	}
+	return r.Value.(core.FsFileInfo), nil
+}
+
+func testLstat(path string) (core.FsFileInfo, error) {
+	r := core.Lstat(path)
+	if !r.OK {
+		return nil, resultErr(r)
+	}
+	return r.Value.(core.FsFileInfo), nil
+}
+
+func testMkdir(path string, mode core.FileMode) error {
+	return resultErr(core.Mkdir(path, mode))
+}
+
+func testJSONMarshal(v any) ([]byte, error) {
+	r := core.JSONMarshal(v)
+	if !r.OK {
+		return nil, resultErr(r)
+	}
+	return r.Value.([]byte), nil
+}
+
+func testJSONUnmarshal(data []byte, target any) error {
+	return resultErr(core.JSONUnmarshal(data, target))
 }
 
 func testMinerFile(t *testing.T, content string) string {
 	t.Helper()
-	path := filepath.Join(t.TempDir(), "miner")
-	if err := os.WriteFile(path, []byte(content), 0755); err != nil {
+	path := core.PathJoin(t.TempDir(), "miner")
+	if err := testWriteFile(path, []byte(content), 0755); err != nil {
 		t.Fatalf("write miner file: %v", err)
 	}
 	return path
@@ -44,7 +95,7 @@ func TestCreateProfileBundleUnencrypted(t *testing.T) {
 		t.Error("checksum should not be empty")
 	}
 
-	if !bytes.Equal(bundle.Data, profileJSON) {
+	if !core.DeepEqual(bundle.Data, profileJSON) {
 		t.Error("data should match original JSON")
 	}
 }
@@ -55,7 +106,7 @@ func TestBundle_CreateProfileBundle_Good(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateProfileBundle: %v", err)
 	}
-	if bundle.Type != BundleProfile || bytes.Equal(bundle.Data, profile) {
+	if bundle.Type != BundleProfile || core.DeepEqual(bundle.Data, profile) {
 		t.Fatalf("bundle: %#v", bundle)
 	}
 }
@@ -87,7 +138,7 @@ func TestBundle_CreateProfileBundleUnencrypted_Good(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateProfileBundleUnencrypted: %v", err)
 	}
-	if !bytes.Equal(bundle.Data, profile) {
+	if !core.DeepEqual(bundle.Data, profile) {
 		t.Fatal("data should match profile")
 	}
 }
@@ -125,7 +176,7 @@ func TestBundle_CreateMinerBundle_Good(t *testing.T) {
 }
 
 func TestBundle_CreateMinerBundle_Bad(t *testing.T) {
-	bundle, err := CreateMinerBundle(filepath.Join(t.TempDir(), "missing"), nil, "miner", "password")
+	bundle, err := CreateMinerBundle(core.PathJoin(t.TempDir(), "missing"), nil, "miner", "password")
 	if err == nil {
 		t.Fatal("expected missing miner error")
 	}
@@ -152,7 +203,7 @@ func TestBundle_ExtractProfileBundle_Good(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ExtractProfileBundle: %v", err)
 	}
-	if !bytes.Equal(extracted, profile) {
+	if !core.DeepEqual(extracted, profile) {
 		t.Fatalf("profile: got %s", extracted)
 	}
 }
@@ -176,7 +227,7 @@ func TestBundle_ExtractProfileBundle_Ugly(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ExtractProfileBundle encrypted: %v", err)
 	}
-	if !bytes.Equal(extracted, profile) {
+	if !core.DeepEqual(extracted, profile) {
 		t.Fatalf("profile: got %s", extracted)
 	}
 }
@@ -191,7 +242,7 @@ func TestBundle_ExtractMinerBundle_Good(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ExtractMinerBundle: %v", err)
 	}
-	if !bytes.Equal(profile, []byte(`{"profile":true}`)) {
+	if !core.DeepEqual(profile, []byte(`{"profile":true}`)) {
 		t.Fatalf("path=%q profile=%s", extractedPath, profile)
 	}
 }
@@ -255,8 +306,8 @@ func TestBundle_VerifyBundle_Ugly(t *testing.T) {
 
 func TestBundle_StreamBundle_Good(t *testing.T) {
 	bundle, _ := CreateProfileBundleUnencrypted([]byte(`{"stream":true}`), "stream")
-	var buf bytes.Buffer
-	err := StreamBundle(bundle, &buf)
+	buf := core.NewBuffer()
+	err := StreamBundle(bundle, buf)
 	if err != nil {
 		t.Fatalf("StreamBundle: %v", err)
 	}
@@ -277,30 +328,30 @@ func TestBundle_StreamBundle_Bad(t *testing.T) {
 }
 
 func TestBundle_StreamBundle_Ugly(t *testing.T) {
-	var buf bytes.Buffer
-	err := StreamBundle(&Bundle{}, &buf)
+	buf := core.NewBuffer()
+	err := StreamBundle(&Bundle{}, buf)
 	if err != nil {
 		t.Fatalf("StreamBundle empty: %v", err)
 	}
-	if !bytes.Contains(buf.Bytes(), []byte(`"type"`)) {
+	if !core.Contains(string(buf.Bytes()), `"type"`) {
 		t.Fatalf("json: %s", buf.String())
 	}
 }
 
 func TestBundle_ReadBundle_Good(t *testing.T) {
 	bundle, _ := CreateProfileBundleUnencrypted([]byte(`{"read":true}`), "read")
-	var buf bytes.Buffer
-	if err := StreamBundle(bundle, &buf); err != nil {
+	buf := core.NewBuffer()
+	if err := StreamBundle(bundle, buf); err != nil {
 		t.Fatalf("StreamBundle: %v", err)
 	}
-	restored, err := ReadBundle(&buf)
+	restored, err := ReadBundle(buf)
 	if err != nil || restored.Name != "read" {
 		t.Fatalf("restored: %#v err=%v", restored, err)
 	}
 }
 
 func TestBundle_ReadBundle_Bad(t *testing.T) {
-	restored, err := ReadBundle(bytes.NewReader([]byte("not json")))
+	restored, err := ReadBundle(core.NewBuffer([]byte("not json")))
 	if err == nil {
 		t.Fatal("expected JSON error")
 	}
@@ -310,7 +361,7 @@ func TestBundle_ReadBundle_Bad(t *testing.T) {
 }
 
 func TestBundle_ReadBundle_Ugly(t *testing.T) {
-	restored, err := ReadBundle(bytes.NewReader(nil))
+	restored, err := ReadBundle(core.NewBuffer(nil))
 	if err == nil {
 		t.Fatal("expected empty reader error")
 	}
@@ -361,7 +412,7 @@ func TestCreateProfileBundle(t *testing.T) {
 	}
 
 	// Encrypted data should not match original
-	if bytes.Equal(bundle.Data, profileJSON) {
+	if core.DeepEqual(bundle.Data, profileJSON) {
 		t.Error("encrypted data should not match original")
 	}
 
@@ -371,7 +422,7 @@ func TestCreateProfileBundle(t *testing.T) {
 		t.Fatalf("failed to extract bundle: %v", err)
 	}
 
-	if !bytes.Equal(extracted, profileJSON) {
+	if !core.DeepEqual(extracted, profileJSON) {
 		t.Errorf("extracted data should match original: got %s", string(extracted))
 	}
 }
@@ -386,7 +437,7 @@ func TestExtractProfileBundle(t *testing.T) {
 			t.Fatalf("failed to extract unencrypted bundle: %v", err)
 		}
 
-		if !bytes.Equal(extracted, originalJSON) {
+		if !core.DeepEqual(extracted, originalJSON) {
 			t.Error("extracted data should match original")
 		}
 	})
@@ -402,7 +453,7 @@ func TestExtractProfileBundle(t *testing.T) {
 			t.Fatalf("failed to extract encrypted bundle: %v", err)
 		}
 
-		if !bytes.Equal(extracted, originalJSON) {
+		if !core.DeepEqual(extracted, originalJSON) {
 			t.Error("extracted data should match original")
 		}
 	})
@@ -446,8 +497,8 @@ func TestTarballFunctions(t *testing.T) {
 		}
 
 		// Extract to temp directory
-		tmpDir, _ := os.MkdirTemp("", "tarball-test")
-		defer os.RemoveAll(tmpDir)
+		tmpDir := t.TempDir()
+		defer core.RemoveAll(tmpDir)
 
 		firstExec, err := extractTarball(tarData, tmpDir)
 		if err != nil {
@@ -456,14 +507,14 @@ func TestTarballFunctions(t *testing.T) {
 
 		// Check files exist
 		for name, content := range files {
-			path := filepath.Join(tmpDir, name)
-			data, err := os.ReadFile(path)
+			path := core.PathJoin(tmpDir, name)
+			data, err := testReadFile(path)
 			if err != nil {
 				t.Errorf("failed to read extracted file %s: %v", name, err)
 				continue
 			}
 
-			if !bytes.Equal(data, content) {
+			if !core.DeepEqual(data, content) {
 				t.Errorf("content mismatch for %s", name)
 			}
 		}
@@ -479,14 +530,14 @@ func TestStreamAndReadBundle(t *testing.T) {
 	original, _ := CreateProfileBundleUnencrypted([]byte(`{"streaming":"test"}`), "stream-test")
 
 	// Stream to buffer
-	var buf bytes.Buffer
-	err := StreamBundle(original, &buf)
+	buf := core.NewBuffer()
+	err := StreamBundle(original, buf)
 	if err != nil {
 		t.Fatalf("failed to stream bundle: %v", err)
 	}
 
 	// Read back
-	restored, err := ReadBundle(&buf)
+	restored, err := ReadBundle(buf)
 	if err != nil {
 		t.Fatalf("failed to read bundle: %v", err)
 	}
@@ -499,7 +550,7 @@ func TestStreamAndReadBundle(t *testing.T) {
 		t.Error("checksum mismatch")
 	}
 
-	if !bytes.Equal(restored.Data, original.Data) {
+	if !core.DeepEqual(restored.Data, original.Data) {
 		t.Error("data mismatch")
 	}
 }
@@ -584,11 +635,11 @@ func TestBundleTypes(t *testing.T) {
 
 func TestCreateMinerBundle(t *testing.T) {
 	// Create a temp "miner binary"
-	tmpDir, _ := os.MkdirTemp("", "miner-bundle-test")
-	defer os.RemoveAll(tmpDir)
+	tmpDir := t.TempDir()
+	defer core.RemoveAll(tmpDir)
 
-	minerPath := filepath.Join(tmpDir, "test-miner")
-	err := os.WriteFile(minerPath, []byte("fake miner binary content"), 0755)
+	minerPath := core.PathJoin(tmpDir, "test-miner")
+	err := testWriteFile(minerPath, []byte("fake miner binary content"), 0755)
 	if err != nil {
 		t.Fatalf("failed to create test miner: %v", err)
 	}
@@ -610,8 +661,8 @@ func TestCreateMinerBundle(t *testing.T) {
 	}
 
 	// Extract and verify
-	extractDir, _ := os.MkdirTemp("", "miner-extract-test")
-	defer os.RemoveAll(extractDir)
+	extractDir := t.TempDir()
+	defer core.RemoveAll(extractDir)
 
 	extractedPath, extractedProfile, err := ExtractMinerBundle(bundle, password, extractDir)
 	if err != nil {
@@ -622,13 +673,13 @@ func TestCreateMinerBundle(t *testing.T) {
 	// what extractTarball expects (it looks for files at root with executable bit)
 	t.Logf("extracted path: %s", extractedPath)
 
-	if !bytes.Equal(extractedProfile, profileJSON) {
+	if !core.DeepEqual(extractedProfile, profileJSON) {
 		t.Error("profile data mismatch")
 	}
 
 	// If we got an extracted path, verify its content
 	if extractedPath != "" {
-		minerData, err := os.ReadFile(extractedPath)
+		minerData, err := testReadFile(extractedPath)
 		if err != nil {
 			t.Fatalf("failed to read extracted miner: %v", err)
 		}
@@ -733,16 +784,16 @@ func TestExtractTarball_PathTraversal(t *testing.T) {
 		}
 
 		// Verify symlink was not created
-		linkPath := filepath.Join(tmpDir, "link")
-		if _, statErr := os.Lstat(linkPath); !os.IsNotExist(statErr) {
+		linkPath := core.PathJoin(tmpDir, "link")
+		if _, statErr := testLstat(linkPath); !core.IsNotExist(statErr) {
 			t.Error("symlink should not be created")
 		}
 	})
 
 	t.Run("DirectoryEntry", func(t *testing.T) {
 		// Create a tarball with a directory entry followed by a file in it
-		var buf bytes.Buffer
-		tw := tar.NewWriter(&buf)
+		buf := core.NewBuffer()
+		tw := tar.NewWriter(buf)
 
 		// Write directory
 		tw.WriteHeader(&tar.Header{
@@ -768,11 +819,11 @@ func TestExtractTarball_PathTraversal(t *testing.T) {
 		}
 
 		// Verify directory and file exist
-		data, err := os.ReadFile(filepath.Join(tmpDir, "mydir", "file.txt"))
+		data, err := testReadFile(core.PathJoin(tmpDir, "mydir", "file.txt"))
 		if err != nil {
 			t.Fatalf("failed to read extracted file: %v", err)
 		}
-		if !bytes.Equal(data, content) {
+		if !core.DeepEqual(data, content) {
 			t.Error("content mismatch")
 		}
 	})
@@ -780,8 +831,8 @@ func TestExtractTarball_PathTraversal(t *testing.T) {
 
 // createTarballWithCustomName creates a tar with a single file at an arbitrary path.
 func createTarballWithCustomName(name string, content []byte) ([]byte, error) {
-	var buf bytes.Buffer
-	tw := tar.NewWriter(&buf)
+	buf := core.NewBuffer()
+	tw := tar.NewWriter(buf)
 	hdr := &tar.Header{
 		Name: name,
 		Mode: 0644,
@@ -801,8 +852,8 @@ func createTarballWithCustomName(name string, content []byte) ([]byte, error) {
 
 // createTarballWithSymlink creates a tar containing a symlink entry.
 func createTarballWithSymlink(name, target string) ([]byte, error) {
-	var buf bytes.Buffer
-	tw := tar.NewWriter(&buf)
+	buf := core.NewBuffer()
+	tw := tar.NewWriter(buf)
 	hdr := &tar.Header{
 		Name:     name,
 		Linkname: target,
@@ -841,8 +892,8 @@ func TestCreateMinerBundle_NonExistentFile(t *testing.T) {
 
 func TestCreateMinerBundle_NilProfile(t *testing.T) {
 	tmpDir := t.TempDir()
-	minerPath := filepath.Join(tmpDir, "miner")
-	os.WriteFile(minerPath, []byte("binary"), 0755)
+	minerPath := core.PathJoin(tmpDir, "miner")
+	testWriteFile(minerPath, []byte("binary"), 0755)
 
 	bundle, err := CreateMinerBundle(minerPath, nil, "nil-profile", "pass")
 	if err != nil {
@@ -854,7 +905,7 @@ func TestCreateMinerBundle_NilProfile(t *testing.T) {
 }
 
 func TestReadBundle_InvalidJSON(t *testing.T) {
-	reader := bytes.NewReader([]byte("not json"))
+	reader := core.NewBuffer([]byte("not json"))
 	_, err := ReadBundle(reader)
 	if err == nil {
 		t.Error("expected error for invalid JSON")
@@ -869,14 +920,14 @@ func TestStreamBundle_EmptyBundle(t *testing.T) {
 		Checksum: "",
 	}
 
-	var buf bytes.Buffer
-	err := StreamBundle(bundle, &buf)
+	buf := core.NewBuffer()
+	err := StreamBundle(bundle, buf)
 	if err != nil {
 		t.Fatalf("StreamBundle should handle empty bundle: %v", err)
 	}
 
 	// Should be valid JSON
-	restored, err := ReadBundle(&buf)
+	restored, err := ReadBundle(buf)
 	if err != nil {
 		t.Fatalf("ReadBundle should read back streamed bundle: %v", err)
 	}
@@ -903,12 +954,12 @@ func TestCreateTarball_MultipleDirs(t *testing.T) {
 	}
 
 	for name, content := range files {
-		data, err := os.ReadFile(filepath.Join(tmpDir, name))
+		data, err := testReadFile(core.PathJoin(tmpDir, name))
 		if err != nil {
 			t.Errorf("failed to read %s: %v", name, err)
 			continue
 		}
-		if !bytes.Equal(data, content) {
+		if !core.DeepEqual(data, content) {
 			t.Errorf("content mismatch for %s", name)
 		}
 	}

@@ -1,14 +1,11 @@
 package node
 
 import (
-	"encoding/json"
-	"fmt"
+	core "dappco.re/go"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"path/filepath"
 	"reflect"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -134,7 +131,7 @@ func TestController_Controller_GetRemoteStats_Good(t *testing.T) {
 
 func TestController_Controller_GetRemoteStats_Bad(t *testing.T) {
 	tp := setupTestTransportPair(t)
-	nm, _ := NewNodeManagerWithPaths(filepath.Join(t.TempDir(), "private.key"), filepath.Join(t.TempDir(), "node.json"))
+	nm, _ := NewNodeManagerWithPaths(core.PathJoin(t.TempDir(), "private.key"), core.PathJoin(t.TempDir(), "node.json"))
 	controller := NewController(nm, tp.ClientReg, tp.Client)
 	stats, err := controller.GetRemoteStats("peer")
 	if err == nil {
@@ -158,7 +155,7 @@ func TestController_Controller_GetRemoteStats_Ugly(t *testing.T) {
 
 func TestController_Controller_StartRemoteMiner_Good(t *testing.T) {
 	controller, _, tp := setupControllerPairWithMiner(t)
-	err := controller.StartRemoteMiner(tp.ServerNode.GetIdentity().ID, "xmrig", "", json.RawMessage(`{"pool":"p"}`))
+	err := controller.StartRemoteMiner(tp.ServerNode.GetIdentity().ID, "xmrig", "", RawMessage(`{"pool":"p"}`))
 	if err != nil {
 		t.Fatalf("StartRemoteMiner: %v", err)
 	}
@@ -174,7 +171,7 @@ func TestController_Controller_StartRemoteMiner_Bad(t *testing.T) {
 
 func TestController_Controller_StartRemoteMiner_Ugly(t *testing.T) {
 	tp := setupTestTransportPair(t)
-	nm, _ := NewNodeManagerWithPaths(filepath.Join(t.TempDir(), "private.key"), filepath.Join(t.TempDir(), "node.json"))
+	nm, _ := NewNodeManagerWithPaths(core.PathJoin(t.TempDir(), "private.key"), core.PathJoin(t.TempDir(), "node.json"))
 	controller := NewController(nm, tp.ClientReg, tp.Client)
 	err := controller.StartRemoteMiner("peer", "xmrig", "", nil)
 	if err == nil {
@@ -200,7 +197,7 @@ func TestController_Controller_StopRemoteMiner_Bad(t *testing.T) {
 
 func TestController_Controller_StopRemoteMiner_Ugly(t *testing.T) {
 	tp := setupTestTransportPair(t)
-	nm, _ := NewNodeManagerWithPaths(filepath.Join(t.TempDir(), "private.key"), filepath.Join(t.TempDir(), "node.json"))
+	nm, _ := NewNodeManagerWithPaths(core.PathJoin(t.TempDir(), "private.key"), core.PathJoin(t.TempDir(), "node.json"))
 	controller := NewController(nm, tp.ClientReg, tp.Client)
 	err := controller.StopRemoteMiner("peer", "")
 	if err == nil {
@@ -232,7 +229,7 @@ func TestController_Controller_GetRemoteLogs_Bad(t *testing.T) {
 
 func TestController_Controller_GetRemoteLogs_Ugly(t *testing.T) {
 	tp := setupTestTransportPair(t)
-	nm, _ := NewNodeManagerWithPaths(filepath.Join(t.TempDir(), "private.key"), filepath.Join(t.TempDir(), "node.json"))
+	nm, _ := NewNodeManagerWithPaths(core.PathJoin(t.TempDir(), "private.key"), core.PathJoin(t.TempDir(), "node.json"))
 	controller := NewController(nm, tp.ClientReg, tp.Client)
 	lines, err := controller.GetRemoteLogs("peer", "", 0)
 	if err == nil {
@@ -319,7 +316,7 @@ func TestController_Controller_PingPeer_Good(t *testing.T) {
 
 func TestController_Controller_PingPeer_Bad(t *testing.T) {
 	tp := setupTestTransportPair(t)
-	nm, _ := NewNodeManagerWithPaths(filepath.Join(t.TempDir(), "private.key"), filepath.Join(t.TempDir(), "node.json"))
+	nm, _ := NewNodeManagerWithPaths(core.PathJoin(t.TempDir(), "private.key"), core.PathJoin(t.TempDir(), "node.json"))
 	controller := NewController(nm, tp.ClientReg, tp.Client)
 	rtt, err := controller.PingPeer("peer")
 	if err == nil {
@@ -431,7 +428,7 @@ func TestController_RequestTimeout(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
-	if !strings.Contains(err.Error(), "timeout") {
+	if !core.Contains(err.Error(), "timeout") {
 		t.Fatalf("expected %q to contain %q", err.Error(), "timeout")
 	}
 	if !(elapsed < 1*time.Second) {
@@ -655,7 +652,7 @@ func TestController_DeadPeerCleanup(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
-	if !strings.Contains(err.Error(), "timeout") {
+	if !core.Contains(err.Error(), "timeout") {
 		t.Fatalf("expected %q to contain %q", err.Error(), "timeout")
 	}
 
@@ -748,7 +745,7 @@ func TestController_ConnectToPeerUnknown(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
-	if !strings.Contains(err.Error(), "not found") {
+	if !core.Contains(err.Error(), "not found") {
 		t.Fatalf("expected %q to contain %q", err.Error(), "not found")
 	}
 }
@@ -775,7 +772,7 @@ func TestController_DisconnectFromPeerNotConnected(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
-	if !strings.Contains(err.Error(), "not connected") {
+	if !core.Contains(err.Error(), "not connected") {
 		t.Fatalf("expected %q to contain %q", err.Error(), "not connected")
 	}
 }
@@ -797,7 +794,7 @@ func TestController_SendRequestPeerNotFound(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
-	if !strings.Contains(err.Error(), "peer not found") {
+	if !core.Contains(err.Error(), "peer not found") {
 		t.Fatalf("expected %q to contain %q", err.Error(), "peer not found")
 	}
 }
@@ -876,7 +873,7 @@ func (m *mockMinerManagerFull) StopMiner(name string) error {
 	defer m.mu.Unlock()
 
 	if _, exists := m.miners[name]; !exists {
-		return fmt.Errorf("miner %s not found", name)
+		return core.Errorf("miner %s not found", name)
 	}
 	delete(m.miners, name)
 	return nil
@@ -899,7 +896,7 @@ func (m *mockMinerManagerFull) GetMiner(name string) (MinerInstance, error) {
 
 	miner, exists := m.miners[name]
 	if !exists {
-		return nil, fmt.Errorf("miner %s not found", name)
+		return nil, core.Errorf("miner %s not found", name)
 	}
 	return miner, nil
 }
@@ -936,8 +933,8 @@ func (m *mockMinerFull) GetConsoleHistorySince(lines int, since time.Time) []str
 }
 
 func lineAfter(line string, since time.Time) bool {
-	start := strings.IndexByte(line, '[')
-	end := strings.IndexByte(line, ']')
+	start := stringIndexByte(line, '[')
+	end := stringIndexByte(line, ']')
 	if start != 0 || end <= start+1 {
 		return true
 	}
@@ -947,6 +944,15 @@ func lineAfter(line string, since time.Time) bool {
 		return true
 	}
 	return ts.After(since) || ts.Equal(since)
+}
+
+func stringIndexByte(s string, needle byte) int {
+	for i := range len(s) {
+		if s[i] == needle {
+			return i
+		}
+	}
+	return -1
 }
 
 func (m *mockMinerFull) GetConsoleHistory(lines int) []string {
@@ -959,7 +965,7 @@ func (m *mockMinerFull) GetConsoleHistory(lines int) []string {
 func TestController_StartRemoteMiner(t *testing.T) {
 	controller, _, tp := setupControllerPairWithMiner(t)
 	serverID := tp.ServerNode.GetIdentity().ID
-	configOverride := json.RawMessage(`{"pool":"pool.example.com:3333"}`)
+	configOverride := RawMessage(`{"pool":"pool.example.com:3333"}`)
 	err := controller.StartRemoteMiner(serverID, "xmrig", "profile-1", configOverride)
 
 	if err != nil {
@@ -971,7 +977,7 @@ func TestController_StartRemoteMiner_WithConfig(t *testing.T) {
 	controller, _, tp := setupControllerPairWithMiner(t)
 	serverID := tp.ServerNode.GetIdentity().ID
 
-	configOverride := json.RawMessage(`{"pool":"custom-pool:3333","threads":4}`)
+	configOverride := RawMessage(`{"pool":"custom-pool:3333","threads":4}`)
 	err := controller.StartRemoteMiner(serverID, "xmrig", "", configOverride)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -986,7 +992,7 @@ func TestController_StartRemoteMiner_EmptyType(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
-	if !strings.Contains(err.Error(), "miner type is required") {
+	if !core.Contains(err.Error(), "miner type is required") {
 		t.Fatalf("expected %q to contain %q", err.Error(), "miner type is required")
 	}
 }
@@ -996,8 +1002,8 @@ func TestController_StartRemoteMiner_NoIdentity(t *testing.T) {
 
 	// Create a node without identity
 	nmNoID, err := NewNodeManagerWithPaths(
-		filepath.Join(t.TempDir(), "priv.key"),
-		filepath.Join(t.TempDir(), "node.json"),
+		core.PathJoin(t.TempDir(), "priv.key"),
+		core.PathJoin(t.TempDir(), "node.json"),
 	)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -1009,7 +1015,7 @@ func TestController_StartRemoteMiner_NoIdentity(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
-	if !strings.Contains(err.Error(), "identity not initialized") {
+	if !core.Contains(err.Error(), "identity not initialized") {
 		t.Fatalf("expected %q to contain %q", err.Error(), "identity not initialized")
 	}
 }
@@ -1037,8 +1043,8 @@ func TestController_StopRemoteMiner_NotFound(t *testing.T) {
 func TestController_StopRemoteMiner_NoIdentity(t *testing.T) {
 	tp := setupTestTransportPair(t)
 	nmNoID, err := NewNodeManagerWithPaths(
-		filepath.Join(t.TempDir(), "priv.key"),
-		filepath.Join(t.TempDir(), "node.json"),
+		core.PathJoin(t.TempDir(), "priv.key"),
+		core.PathJoin(t.TempDir(), "node.json"),
 	)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -1050,7 +1056,7 @@ func TestController_StopRemoteMiner_NoIdentity(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
-	if !strings.Contains(err.Error(), "identity not initialized") {
+	if !core.Contains(err.Error(), "identity not initialized") {
 		t.Fatalf("expected %q to contain %q", err.Error(), "identity not initialized")
 	}
 }
@@ -1069,7 +1075,7 @@ func TestController_GetRemoteLogs(t *testing.T) {
 	if len(lines) != 3 {
 		t.Fatalf("want len %v, got %v", 3, len(lines))
 	}
-	if !strings.Contains(lines[0], "started") {
+	if !core.Contains(lines[0], "started") {
 		t.Fatalf("expected %q to contain %q", lines[0], "started")
 	}
 }
@@ -1103,10 +1109,10 @@ func TestController_GetRemoteLogsSince(t *testing.T) {
 	if len(lines) != 2 {
 		t.Fatalf("want len %v, got %v", 2, len(lines))
 	}
-	if !strings.Contains(lines[0], "connected to pool") {
+	if !core.Contains(lines[0], "connected to pool") {
 		t.Fatalf("expected %q to contain %q", lines[0], "connected to pool")
 	}
-	if !strings.Contains(lines[1], "new job received") {
+	if !core.Contains(lines[1], "new job received") {
 		t.Fatalf("expected %q to contain %q", lines[1], "new job received")
 	}
 }
@@ -1114,8 +1120,8 @@ func TestController_GetRemoteLogsSince(t *testing.T) {
 func TestController_GetRemoteLogs_NoIdentity(t *testing.T) {
 	tp := setupTestTransportPair(t)
 	nmNoID, err := NewNodeManagerWithPaths(
-		filepath.Join(t.TempDir(), "priv.key"),
-		filepath.Join(t.TempDir(), "node.json"),
+		core.PathJoin(t.TempDir(), "priv.key"),
+		core.PathJoin(t.TempDir(), "node.json"),
 	)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -1127,7 +1133,7 @@ func TestController_GetRemoteLogs_NoIdentity(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
-	if !strings.Contains(err.Error(), "identity not initialized") {
+	if !core.Contains(err.Error(), "identity not initialized") {
 		t.Fatalf("expected %q to contain %q", err.Error(), "identity not initialized")
 	}
 }
@@ -1161,8 +1167,8 @@ func TestController_GetRemoteStats_WithMiners(t *testing.T) {
 func TestController_GetRemoteStats_NoIdentity(t *testing.T) {
 	tp := setupTestTransportPair(t)
 	nmNoID, err := NewNodeManagerWithPaths(
-		filepath.Join(t.TempDir(), "priv.key"),
-		filepath.Join(t.TempDir(), "node.json"),
+		core.PathJoin(t.TempDir(), "priv.key"),
+		core.PathJoin(t.TempDir(), "node.json"),
 	)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -1174,7 +1180,7 @@ func TestController_GetRemoteStats_NoIdentity(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
-	if !strings.Contains(err.Error(), "identity not initialized") {
+	if !core.Contains(err.Error(), "identity not initialized") {
 		t.Fatalf("expected %q to contain %q", err.Error(), "identity not initialized")
 	}
 }
@@ -1253,8 +1259,8 @@ func TestController_HandleResponse_FullChannel(t *testing.T) {
 func TestController_PingPeer_NoIdentity(t *testing.T) {
 	tp := setupTestTransportPair(t)
 	nmNoID, _ := NewNodeManagerWithPaths(
-		filepath.Join(t.TempDir(), "priv.key"),
-		filepath.Join(t.TempDir(), "node.json"),
+		core.PathJoin(t.TempDir(), "priv.key"),
+		core.PathJoin(t.TempDir(), "node.json"),
 	)
 	controller := NewController(nmNoID, tp.ClientReg, tp.Client)
 
@@ -1262,7 +1268,7 @@ func TestController_PingPeer_NoIdentity(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
-	if !strings.Contains(err.Error(), "identity not initialized") {
+	if !core.Contains(err.Error(), "identity not initialized") {
 		t.Fatalf("expected %q to contain %q", err.Error(), "identity not initialized")
 	}
 }

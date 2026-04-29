@@ -2,14 +2,14 @@ package node
 
 import (
 	"crypto/ed25519"
-	"encoding/json"
-	"errors"
+
+	core "dappco.re/go"
 )
 
 var (
 	// ErrEnvelopeSignatureInvalid means a signed envelope failed verification.
-	ErrEnvelopeSignatureInvalid = errors.New("invalid envelope signature")
-	ErrEnvelopeBodyEmpty        = errors.New("empty envelope body")
+	ErrEnvelopeSignatureInvalid = core.NewError("invalid envelope signature")
+	ErrEnvelopeBodyEmpty        = core.NewError("empty envelope body")
 )
 
 // Envelope wraps a message body with optional sender signature metadata.
@@ -41,8 +41,12 @@ func decodeReceivedMessage(data []byte) (*Message, error) {
 	}
 
 	var msg Message
-	if err := json.Unmarshal(body, &msg); err != nil {
-		return nil, err
+	r := core.JSONUnmarshal(body, &msg)
+	if !r.OK {
+		if err, ok := r.Value.(error); ok {
+			return nil, err
+		}
+		return nil, core.NewError("message unmarshal failed")
 	}
 	return &msg, nil
 }
@@ -66,20 +70,28 @@ func unwrapEnvelope(data []byte) ([]byte, error) {
 
 func decodeEnvelope(data []byte) (Envelope, bool, error) {
 	var probe struct {
-		PeerPubkey json.RawMessage `json:"peerPubkey"`
-		Body       json.RawMessage `json:"body"`
-		Signature  json.RawMessage `json:"signature"`
+		PeerPubkey RawMessage `json:"peerPubkey"`
+		Body       RawMessage `json:"body"`
+		Signature  RawMessage `json:"signature"`
 	}
-	if err := json.Unmarshal(data, &probe); err != nil {
-		return Envelope{}, false, err
+	r := core.JSONUnmarshal(data, &probe)
+	if !r.OK {
+		if err, ok := r.Value.(error); ok {
+			return Envelope{}, false, err
+		}
+		return Envelope{}, false, core.NewError("envelope probe unmarshal failed")
 	}
 	if len(probe.PeerPubkey) == 0 && len(probe.Body) == 0 && len(probe.Signature) == 0 {
 		return Envelope{}, false, nil
 	}
 
 	var env Envelope
-	if err := json.Unmarshal(data, &env); err != nil {
-		return Envelope{}, true, err
+	r = core.JSONUnmarshal(data, &env)
+	if !r.OK {
+		if err, ok := r.Value.(error); ok {
+			return Envelope{}, true, err
+		}
+		return Envelope{}, true, core.NewError("envelope unmarshal failed")
 	}
 	return env, true, nil
 }

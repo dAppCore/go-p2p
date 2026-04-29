@@ -1,13 +1,12 @@
 package node
 
 import (
-	"errors"
-	"fmt"
 	"reflect"
 	"sync"
 	"sync/atomic"
 	"testing"
 
+	core "dappco.re/go"
 	"dappco.re/go/p2p/ueps"
 )
 
@@ -57,7 +56,7 @@ func TestDispatcher_RegisterAndDispatch(t *testing.T) {
 
 	t.Run("handler error propagates to caller", func(t *testing.T) {
 		d := NewDispatcher()
-		handlerErr := fmt.Errorf("compute failed")
+		handlerErr := core.Errorf("compute failed")
 
 		d.RegisterHandler(IntentCompute, func(pkt *ueps.ParsedPacket) error {
 			return handlerErr
@@ -66,7 +65,7 @@ func TestDispatcher_RegisterAndDispatch(t *testing.T) {
 		pkt := makePacket(IntentCompute, 0, []byte("job"))
 		err := d.Dispatch(pkt)
 
-		if !errors.Is(err, handlerErr) {
+		if !core.Is(err, handlerErr) {
 			t.Fatalf("expected error %v, got %v", handlerErr, err)
 		}
 	})
@@ -98,7 +97,7 @@ func TestDispatcher_NewDispatcher_Ugly(t *testing.T) {
 	if first == second {
 		t.Fatal("expected distinct dispatchers")
 	}
-	if fmt.Sprintf("%p", first.handlers) == fmt.Sprintf("%p", second.handlers) {
+	if core.Sprintf("%p", first.handlers) == core.Sprintf("%p", second.handlers) {
 		t.Fatal("expected distinct handler maps")
 	}
 }
@@ -127,7 +126,7 @@ func TestDispatcher_Dispatcher_RegisterHandler_Bad(t *testing.T) {
 
 func TestDispatcher_Dispatcher_RegisterHandler_Ugly(t *testing.T) {
 	d := NewDispatcher()
-	first := func(*ueps.ParsedPacket) error { return errors.New("first") }
+	first := func(*ueps.ParsedPacket) error { return core.NewError("first") }
 	second := func(*ueps.ParsedPacket) error { return nil }
 	d.RegisterHandler(IntentHandshake, first)
 	d.RegisterHandler(IntentHandshake, second)
@@ -188,7 +187,7 @@ func TestDispatcher_Dispatcher_Dispatch_Good(t *testing.T) {
 func TestDispatcher_Dispatcher_Dispatch_Bad(t *testing.T) {
 	d := NewDispatcher()
 	err := d.Dispatch(nil)
-	if !errors.Is(err, ErrNilPacket) {
+	if !core.Is(err, ErrNilPacket) {
 		t.Fatalf("error: got %v", err)
 	}
 	if len(d.handlers) != 0 {
@@ -199,7 +198,7 @@ func TestDispatcher_Dispatcher_Dispatch_Bad(t *testing.T) {
 func TestDispatcher_Dispatcher_Dispatch_Ugly(t *testing.T) {
 	d := NewDispatcher()
 	err := d.Dispatch(makePacket(IntentHandshake, ThreatScoreThreshold+1, nil))
-	if !errors.Is(err, ErrThreatScoreExceeded) {
+	if !core.Is(err, ErrThreatScoreExceeded) {
 		t.Fatalf("error: got %v", err)
 	}
 	if len(d.handlers) != 0 {
@@ -254,7 +253,7 @@ func TestDispatcher_ThreatCircuitBreaker(t *testing.T) {
 			err := d.Dispatch(pkt)
 
 			if tt.wantErr != nil {
-				if !errors.Is(err, tt.wantErr) {
+				if !core.Is(err, tt.wantErr) {
 					t.Fatalf("expected error %v, got %v", tt.wantErr, err)
 				}
 			} else {
@@ -281,7 +280,7 @@ func TestDispatcher_UnknownIntentDropped(t *testing.T) {
 	pkt := makePacket(0x42, 0, []byte("unknown"))
 	err := d.Dispatch(pkt)
 
-	if !errors.Is(err, ErrUnknownIntent) {
+	if !core.Is(err, ErrUnknownIntent) {
 		t.Fatalf("expected error %v, got %v", ErrUnknownIntent, err)
 	}
 }
@@ -353,7 +352,7 @@ func TestDispatcher_NilAndEmptyPayload(t *testing.T) {
 	t.Run("nil packet returns ErrNilPacket", func(t *testing.T) {
 		d := NewDispatcher()
 		err := d.Dispatch(nil)
-		if !errors.Is(err, ErrNilPacket) {
+		if !core.Is(err, ErrNilPacket) {
 			t.Fatalf("expected error %v, got %v", ErrNilPacket, err)
 		}
 	})
@@ -516,7 +515,7 @@ func TestDispatcher_ThreatBlocksBeforeRouting(t *testing.T) {
 	pkt := makePacket(0x42, ThreatScoreThreshold+1, []byte("hostile"))
 	err := d.Dispatch(pkt)
 
-	if !errors.Is(err, ErrThreatScoreExceeded) {
+	if !core.Is(err, ErrThreatScoreExceeded) {
 		t.Fatalf("expected error %v, got %v", ErrThreatScoreExceeded, err)
 	}
 }

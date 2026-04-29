@@ -1,16 +1,33 @@
 package node
 
 import (
-	"encoding/json"
 	"slices"
 	"time"
+
+	core "dappco.re/go"
 
 	"github.com/google/uuid"
 )
 
 // RawMessage preserves JSON payload bytes without decoding them eagerly.
-// It is an alias of json.RawMessage so existing JSON semantics are preserved.
-type RawMessage = json.RawMessage
+type RawMessage []byte
+
+// MarshalJSON writes the raw payload bytes into the enclosing message JSON.
+func (m RawMessage) MarshalJSON() ([]byte, error) {
+	if m == nil {
+		return []byte("null"), nil
+	}
+	return m, nil
+}
+
+// UnmarshalJSON stores the raw JSON payload bytes without decoding them.
+func (m *RawMessage) UnmarshalJSON(data []byte) error {
+	if m == nil {
+		return core.NewError("node.RawMessage: unmarshal on nil pointer")
+	}
+	*m = append((*m)[0:0], data...)
+	return nil
+}
 
 // Protocol version constants
 const (
@@ -61,18 +78,18 @@ const (
 
 // Message represents a P2P message between nodes.
 type Message struct {
-	ID        string          `json:"id"` // UUID
-	Type      MessageType     `json:"type"`
-	From      string          `json:"from"`      // Sender node ID
-	To        string          `json:"to"`        // Recipient node ID (empty for broadcast)
-	Timestamp time.Time       `json:"timestamp"` // When the message was created
-	Payload   json.RawMessage `json:"payload"`
-	ReplyTo   string          `json:"replyTo,omitempty"` // ID of message being replied to
+	ID        string      `json:"id"` // UUID
+	Type      MessageType `json:"type"`
+	From      string      `json:"from"`      // Sender node ID
+	To        string      `json:"to"`        // Recipient node ID (empty for broadcast)
+	Timestamp time.Time   `json:"timestamp"` // When the message was created
+	Payload   RawMessage  `json:"payload"`
+	ReplyTo   string      `json:"replyTo,omitempty"` // ID of message being replied to
 }
 
 // NewMessage creates a new message with a generated ID and timestamp.
 func NewMessage(msgType MessageType, from, to string, payload any) (*Message, error) {
-	var payloadBytes json.RawMessage
+	var payloadBytes RawMessage
 	if payload != nil {
 		data, err := MarshalJSON(payload)
 		if err != nil {
@@ -106,7 +123,14 @@ func (m *Message) ParsePayload(v any) error {
 	if m.Payload == nil {
 		return nil
 	}
-	return json.Unmarshal(m.Payload, v)
+	r := core.JSONUnmarshal([]byte(m.Payload), v)
+	if !r.OK {
+		if err, ok := r.Value.(error); ok {
+			return err
+		}
+		return core.NewError("payload unmarshal failed")
+	}
+	return nil
 }
 
 // --- Payload Types ---

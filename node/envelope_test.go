@@ -2,8 +2,9 @@ package node
 
 import (
 	"crypto/ed25519"
-	"errors"
 	"testing"
+
+	core "dappco.re/go"
 )
 
 func TestEnvelope_Envelope_VerifySignature_Good(t *testing.T) {
@@ -25,7 +26,7 @@ func TestEnvelope_Envelope_VerifySignature_Bad(t *testing.T) {
 	}
 	env := Envelope{PeerPubkey: pub, Body: []byte("message"), Signature: make([]byte, ed25519.SignatureSize)}
 	err = env.VerifySignature()
-	if !errors.Is(err, ErrEnvelopeSignatureInvalid) {
+	if !core.Is(err, ErrEnvelopeSignatureInvalid) {
 		t.Fatalf("error: got %v", err)
 	}
 }

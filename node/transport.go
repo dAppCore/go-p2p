@@ -5,20 +5,17 @@ import (
 	"crypto/cipher"
 	"crypto/rand"
 	"crypto/tls"
-	"encoding/json"
-	"errors"
-	"fmt"
 	"iter"
 	"maps"
 	"net"
 	"net/http"
 	"net/url"
-	"os"
 	"slices"
 	"sync"
 	"sync/atomic"
 	"time"
 
+	core "dappco.re/go"
 	coreerr "dappco.re/go/log"
 	"dappco.re/go/p2p/logging"
 
@@ -484,7 +481,7 @@ func (t *Transport) handleWSUpgrade(w http.ResponseWriter, r *http.Request) {
 
 	// Decode handshake message (not encrypted yet, contains public key)
 	var msg Message
-	if err := json.Unmarshal(data, &msg); err != nil {
+	if r := core.JSONUnmarshal(data, &msg); !r.OK {
 		conn.Close()
 		return
 	}
@@ -512,7 +509,7 @@ func (t *Transport) handleWSUpgrade(w http.ResponseWriter, r *http.Request) {
 			rejectPayload := HandshakeAckPayload{
 				Identity: *identity,
 				Accepted: false,
-				Reason:   fmt.Sprintf("incompatible protocol version %s, supported: %v", payload.Version, SupportedProtocolVersions),
+				Reason:   core.Sprintf("incompatible protocol version %s, supported: %v", payload.Version, SupportedProtocolVersions),
 			}
 			rejectMsg, _ := NewMessage(MsgHandshakeAck, identity.ID, payload.Identity.ID, rejectPayload)
 			if rejectData, err := MarshalJSON(rejectMsg); err == nil {
@@ -692,7 +689,8 @@ func (t *Transport) performHandshake(pc *PeerConnection) error {
 	}
 
 	var ackMsg Message
-	if err := json.Unmarshal(ackData, &ackMsg); err != nil {
+	if r := core.JSONUnmarshal(ackData, &ackMsg); !r.OK {
+		err, _ := r.Value.(error)
 		return coreerr.E("Transport.performHandshake", "unmarshal handshake ack", err)
 	}
 
@@ -797,7 +795,7 @@ func (t *Transport) readLoop(pc *PeerConnection) {
 		// Decrypt message using the transport AEAD encryption subkey.
 		msg, err := t.decryptMessage(data, pc.SharedSecret)
 		if err != nil {
-			if errors.Is(err, ErrEnvelopeSignatureInvalid) {
+			if core.Is(err, ErrEnvelopeSignatureInvalid) {
 				logging.Warn("dropping message with invalid envelope signature", logging.Fields{"peer_id": pc.Peer.ID, "error": err})
 				continue
 			}
@@ -1012,10 +1010,10 @@ func decryptTransportPayload(data []byte, sharedSecret []byte) ([]byte, error) {
 
 	headerSize := 1 + aead.NonceSize()
 	if len(data) < headerSize+aead.Overhead() {
-		return nil, fmt.Errorf("transport payload too short")
+		return nil, core.Errorf("transport payload too short")
 	}
 	if data[0] != transportAEADVersion {
-		return nil, fmt.Errorf("unsupported transport payload version %d", data[0])
+		return nil, core.Errorf("unsupported transport payload version %d", data[0])
 	}
 
 	nonce := data[1:headerSize]
@@ -1061,9 +1059,6 @@ func (t *Transport) dropConnection(pc *PeerConnection) {
 }
 
 func isTimeoutError(err error) bool {
-	if errors.Is(err, os.ErrDeadlineExceeded) {
-		return true
-	}
 	var netErr net.Error
-	return errors.As(err, &netErr) && netErr.Timeout()
+	return core.As(err, &netErr) && netErr.Timeout()
 }

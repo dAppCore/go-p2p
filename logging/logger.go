@@ -2,14 +2,12 @@
 package logging
 
 import (
-	"fmt"
 	"io"
 	"maps"
-	"os"
-	"strings"
 	"sync"
 	"time"
 
+	core "dappco.re/go"
 	coreerr "dappco.re/go/log"
 )
 
@@ -61,7 +59,7 @@ type Config struct {
 // DefaultConfig returns the default logger configuration.
 func DefaultConfig() Config {
 	return Config{
-		Output:    os.Stderr,
+		Output:    core.Stderr(),
 		Level:     LevelInfo,
 		Component: "",
 	}
@@ -70,7 +68,7 @@ func DefaultConfig() Config {
 // New creates a new Logger with the given configuration.
 func New(cfg Config) *Logger {
 	if cfg.Output == nil {
-		cfg.Output = os.Stderr
+		cfg.Output = core.Stderr()
 	}
 	return &Logger{
 		output:    cfg.Output,
@@ -115,7 +113,7 @@ func (l *Logger) log(level Level, msg string, fields Fields) {
 	}
 
 	// Build the log line
-	var sb strings.Builder
+	sb := core.NewBuilder()
 	timestamp := time.Now().Format("2006/01/02 15:04:05")
 	sb.WriteString(timestamp)
 	sb.WriteString(" [")
@@ -138,12 +136,14 @@ func (l *Logger) log(level Level, msg string, fields Fields) {
 			sb.WriteString(" ")
 			sb.WriteString(k)
 			sb.WriteString("=")
-			sb.WriteString(fmt.Sprintf("%v", v))
+			sb.WriteString(core.Sprintf("%v", v))
 		}
 	}
 
 	sb.WriteString("\n")
-	fmt.Fprint(l.output, sb.String())
+	if r := core.WriteString(l.output, sb.String()); !r.OK {
+		return
+	}
 }
 
 // Debug logs a debug message.
@@ -168,22 +168,22 @@ func (l *Logger) Error(msg string, fields ...Fields) {
 
 // Debugf logs a formatted debug message.
 func (l *Logger) Debugf(format string, args ...any) {
-	l.log(LevelDebug, fmt.Sprintf(format, args...), nil)
+	l.log(LevelDebug, core.Sprintf(format, args...), nil)
 }
 
 // Infof logs a formatted informational message.
 func (l *Logger) Infof(format string, args ...any) {
-	l.log(LevelInfo, fmt.Sprintf(format, args...), nil)
+	l.log(LevelInfo, core.Sprintf(format, args...), nil)
 }
 
 // Warnf logs a formatted warning message.
 func (l *Logger) Warnf(format string, args ...any) {
-	l.log(LevelWarn, fmt.Sprintf(format, args...), nil)
+	l.log(LevelWarn, core.Sprintf(format, args...), nil)
 }
 
 // Errorf logs a formatted error message.
 func (l *Logger) Errorf(format string, args ...any) {
-	l.log(LevelError, fmt.Sprintf(format, args...), nil)
+	l.log(LevelError, core.Sprintf(format, args...), nil)
 }
 
 // mergeFields combines multiple Fields maps into one.
@@ -270,7 +270,7 @@ func Errorf(format string, args ...any) {
 
 // ParseLevel parses a string into a log level.
 func ParseLevel(s string) (Level, error) {
-	switch strings.ToUpper(s) {
+	switch core.Upper(s) {
 	case "DEBUG":
 		return LevelDebug, nil
 	case "INFO":

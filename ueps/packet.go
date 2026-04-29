@@ -5,7 +5,6 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/binary"
-	"fmt"
 
 	core "dappco.re/go"
 	coreerr "dappco.re/go/log"
@@ -115,7 +114,7 @@ func (p *PacketBuilder) MarshalAndSign(sharedSecret []byte) ([]byte, error) {
 func derivePacketMACKey(sharedSecret []byte) ([]byte, error) {
 	key, err := hkdf.Expand(sha256.New, sharedSecret, uepsMACKeyInfoV1, sha256.Size)
 	if err != nil {
-		return nil, fmt.Errorf("derive UEPS MAC key: %w", err)
+		return nil, core.Errorf("derive UEPS MAC key: %w", err)
 	}
 	return key, nil
 }

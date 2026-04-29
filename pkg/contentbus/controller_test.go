@@ -3,8 +3,7 @@
 package contentbus
 
 import (
-	"bytes"
-	"path/filepath"
+	core "dappco.re/go"
 	"testing"
 	"time"
 
@@ -16,8 +15,8 @@ func newTestController(t *testing.T) Controller {
 
 	dir := t.TempDir()
 	nm, err := p2pnode.NewNodeManagerWithPaths(
-		filepath.Join(dir, "private.key"),
-		filepath.Join(dir, "node.json"),
+		core.PathJoin(dir, "private.key"),
+		core.PathJoin(dir, "node.json"),
 	)
 	if err != nil {
 		t.Fatalf("create node manager: %v", err)
@@ -26,7 +25,7 @@ func newTestController(t *testing.T) Controller {
 		t.Fatalf("generate identity: %v", err)
 	}
 
-	registry, err := p2pnode.NewPeerRegistryWithPath(filepath.Join(dir, "peers.json"))
+	registry, err := p2pnode.NewPeerRegistryWithPath(core.PathJoin(dir, "peers.json"))
 	if err != nil {
 		t.Fatalf("create peer registry: %v", err)
 	}
@@ -56,8 +55,8 @@ func newContentbusNodeAndRegistry(t *testing.T) (*p2pnode.NodeManager, *p2pnode.
 	t.Helper()
 	dir := t.TempDir()
 	nm, err := p2pnode.NewNodeManagerWithPaths(
-		filepath.Join(dir, "private.key"),
-		filepath.Join(dir, "node.json"),
+		core.PathJoin(dir, "private.key"),
+		core.PathJoin(dir, "node.json"),
 	)
 	if err != nil {
 		t.Fatalf("create node manager: %v", err)
@@ -65,7 +64,7 @@ func newContentbusNodeAndRegistry(t *testing.T) (*p2pnode.NodeManager, *p2pnode.
 	if err := nm.GenerateIdentity("contentbus-triplet", p2pnode.RoleController); err != nil {
 		t.Fatalf("generate identity: %v", err)
 	}
-	registry, err := p2pnode.NewPeerRegistryWithPath(filepath.Join(dir, "peers.json"))
+	registry, err := p2pnode.NewPeerRegistryWithPath(core.PathJoin(dir, "peers.json"))
 	if err != nil {
 		t.Fatalf("create peer registry: %v", err)
 	}
@@ -334,7 +333,7 @@ func readEvent(t *testing.T, ch <-chan Event) Event {
 	return Event{}
 }
 
-func TestController_SubscribePublishSameTopic_Good(t *testing.T) {
+func TestControllerSubscribePublishSameTopic(t *testing.T) {
 	controller := newTestController(t)
 
 	ch, err := controller.Subscribe("content.created")
@@ -352,7 +351,7 @@ func TestController_SubscribePublishSameTopic_Good(t *testing.T) {
 	if event.Topic != "content.created" {
 		t.Fatalf("topic: got %q, want %q", event.Topic, "content.created")
 	}
-	if !bytes.Equal(event.Payload, []byte("hello")) {
+	if !core.DeepEqual(event.Payload, []byte("hello")) {
 		t.Fatalf("payload: got %q, want %q", event.Payload, []byte("hello"))
 	}
 	if event.PeerID == "" {
@@ -363,7 +362,7 @@ func TestController_SubscribePublishSameTopic_Good(t *testing.T) {
 	}
 }
 
-func TestController_SubscribeTopicAPublishTopicB_Good(t *testing.T) {
+func TestControllerSubscribeTopicAPublishTopicB(t *testing.T) {
 	controller := newTestController(t)
 
 	ch, err := controller.Subscribe("topic.a")
@@ -382,7 +381,7 @@ func TestController_SubscribeTopicAPublishTopicB_Good(t *testing.T) {
 	}
 }
 
-func TestController_CloseWhileSubscribed_Good(t *testing.T) {
+func TestControllerCloseWhileSubscribed(t *testing.T) {
 	controller := newTestController(t)
 
 	ch, err := controller.Subscribe("topic.close")
@@ -404,7 +403,7 @@ func TestController_CloseWhileSubscribed_Good(t *testing.T) {
 	}
 }
 
-func TestController_TwoConcurrentSubscribersSameTopic_Good(t *testing.T) {
+func TestControllerTwoConcurrentSubscribersSameTopic(t *testing.T) {
 	controller := newTestController(t)
 
 	ch1, err := controller.Subscribe("topic.shared")
@@ -423,10 +422,10 @@ func TestController_TwoConcurrentSubscribersSameTopic_Good(t *testing.T) {
 	event1 := readEvent(t, ch1)
 	event2 := readEvent(t, ch2)
 
-	if !bytes.Equal(event1.Payload, []byte("payload")) {
+	if !core.DeepEqual(event1.Payload, []byte("payload")) {
 		t.Fatalf("first payload: got %q, want %q", event1.Payload, []byte("payload"))
 	}
-	if !bytes.Equal(event2.Payload, []byte("payload")) {
+	if !core.DeepEqual(event2.Payload, []byte("payload")) {
 		t.Fatalf("second payload: got %q, want %q", event2.Payload, []byte("payload"))
 	}
 }

@@ -1,13 +1,11 @@
 package node
 
 import (
-	"bytes"
-	"encoding/json"
-	"errors"
 	"reflect"
-	"strings"
 	"sync"
 	"testing"
+
+	core "dappco.re/go"
 )
 
 // --- bufpool.go tests ---
@@ -41,7 +39,7 @@ func TestBufpool_MarshalJSON_Good(t *testing.T) {
 	if err != nil {
 		t.Fatalf("MarshalJSON: %v", err)
 	}
-	if !bytes.Contains(data, []byte(`"name":"node"`)) {
+	if !core.Contains(string(data), `"name":"node"`) {
 		t.Fatalf("json: %s", data)
 	}
 }
@@ -61,7 +59,7 @@ func TestBufpool_MarshalJSON_Ugly(t *testing.T) {
 	if err != nil {
 		t.Fatalf("MarshalJSON: %v", err)
 	}
-	if strings.Contains(string(data), `\u003c`) {
+	if core.Contains(string(data), `\u003c`) {
 		t.Fatalf("expected unescaped HTML, got %s", data)
 	}
 }
@@ -169,16 +167,16 @@ func TestMarshalJSON_BasicTypes(t *testing.T) {
 				t.Fatalf("unexpected error: %v", err)
 			}
 
-			expected, err := json.Marshal(tt.input)
+			expected, err := testJSONMarshal(tt.input)
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
 
 			var wantJSON1, gotJSON1 any
-			if err := json.Unmarshal(expected, &wantJSON1); err != nil {
+			if err := testJSONUnmarshal(expected, &wantJSON1); err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
-			if err := json.Unmarshal(got, &gotJSON1); err != nil {
+			if err := testJSONUnmarshal(got, &gotJSON1); err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
 			if !reflect.DeepEqual(wantJSON1, gotJSON1) {
@@ -206,7 +204,7 @@ func TestMarshalJSON_HTMLEscaping(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if !strings.Contains(string(data), "<script>") {
+	if !core.Contains(string(data), "<script>") {
 		t.Fatalf("expected %q to contain %q", string(data), "<script>")
 	}
 }
@@ -242,10 +240,10 @@ func TestMarshalJSON_ReturnsIndependentCopy(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if !(bytes.Contains(data1, []byte("first"))) {
+	if !core.Contains(string(data1), "first") {
 		t.Fatal("expected true")
 	}
-	if !(bytes.Contains(data2, []byte("second"))) {
+	if !core.Contains(string(data2), "second") {
 		t.Fatal("expected true")
 	}
 }
@@ -272,9 +270,6 @@ func TestBufferPool_ConcurrentAccess(t *testing.T) {
 				buf := getBuffer()
 				buf.WriteString("concurrent test data")
 
-				if reflect.TypeOf(&bytes.Buffer{}) != reflect.TypeOf(buf) {
-					t.Errorf("expected type %T, got %T", &bytes.Buffer{}, buf)
-				}
 				if !(buf.Len() > 0) {
 					t.Errorf("expected %v to be greater than %v", buf.Len(), 0)
 				}
@@ -304,13 +299,13 @@ func TestMarshalJSON_ConcurrentSafety(t *testing.T) {
 
 			if err == nil {
 				var parsed PingPayload
-				err = json.Unmarshal(data, &parsed)
+				err = testJSONUnmarshal(data, &parsed)
 				if err != nil {
 					errs[idx] = err
 					return
 				}
 				if parsed.SentAt != int64(idx) {
-					errs[idx] = errors.New("assertion error")
+					errs[idx] = core.NewError("assertion error")
 				}
 			}
 		}(g)

@@ -2,23 +2,18 @@ package node
 
 import (
 	"encoding/base64"
-	"encoding/json"
-	"fmt"
-	"os"
-	"path/filepath"
 	"testing"
 	"time"
+
+	core "dappco.re/go"
 )
 
 // setupTestEnv sets up a temporary environment for testing and returns cleanup function
 func setupTestEnv(t *testing.T) func() {
 	tmpDir := t.TempDir()
-	os.Setenv("XDG_CONFIG_HOME", filepath.Join(tmpDir, "config"))
-	os.Setenv("XDG_DATA_HOME", filepath.Join(tmpDir, "data"))
-	return func() {
-		os.Unsetenv("XDG_CONFIG_HOME")
-		os.Unsetenv("XDG_DATA_HOME")
-	}
+	t.Setenv("XDG_CONFIG_HOME", core.PathJoin(tmpDir, "config"))
+	t.Setenv("XDG_DATA_HOME", core.PathJoin(tmpDir, "data"))
+	return func() {}
 }
 
 func TestNewWorker(t *testing.T) {
@@ -27,8 +22,8 @@ func TestNewWorker(t *testing.T) {
 
 	dir := t.TempDir()
 	nm, err := NewNodeManagerWithPaths(
-		filepath.Join(dir, "private.key"),
-		filepath.Join(dir, "node.json"),
+		core.PathJoin(dir, "private.key"),
+		core.PathJoin(dir, "node.json"),
 	)
 	if err != nil {
 		t.Fatalf("failed to create node manager: %v", err)
@@ -57,27 +52,34 @@ func TestNewWorker(t *testing.T) {
 	}
 }
 
-func newTripletWorker(t *testing.T) (*Worker, *Transport) {
+func newTripletWorkerParts(t *testing.T) (*NodeManager, *Transport) {
 	t.Helper()
 	dir := t.TempDir()
-	nm, err := NewNodeManagerWithPaths(filepath.Join(dir, "private.key"), filepath.Join(dir, "node.json"))
+	nm, err := NewNodeManagerWithPaths(core.PathJoin(dir, "private.key"), core.PathJoin(dir, "node.json"))
 	if err != nil {
 		t.Fatalf("NewNodeManagerWithPaths: %v", err)
 	}
 	if err := nm.GenerateIdentity("worker", RoleWorker); err != nil {
 		t.Fatalf("GenerateIdentity: %v", err)
 	}
-	registry, err := NewPeerRegistryWithPath(filepath.Join(dir, "peers.json"))
+	registry, err := NewPeerRegistryWithPath(core.PathJoin(dir, "peers.json"))
 	if err != nil {
 		t.Fatalf("NewPeerRegistryWithPath: %v", err)
 	}
 	t.Cleanup(func() { registry.Close() })
 	transport := NewTransport(nm, registry, DefaultTransportConfig())
+	return nm, transport
+}
+
+func newTripletWorker(t *testing.T) (*Worker, *Transport) {
+	t.Helper()
+	nm, transport := newTripletWorkerParts(t)
 	return NewWorker(nm, transport), transport
 }
 
 func TestWorker_NewWorker_Good(t *testing.T) {
-	worker, transport := newTripletWorker(t)
+	nm, transport := newTripletWorkerParts(t)
+	worker := NewWorker(nm, transport)
 	if worker == nil {
 		t.Fatal("expected worker")
 	}
@@ -97,7 +99,8 @@ func TestWorker_NewWorker_Bad(t *testing.T) {
 }
 
 func TestWorker_NewWorker_Ugly(t *testing.T) {
-	worker, _ := newTripletWorker(t)
+	nm, transport := newTripletWorkerParts(t)
+	worker := NewWorker(nm, transport)
 	worker.DataDir = ""
 	if worker.DataDir != "" {
 		t.Fatal("data dir should be mutable")
@@ -228,8 +231,8 @@ func TestWorker_SetMinerManager(t *testing.T) {
 
 	dir := t.TempDir()
 	nm, err := NewNodeManagerWithPaths(
-		filepath.Join(dir, "private.key"),
-		filepath.Join(dir, "node.json"),
+		core.PathJoin(dir, "private.key"),
+		core.PathJoin(dir, "node.json"),
 	)
 	if err != nil {
 		t.Fatalf("failed to create node manager: %v", err)
@@ -261,8 +264,8 @@ func TestWorker_SetProfileManager(t *testing.T) {
 
 	dir := t.TempDir()
 	nm, err := NewNodeManagerWithPaths(
-		filepath.Join(dir, "private.key"),
-		filepath.Join(dir, "node.json"),
+		core.PathJoin(dir, "private.key"),
+		core.PathJoin(dir, "node.json"),
 	)
 	if err != nil {
 		t.Fatalf("failed to create node manager: %v", err)
@@ -294,8 +297,8 @@ func TestWorker_HandlePing(t *testing.T) {
 
 	dir := t.TempDir()
 	nm, err := NewNodeManagerWithPaths(
-		filepath.Join(dir, "private.key"),
-		filepath.Join(dir, "node.json"),
+		core.PathJoin(dir, "private.key"),
+		core.PathJoin(dir, "node.json"),
 	)
 	if err != nil {
 		t.Fatalf("failed to create node manager: %v", err)
@@ -358,8 +361,8 @@ func TestWorker_HandleGetStats(t *testing.T) {
 
 	dir := t.TempDir()
 	nm, err := NewNodeManagerWithPaths(
-		filepath.Join(dir, "private.key"),
-		filepath.Join(dir, "node.json"),
+		core.PathJoin(dir, "private.key"),
+		core.PathJoin(dir, "node.json"),
 	)
 	if err != nil {
 		t.Fatalf("failed to create node manager: %v", err)
@@ -421,8 +424,8 @@ func TestWorker_HandleStartMiner_NoManager(t *testing.T) {
 
 	dir := t.TempDir()
 	nm, err := NewNodeManagerWithPaths(
-		filepath.Join(dir, "private.key"),
-		filepath.Join(dir, "node.json"),
+		core.PathJoin(dir, "private.key"),
+		core.PathJoin(dir, "node.json"),
 	)
 	if err != nil {
 		t.Fatalf("failed to create node manager: %v", err)
@@ -464,8 +467,8 @@ func TestWorker_HandleStopMiner_NoManager(t *testing.T) {
 
 	dir := t.TempDir()
 	nm, err := NewNodeManagerWithPaths(
-		filepath.Join(dir, "private.key"),
-		filepath.Join(dir, "node.json"),
+		core.PathJoin(dir, "private.key"),
+		core.PathJoin(dir, "node.json"),
 	)
 	if err != nil {
 		t.Fatalf("failed to create node manager: %v", err)
@@ -507,8 +510,8 @@ func TestWorker_HandleGetLogs_NoManager(t *testing.T) {
 
 	dir := t.TempDir()
 	nm, err := NewNodeManagerWithPaths(
-		filepath.Join(dir, "private.key"),
-		filepath.Join(dir, "node.json"),
+		core.PathJoin(dir, "private.key"),
+		core.PathJoin(dir, "node.json"),
 	)
 	if err != nil {
 		t.Fatalf("failed to create node manager: %v", err)
@@ -550,8 +553,8 @@ func TestWorker_HandleDeploy_Profile(t *testing.T) {
 
 	dir := t.TempDir()
 	nm, err := NewNodeManagerWithPaths(
-		filepath.Join(dir, "private.key"),
-		filepath.Join(dir, "node.json"),
+		core.PathJoin(dir, "private.key"),
+		core.PathJoin(dir, "node.json"),
 	)
 	if err != nil {
 		t.Fatalf("failed to create node manager: %v", err)
@@ -597,8 +600,8 @@ func TestWorker_HandleDeploy_UnknownType(t *testing.T) {
 
 	dir := t.TempDir()
 	nm, err := NewNodeManagerWithPaths(
-		filepath.Join(dir, "private.key"),
-		filepath.Join(dir, "node.json"),
+		core.PathJoin(dir, "private.key"),
+		core.PathJoin(dir, "node.json"),
 	)
 	if err != nil {
 		t.Fatalf("failed to create node manager: %v", err)
@@ -745,15 +748,15 @@ type mockMinerManagerFailing struct {
 }
 
 func (m *mockMinerManagerFailing) StartMiner(minerType string, config any) (MinerInstance, error) {
-	return nil, fmt.Errorf("mining hardware not available")
+	return nil, core.Errorf("mining hardware not available")
 }
 
 func (m *mockMinerManagerFailing) StopMiner(name string) error {
-	return fmt.Errorf("miner %s not found", name)
+	return core.Errorf("miner %s not found", name)
 }
 
 func (m *mockMinerManagerFailing) GetMiner(name string) (MinerInstance, error) {
-	return nil, fmt.Errorf("miner %s not found", name)
+	return nil, core.Errorf("miner %s not found", name)
 }
 
 // mockProfileManagerFull implements ProfileManager that returns real data.
@@ -764,7 +767,7 @@ type mockProfileManagerFull struct {
 func (m *mockProfileManagerFull) GetProfile(id string) (any, error) {
 	p, ok := m.profiles[id]
 	if !ok {
-		return nil, fmt.Errorf("profile %s not found", id)
+		return nil, core.Errorf("profile %s not found", id)
 	}
 	return p, nil
 }
@@ -777,11 +780,11 @@ func (m *mockProfileManagerFull) SaveProfile(profile any) error {
 type mockProfileManagerFailing struct{}
 
 func (m *mockProfileManagerFailing) GetProfile(id string) (any, error) {
-	return nil, fmt.Errorf("profile %s not found", id)
+	return nil, core.Errorf("profile %s not found", id)
 }
 
 func (m *mockProfileManagerFailing) SaveProfile(profile any) error {
-	return fmt.Errorf("save failed")
+	return core.Errorf("save failed")
 }
 
 func TestWorker_HandleStartMiner_WithManager(t *testing.T) {
@@ -790,8 +793,8 @@ func TestWorker_HandleStartMiner_WithManager(t *testing.T) {
 
 	dir := t.TempDir()
 	nm, err := NewNodeManagerWithPaths(
-		filepath.Join(dir, "private.key"),
-		filepath.Join(dir, "node.json"),
+		core.PathJoin(dir, "private.key"),
+		core.PathJoin(dir, "node.json"),
 	)
 	if err != nil {
 		t.Fatalf("failed to create node manager: %v", err)
@@ -821,7 +824,7 @@ func TestWorker_HandleStartMiner_WithManager(t *testing.T) {
 	t.Run("WithConfigOverride", func(t *testing.T) {
 		payload := StartMinerPayload{
 			MinerType: "xmrig",
-			Config:    json.RawMessage(`{"pool":"test:3333"}`),
+			Config:    RawMessage(`{"pool":"test:3333"}`),
 		}
 		msg, err := NewMessage(MsgStartMiner, "sender-id", identity.ID, payload)
 		if err != nil {
@@ -852,7 +855,7 @@ func TestWorker_HandleStartMiner_WithManager(t *testing.T) {
 	t.Run("EmptyMinerType", func(t *testing.T) {
 		payload := StartMinerPayload{
 			MinerType: "",
-			Config:    json.RawMessage(`{}`),
+			Config:    RawMessage(`{}`),
 		}
 		msg, err := NewMessage(MsgStartMiner, "sender-id", identity.ID, payload)
 		if err != nil {
@@ -919,7 +922,7 @@ func TestWorker_HandleStartMiner_WithManager(t *testing.T) {
 
 		payload := StartMinerPayload{
 			MinerType: "xmrig",
-			Config:    json.RawMessage(`{}`),
+			Config:    RawMessage(`{}`),
 		}
 		msg, err := NewMessage(MsgStartMiner, "sender-id", identity.ID, payload)
 		if err != nil {
@@ -952,7 +955,7 @@ type mockMinerManagerWithStart struct {
 
 func (m *mockMinerManagerWithStart) StartMiner(minerType string, config any) (MinerInstance, error) {
 	m.counter++
-	name := fmt.Sprintf("%s-%d", minerType, m.counter)
+	name := core.Sprintf("%s-%d", minerType, m.counter)
 	return &mockMinerInstance{name: name, minerType: minerType}, nil
 }
 
@@ -962,8 +965,8 @@ func TestWorker_HandleStopMiner_WithManager(t *testing.T) {
 
 	dir := t.TempDir()
 	nm, err := NewNodeManagerWithPaths(
-		filepath.Join(dir, "private.key"),
-		filepath.Join(dir, "node.json"),
+		core.PathJoin(dir, "private.key"),
+		core.PathJoin(dir, "node.json"),
 	)
 	if err != nil {
 		t.Fatalf("failed to create node manager: %v", err)
@@ -1029,8 +1032,8 @@ func TestWorker_HandleGetLogs_WithManager(t *testing.T) {
 
 	dir := t.TempDir()
 	nm, err := NewNodeManagerWithPaths(
-		filepath.Join(dir, "private.key"),
-		filepath.Join(dir, "node.json"),
+		core.PathJoin(dir, "private.key"),
+		core.PathJoin(dir, "node.json"),
 	)
 	if err != nil {
 		t.Fatalf("failed to create node manager: %v", err)
@@ -1139,8 +1142,8 @@ func TestWorker_HandleGetStats_WithMinerManager(t *testing.T) {
 
 	dir := t.TempDir()
 	nm, err := NewNodeManagerWithPaths(
-		filepath.Join(dir, "private.key"),
-		filepath.Join(dir, "node.json"),
+		core.PathJoin(dir, "private.key"),
+		core.PathJoin(dir, "node.json"),
 	)
 	if err != nil {
 		t.Fatalf("failed to create node manager: %v", err)
@@ -1203,8 +1206,8 @@ func TestWorker_HandleMessage_UnknownType(t *testing.T) {
 
 	dir := t.TempDir()
 	nm, err := NewNodeManagerWithPaths(
-		filepath.Join(dir, "private.key"),
-		filepath.Join(dir, "node.json"),
+		core.PathJoin(dir, "private.key"),
+		core.PathJoin(dir, "node.json"),
 	)
 	if err != nil {
 		t.Fatalf("failed to create node manager: %v", err)
@@ -1233,8 +1236,8 @@ func TestWorker_HandleDeploy_ProfileWithManager(t *testing.T) {
 
 	dir := t.TempDir()
 	nm, err := NewNodeManagerWithPaths(
-		filepath.Join(dir, "private.key"),
-		filepath.Join(dir, "node.json"),
+		core.PathJoin(dir, "private.key"),
+		core.PathJoin(dir, "node.json"),
 	)
 	if err != nil {
 		t.Fatalf("failed to create node manager: %v", err)
@@ -1291,8 +1294,8 @@ func TestWorker_HandleDeploy_ProfileSaveFails(t *testing.T) {
 
 	dir := t.TempDir()
 	nm, err := NewNodeManagerWithPaths(
-		filepath.Join(dir, "private.key"),
-		filepath.Join(dir, "node.json"),
+		core.PathJoin(dir, "private.key"),
+		core.PathJoin(dir, "node.json"),
 	)
 	if err != nil {
 		t.Fatalf("failed to create node manager: %v", err)
@@ -1340,8 +1343,8 @@ func TestWorker_HandleDeploy_MinerBundle(t *testing.T) {
 
 	dir := t.TempDir()
 	nm, err := NewNodeManagerWithPaths(
-		filepath.Join(dir, "private.key"),
-		filepath.Join(dir, "node.json"),
+		core.PathJoin(dir, "private.key"),
+		core.PathJoin(dir, "node.json"),
 	)
 	if err != nil {
 		t.Fatalf("failed to create node manager: %v", err)
@@ -1362,8 +1365,8 @@ func TestWorker_HandleDeploy_MinerBundle(t *testing.T) {
 	identity := nm.GetIdentity()
 
 	tmpDir := t.TempDir()
-	minerPath := filepath.Join(tmpDir, "test-miner")
-	os.WriteFile(minerPath, []byte("fake miner binary"), 0755)
+	minerPath := core.PathJoin(tmpDir, "test-miner")
+	testWriteFile(minerPath, []byte("fake miner binary"), 0755)
 
 	profileJSON := []byte(`{"pool":"test:3333"}`)
 
@@ -1407,8 +1410,8 @@ func TestWorker_HandleDeploy_FullBundle(t *testing.T) {
 
 	dir := t.TempDir()
 	nm, err := NewNodeManagerWithPaths(
-		filepath.Join(dir, "private.key"),
-		filepath.Join(dir, "node.json"),
+		core.PathJoin(dir, "private.key"),
+		core.PathJoin(dir, "node.json"),
 	)
 	if err != nil {
 		t.Fatalf("failed to create node manager: %v", err)
@@ -1427,8 +1430,8 @@ func TestWorker_HandleDeploy_FullBundle(t *testing.T) {
 	identity := nm.GetIdentity()
 
 	tmpDir := t.TempDir()
-	minerPath := filepath.Join(tmpDir, "test-miner")
-	os.WriteFile(minerPath, []byte("miner binary"), 0755)
+	minerPath := core.PathJoin(tmpDir, "test-miner")
+	testWriteFile(minerPath, []byte("miner binary"), 0755)
 
 	sharedSecret := []byte("full-secret-key!")
 	bundlePassword := base64.StdEncoding.EncodeToString(sharedSecret)
@@ -1466,8 +1469,8 @@ func TestWorker_HandleDeploy_MinerBundle_WithProfileManager(t *testing.T) {
 
 	dir := t.TempDir()
 	nm, err := NewNodeManagerWithPaths(
-		filepath.Join(dir, "private.key"),
-		filepath.Join(dir, "node.json"),
+		core.PathJoin(dir, "private.key"),
+		core.PathJoin(dir, "node.json"),
 	)
 	if err != nil {
 		t.Fatalf("failed to create node manager: %v", err)
@@ -1489,8 +1492,8 @@ func TestWorker_HandleDeploy_MinerBundle_WithProfileManager(t *testing.T) {
 	identity := nm.GetIdentity()
 
 	tmpDir := t.TempDir()
-	minerPath := filepath.Join(tmpDir, "test-miner")
-	os.WriteFile(minerPath, []byte("miner binary"), 0755)
+	minerPath := core.PathJoin(tmpDir, "test-miner")
+	testWriteFile(minerPath, []byte("miner binary"), 0755)
 
 	profileJSON := []byte(`{"pool":"test:3333"}`)
 	sharedSecret := []byte("profile-secret!!")
@@ -1530,8 +1533,8 @@ func TestWorker_HandleDeploy_InvalidPayload(t *testing.T) {
 
 	dir := t.TempDir()
 	nm, _ := NewNodeManagerWithPaths(
-		filepath.Join(dir, "private.key"),
-		filepath.Join(dir, "node.json"),
+		core.PathJoin(dir, "private.key"),
+		core.PathJoin(dir, "node.json"),
 	)
 	nm.GenerateIdentity("test", RoleWorker)
 	pr, _ := NewPeerRegistryWithPath(t.TempDir() + "/peers.json")
@@ -1554,8 +1557,8 @@ func TestWorker_HandleGetStats_NoIdentity(t *testing.T) {
 	defer cleanup()
 
 	nm, _ := NewNodeManagerWithPaths(
-		filepath.Join(t.TempDir(), "priv.key"),
-		filepath.Join(t.TempDir(), "node.json"),
+		core.PathJoin(t.TempDir(), "priv.key"),
+		core.PathJoin(t.TempDir(), "node.json"),
 	)
 	// Don't generate identity
 	pr, _ := NewPeerRegistryWithPath(t.TempDir() + "/peers.json")
@@ -1586,7 +1589,7 @@ func TestWorker_HandleMessage_IntegrationViaWebSocket(t *testing.T) {
 
 	// Send start_miner which will fail because no manager is set.
 	// The worker should send an error response via the connection.
-	err := controller.StartRemoteMiner(serverID, "xmrig", "", json.RawMessage(`{}`))
+	err := controller.StartRemoteMiner(serverID, "xmrig", "", RawMessage(`{}`))
 	// Should get an error back (either protocol error or operation failed)
 	if err == nil {
 		t.Error("expected error when worker has no miner manager")

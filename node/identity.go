@@ -7,7 +7,6 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
-	"os" // Note: AX-6 intrinsic - chmod repairs existing private-key file permissions after write.
 	"time"
 
 	core "dappco.re/go"
@@ -16,6 +15,7 @@ import (
 
 	"forge.lthn.ai/Snider/Borg/pkg/stmf"
 	"github.com/adrg/xdg" // Note: intrinsic - XDG data directory resolution; c.Fs() does not expose XDG paths.
+	"golang.org/x/sys/unix"
 )
 
 // ChallengeSize is the size of the challenge in bytes
@@ -252,7 +252,7 @@ func (n *NodeManager) savePrivateKey() error {
 	if err := coreio.Local.WriteMode(n.keyPath, string(n.privateKey), 0600); err != nil {
 		return coreerr.E("NodeManager.savePrivateKey", "failed to write private key", err)
 	}
-	if err := os.Chmod(n.keyPath, 0600); err != nil {
+	if err := unix.Chmod(n.keyPath, 0600); err != nil {
 		return coreerr.E("NodeManager.savePrivateKey", "failed to set private key permissions", err)
 	}
 

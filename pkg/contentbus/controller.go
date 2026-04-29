@@ -5,10 +5,10 @@
 package contentbus
 
 import (
-	"errors"
 	"sync"
 	"time"
 
+	core "dappco.re/go"
 	coreerr "dappco.re/go/log"
 	p2pnode "dappco.re/go/p2p/node"
 )
@@ -138,12 +138,12 @@ func NewController(opts ...Option) (Controller, error) {
 			startErr := err
 			if c.ownsTransport {
 				if stopErr := c.transport.Stop(); stopErr != nil {
-					startErr = errors.Join(startErr, stopErr)
+					startErr = core.ErrorJoin(startErr, stopErr)
 				}
 			}
 			if c.ownsRegistry {
 				if closeErr := c.registry.Close(); closeErr != nil {
-					startErr = errors.Join(startErr, closeErr)
+					startErr = core.ErrorJoin(startErr, closeErr)
 				}
 			}
 			return nil, coreerr.E("contentbus.NewController", "start transport", startErr)

@@ -1,15 +1,14 @@
 package node
 
 import (
-	"encoding/json"
 	"iter"
 	"maps"
-	"path/filepath"
 	"regexp"
 	"slices"
 	"sync"
 	"time"
 
+	core "dappco.re/go"
 	coreio "dappco.re/go/io"
 	coreerr "dappco.re/go/log"
 	"dappco.re/go/p2p/logging"
@@ -764,7 +763,7 @@ func (r *PeerRegistry) scheduleSave() {
 // Must be called with r.mu held (at least RLock).
 func (r *PeerRegistry) saveNow() error {
 	// Ensure directory exists
-	dir := filepath.Dir(r.path)
+	dir := core.PathDir(r.path)
 	if err := coreio.Local.EnsureDir(dir); err != nil {
 		return coreerr.E("PeerRegistry.saveNow", "failed to create peers directory", err)
 	}
@@ -772,10 +771,12 @@ func (r *PeerRegistry) saveNow() error {
 	// Convert to slice for JSON
 	peers := slices.Collect(maps.Values(r.peers))
 
-	data, err := json.MarshalIndent(peers, "", "  ")
-	if err != nil {
+	dataResult := core.JSONMarshalIndent(peers, "", "  ")
+	if !dataResult.OK {
+		err, _ := dataResult.Value.(error)
 		return coreerr.E("PeerRegistry.saveNow", "failed to marshal peers", err)
 	}
+	data := dataResult.Value.([]byte)
 
 	// Use atomic write pattern: write to temp file, then rename
 	tmpPath := r.path + ".tmp"
@@ -830,15 +831,17 @@ func (r *PeerRegistry) saveAllowedPublicKeys() error {
 
 	slices.Sort(keys)
 
-	dir := filepath.Dir(r.allowlistPath)
+	dir := core.PathDir(r.allowlistPath)
 	if err := coreio.Local.EnsureDir(dir); err != nil {
 		return coreerr.E("PeerRegistry.saveAllowedPublicKeys", "failed to create allowlist directory", err)
 	}
 
-	data, err := json.MarshalIndent(keys, "", "  ")
-	if err != nil {
+	dataResult := core.JSONMarshalIndent(keys, "", "  ")
+	if !dataResult.OK {
+		err, _ := dataResult.Value.(error)
 		return coreerr.E("PeerRegistry.saveAllowedPublicKeys", "failed to marshal allowlist", err)
 	}
+	data := dataResult.Value.([]byte)
 
 	tmpPath := r.allowlistPath + ".tmp"
 	if err := coreio.Local.Write(tmpPath, string(data)); err != nil {
@@ -865,7 +868,8 @@ func (r *PeerRegistry) loadAllowedPublicKeys() error {
 	}
 
 	var keys []string
-	if err := json.Unmarshal([]byte(content), &keys); err != nil {
+	if r := core.JSONUnmarshal([]byte(content), &keys); !r.OK {
+		err, _ := r.Value.(error)
 		return coreerr.E("PeerRegistry.loadAllowedPublicKeys", "failed to unmarshal allowlist", err)
 	}
 
@@ -899,7 +903,8 @@ func (r *PeerRegistry) load() error {
 	}
 
 	var peers []*Peer
-	if err := json.Unmarshal([]byte(content), &peers); err != nil {
+	if r := core.JSONUnmarshal([]byte(content), &peers); !r.OK {
+		err, _ := r.Value.(error)
 		return coreerr.E("PeerRegistry.load", "failed to unmarshal peers", err)
 	}
 

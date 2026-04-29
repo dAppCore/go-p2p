@@ -2,15 +2,11 @@ package node
 
 import (
 	"bufio"
-	"bytes"
-	"encoding/json"
-	"errors"
+	core "dappco.re/go"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"path/filepath"
 	"reflect"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -231,7 +227,7 @@ func TestIntegration_FullNodeLifecycle(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	parsed, err := ueps.ReadAndVerify(bufio.NewReader(bytes.NewReader(wireData)), sharedSecret)
+	parsed, err := ueps.ReadAndVerify(bufio.NewReader(core.NewBuffer(wireData)), sharedSecret)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -249,7 +245,7 @@ func TestIntegration_FullNodeLifecycle(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	parsed2, err := ueps.ReadAndVerify(bufio.NewReader(bytes.NewReader(wireData2)), sharedSecret)
+	parsed2, err := ueps.ReadAndVerify(bufio.NewReader(core.NewBuffer(wireData2)), sharedSecret)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -268,12 +264,12 @@ func TestIntegration_FullNodeLifecycle(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	parsed3, err := ueps.ReadAndVerify(bufio.NewReader(bytes.NewReader(wireData3)), sharedSecret)
+	parsed3, err := ueps.ReadAndVerify(bufio.NewReader(core.NewBuffer(wireData3)), sharedSecret)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	err = dispatcher.Dispatch(parsed3)
-	if !errors.Is(err, ErrThreatScoreExceeded) {
+	if !core.Is(err, ErrThreatScoreExceeded) {
 		t.Fatalf("expected error %v, got %v", ErrThreatScoreExceeded, err)
 	}
 	// Compute handler should NOT have been called again.
@@ -461,8 +457,8 @@ func TestIntegration_MultiPeerTopology(t *testing.T) {
 // can be generated, persisted, and reloaded from disk.
 func TestIntegration_IdentityPersistenceAndReload(t *testing.T) {
 	dir := t.TempDir()
-	keyPath := filepath.Join(dir, "private.key")
-	configPath := filepath.Join(dir, "node.json")
+	keyPath := core.PathJoin(dir, "private.key")
+	configPath := core.PathJoin(dir, "node.json")
 
 	// Create and persist identity.
 	nm1, err := NewNodeManagerWithPaths(keyPath, configPath)
@@ -530,8 +526,8 @@ func TestIntegration_IdentityPersistenceAndReload(t *testing.T) {
 // the public key as base64 (for use in DeriveSharedSecret tests).
 func stmfGenerateKeyPair(dir string) (string, error) {
 	nm, err := NewNodeManagerWithPaths(
-		filepath.Join(dir, "private.key"),
-		filepath.Join(dir, "node.json"),
+		core.PathJoin(dir, "private.key"),
+		core.PathJoin(dir, "node.json"),
 	)
 	if err != nil {
 		return "", err
@@ -581,7 +577,7 @@ func TestIntegration_UEPSFullRoundTrip(t *testing.T) {
 	}
 
 	parsed, err := ueps.ReadAndVerify(
-		bufio.NewReader(bytes.NewReader(wireData)),
+		bufio.NewReader(core.NewBuffer(wireData)),
 		sharedSecretB,
 	)
 	if err != nil {
@@ -650,13 +646,13 @@ func TestIntegration_UEPSIntegrityFailure(t *testing.T) {
 	}
 
 	_, err = ueps.ReadAndVerify(
-		bufio.NewReader(bytes.NewReader(tampered)),
+		bufio.NewReader(core.NewBuffer(tampered)),
 		sharedSecretB,
 	)
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
-	if !strings.Contains(err.Error(), "HMAC mismatch") {
+	if !core.Contains(err.Error(), "HMAC mismatch") {
 		t.Fatalf("expected %q to contain %q", err.Error(), "HMAC mismatch")
 	}
 }
@@ -697,7 +693,7 @@ func TestIntegration_AllowlistHandshakeRejection(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
-	if !strings.Contains(err.Error(), "rejected") {
+	if !core.Contains(err.Error(), "rejected") {
 		t.Fatalf("expected %q to contain %q", err.Error(), "rejected")
 	}
 }
@@ -787,7 +783,7 @@ func TestIntegration_DispatcherWithRealUEPSPackets(t *testing.T) {
 			}
 
 			parsed, err := ueps.ReadAndVerify(
-				bufio.NewReader(bytes.NewReader(wireData)),
+				bufio.NewReader(core.NewBuffer(wireData)),
 				sharedSecret,
 			)
 			if err != nil {
@@ -868,10 +864,10 @@ func TestIntegration_MessageSerialiseDeserialise(t *testing.T) {
 	}
 
 	var originalStats, decryptedStats StatsPayload
-	if err := json.Unmarshal(original.Payload, &originalStats); err != nil {
+	if err := testJSONUnmarshal(original.Payload, &originalStats); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if err := json.Unmarshal(decrypted.Payload, &decryptedStats); err != nil {
+	if err := testJSONUnmarshal(decrypted.Payload, &decryptedStats); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if !reflect.DeepEqual(originalStats, decryptedStats) {

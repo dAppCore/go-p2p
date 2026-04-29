@@ -4,9 +4,9 @@ package api
 
 import (
 	"net/http"
-	"strings"
 	"time"
 
+	core "dappco.re/go"
 	p2pnode "dappco.re/go/p2p/node"
 	"github.com/gin-gonic/gin"
 )
@@ -55,7 +55,7 @@ func (p *P2PProvider) uploadEncryptedBlob(c *gin.Context) {
 		writeError(c, http.StatusBadRequest, codeInvalidRequest, "upload request body must be valid JSON")
 		return
 	}
-	if strings.TrimSpace(req.EncryptedBlob) == "" {
+	if core.Trim(req.EncryptedBlob) == "" {
 		writeError(c, http.StatusBadRequest, codeInvalidRequest, "encryptedBlob is required")
 		return
 	}
@@ -70,7 +70,7 @@ func (p *P2PProvider) syncTopicEvents(c *gin.Context) {
 		return
 	}
 
-	topic := strings.TrimSpace(c.Param("topic"))
+	topic := core.Trim(c.Param("topic"))
 	if topic == "" {
 		writeError(c, http.StatusBadRequest, codeInvalidTopic, "topic is required")
 		return
@@ -90,7 +90,7 @@ func (p *P2PProvider) announcePeer(c *gin.Context) {
 		return
 	}
 
-	id := strings.TrimSpace(c.Param("id"))
+	id := core.Trim(c.Param("id"))
 	if id == "" {
 		writeError(c, http.StatusBadRequest, codeInvalidRequest, "peer id is required")
 		return

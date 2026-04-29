@@ -1,18 +1,14 @@
 package node
 
 import (
-	"bytes"
 	"crypto/ed25519"
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
-	"encoding/json"
+	core "dappco.re/go"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"os"
-	"path/filepath"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -29,8 +25,8 @@ func testNode(t *testing.T, name string, role NodeRole) *NodeManager {
 	t.Helper()
 	dir := t.TempDir()
 	nm, err := NewNodeManagerWithPaths(
-		filepath.Join(dir, "private.key"),
-		filepath.Join(dir, "node.json"),
+		core.PathJoin(dir, "private.key"),
+		core.PathJoin(dir, "node.json"),
 	)
 	if err != nil {
 		t.Fatalf("create node manager %q: %v", name, err)
@@ -45,7 +41,7 @@ func testNode(t *testing.T, name string, role NodeRole) *NodeManager {
 func testRegistry(t *testing.T) *PeerRegistry {
 	t.Helper()
 	dir := t.TempDir()
-	reg, err := NewPeerRegistryWithPath(filepath.Join(dir, "peers.json"))
+	reg, err := NewPeerRegistryWithPath(core.PathJoin(dir, "peers.json"))
 	if err != nil {
 		t.Fatalf("create registry: %v", err)
 	}
@@ -153,7 +149,7 @@ func waitForPeerConnection(t *testing.T, transport *Transport, peerID string) *P
 
 type lockedLogBuffer struct {
 	mu  sync.Mutex
-	buf bytes.Buffer
+	buf pooledBuffer
 }
 
 func (b *lockedLogBuffer) Write(p []byte) (int, error) {
@@ -170,7 +166,7 @@ func (b *lockedLogBuffer) String() string {
 
 func captureTransportLogs(t *testing.T) *lockedLogBuffer {
 	t.Helper()
-	buf := &lockedLogBuffer{}
+	buf := &lockedLogBuffer{buf: core.NewBuffer()}
 	previous := logging.GetGlobal()
 	logging.SetGlobal(logging.New(logging.Config{
 		Output: buf,
@@ -941,13 +937,13 @@ func TestDeriveSubKeysDeterministicAndSeparated(t *testing.T) {
 		t.Fatalf("deriveSubKeys second call: %v", err)
 	}
 
-	if !bytes.Equal(keys1.encKey, keys2.encKey) {
+	if !core.DeepEqual(keys1.encKey, keys2.encKey) {
 		t.Fatal("encryption key derivation is not deterministic")
 	}
-	if !bytes.Equal(keys1.macKey, keys2.macKey) {
+	if !core.DeepEqual(keys1.macKey, keys2.macKey) {
 		t.Fatal("MAC key derivation is not deterministic")
 	}
-	if !bytes.Equal(keys1.chlKey, keys2.chlKey) {
+	if !core.DeepEqual(keys1.chlKey, keys2.chlKey) {
 		t.Fatal("challenge key derivation is not deterministic")
 	}
 
@@ -961,13 +957,13 @@ func TestDeriveSubKeysDeterministicAndSeparated(t *testing.T) {
 		}
 	}
 
-	if bytes.Equal(keys1.encKey, keys1.macKey) {
+	if core.DeepEqual(keys1.encKey, keys1.macKey) {
 		t.Fatal("encryption and MAC keys should be domain-separated")
 	}
-	if bytes.Equal(keys1.encKey, keys1.chlKey) {
+	if core.DeepEqual(keys1.encKey, keys1.chlKey) {
 		t.Fatal("encryption and challenge keys should be domain-separated")
 	}
-	if bytes.Equal(keys1.macKey, keys1.chlKey) {
+	if core.DeepEqual(keys1.macKey, keys1.chlKey) {
 		t.Fatal("MAC and challenge keys should be domain-separated")
 	}
 }
@@ -982,13 +978,13 @@ func TestDeriveSubKeysDifferentSecrets(t *testing.T) {
 		t.Fatalf("deriveSubKeys second secret: %v", err)
 	}
 
-	if bytes.Equal(keys1.encKey, keys2.encKey) {
+	if core.DeepEqual(keys1.encKey, keys2.encKey) {
 		t.Fatal("different shared secrets produced the same encryption key")
 	}
-	if bytes.Equal(keys1.macKey, keys2.macKey) {
+	if core.DeepEqual(keys1.macKey, keys2.macKey) {
 		t.Fatal("different shared secrets produced the same MAC key")
 	}
-	if bytes.Equal(keys1.chlKey, keys2.chlKey) {
+	if core.DeepEqual(keys1.chlKey, keys2.chlKey) {
 		t.Fatal("different shared secrets produced the same challenge key")
 	}
 }
@@ -1004,7 +1000,7 @@ func TestTransportPayloadEncryptDecryptRoundTrip(t *testing.T) {
 	if len(encrypted) == 0 {
 		t.Fatal("expected encrypted payload")
 	}
-	if bytes.Equal(encrypted, payload) {
+	if core.DeepEqual(encrypted, payload) {
 		t.Fatal("ciphertext should not equal plaintext")
 	}
 
@@ -1012,7 +1008,7 @@ func TestTransportPayloadEncryptDecryptRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("decryptTransportPayload: %v", err)
 	}
-	if !bytes.Equal(decrypted, payload) {
+	if !core.DeepEqual(decrypted, payload) {
 		t.Fatalf("decrypted payload mismatch: got %q, want %q", decrypted, payload)
 	}
 
@@ -1043,11 +1039,11 @@ func TestDerivedMACKeySignsAndVerifies(t *testing.T) {
 }
 
 func TestTransportHotPathDoesNotCallSMSGEncrypt(t *testing.T) {
-	source, err := os.ReadFile("transport.go")
+	source, err := testReadFile("transport.go")
 	if err != nil {
 		t.Fatalf("read transport.go: %v", err)
 	}
-	if strings.Contains(string(source), "smsg.Encrypt") {
+	if core.Contains(string(source), "smsg.Encrypt") {
 		t.Fatal("transport hot path should not call smsg.Encrypt")
 	}
 }
@@ -1131,7 +1127,7 @@ func TestTransport_HandshakeRejectWrongVersion(t *testing.T) {
 	}
 
 	var resp Message
-	if err := json.Unmarshal(respData, &resp); err != nil {
+	if err := testJSONUnmarshal(respData, &resp); err != nil {
 		t.Fatalf("unmarshal response: %v", err)
 	}
 
@@ -1141,7 +1137,7 @@ func TestTransport_HandshakeRejectWrongVersion(t *testing.T) {
 	if ack.Accepted {
 		t.Error("should reject incompatible protocol version")
 	}
-	if !strings.Contains(ack.Reason, "incompatible protocol version") {
+	if !core.Contains(ack.Reason, "incompatible protocol version") {
 		t.Errorf("expected version rejection reason, got: %s", ack.Reason)
 	}
 }
@@ -1164,7 +1160,7 @@ func TestTransport_HandshakeRejectAllowlist(t *testing.T) {
 	if err == nil {
 		t.Fatal("should reject peer not in allowlist")
 	}
-	if !strings.Contains(err.Error(), "rejected") {
+	if !core.Contains(err.Error(), "rejected") {
 		t.Errorf("expected rejection error, got: %v", err)
 	}
 }
@@ -1508,7 +1504,7 @@ func TestTransport_EnvelopeBadSignatureDroppedAndLogged(t *testing.T) {
 	})
 
 	waitForTransportCondition(t, time.Second, func() bool {
-		return strings.Contains(logs.String(), "invalid envelope signature")
+		return core.Contains(logs.String(), "invalid envelope signature")
 	}, "invalid envelope signature was not logged")
 
 	if received.Load() != 0 {

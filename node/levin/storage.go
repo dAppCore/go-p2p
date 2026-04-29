@@ -5,11 +5,11 @@ package levin
 
 import (
 	"encoding/binary"
-	"fmt"
 	"maps"
 	"math"
 	"slices"
 
+	core "dappco.re/go"
 	coreerr "dappco.re/go/log"
 )
 
@@ -394,7 +394,7 @@ func encodeValue(buf []byte, v Value) ([]byte, error) {
 		return encodeSection(buf, v.objectVal)
 
 	default:
-		return nil, coreerr.E("levin.encodeValue", fmt.Sprintf("unknown type tag: 0x%02x", v.Type), ErrStorageUnknownType)
+		return nil, coreerr.E("levin.encodeValue", core.Sprintf("unknown type tag: 0x%02x", v.Type), ErrStorageUnknownType)
 	}
 }
 
@@ -441,7 +441,7 @@ func encodeArray(buf []byte, v Value) ([]byte, error) {
 		return buf, nil
 
 	default:
-		return nil, coreerr.E("levin.encodeArray", fmt.Sprintf("unknown type tag: array of 0x%02x", elemType), ErrStorageUnknownType)
+		return nil, coreerr.E("levin.encodeArray", core.Sprintf("unknown type tag: array of 0x%02x", elemType), ErrStorageUnknownType)
 	}
 }
 
@@ -613,7 +613,7 @@ func decodeValue(buf []byte, tag uint8) (Value, int, error) {
 		return Value{Type: TypeObject, objectVal: sec}, consumed, nil
 
 	default:
-		return Value{}, 0, coreerr.E("levin.decodeValue", fmt.Sprintf("unknown type tag: 0x%02x", tag), ErrStorageUnknownType)
+		return Value{}, 0, coreerr.E("levin.decodeValue", core.Sprintf("unknown type tag: 0x%02x", tag), ErrStorageUnknownType)
 	}
 }
 
@@ -681,6 +681,6 @@ func decodeArray(buf []byte, tag uint8) (Value, int, error) {
 		return Value{Type: tag, objectArray: arr}, off, nil
 
 	default:
-		return Value{}, 0, coreerr.E("levin.decodeArray", fmt.Sprintf("unknown type tag: array of 0x%02x", elemType), ErrStorageUnknownType)
+		return Value{}, 0, coreerr.E("levin.decodeArray", core.Sprintf("unknown type tag: array of 0x%02x", elemType), ErrStorageUnknownType)
 	}
 }

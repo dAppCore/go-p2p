@@ -1,30 +1,26 @@
 package node
 
 import (
-	"bytes"
-	"os"
-	"path/filepath"
 	"testing"
+
+	core "dappco.re/go"
 )
 
 // setupTestNodeManager creates a NodeManager with paths in a temp directory.
 func setupTestNodeManager(t *testing.T) (*NodeManager, func()) {
-	tmpDir, err := os.MkdirTemp("", "node-identity-test")
-	if err != nil {
-		t.Fatalf("failed to create temp dir: %v", err)
-	}
+	tmpDir := t.TempDir()
 
-	keyPath := filepath.Join(tmpDir, "private.key")
-	configPath := filepath.Join(tmpDir, "node.json")
+	keyPath := core.PathJoin(tmpDir, "private.key")
+	configPath := core.PathJoin(tmpDir, "node.json")
 
 	nm, err := NewNodeManagerWithPaths(keyPath, configPath)
 	if err != nil {
-		os.RemoveAll(tmpDir)
+		core.RemoveAll(tmpDir)
 		t.Fatalf("failed to create node manager: %v", err)
 	}
 
 	cleanup := func() {
-		os.RemoveAll(tmpDir)
+		core.RemoveAll(tmpDir)
 	}
 
 	return nm, cleanup
@@ -84,7 +80,7 @@ func TestNodeIdentity(t *testing.T) {
 			t.Fatalf("failed to generate identity: %v", err)
 		}
 
-		info, err := os.Stat(nm.keyPath)
+		info, err := testStat(nm.keyPath)
 		if err != nil {
 			t.Fatalf("failed to stat private key: %v", err)
 		}
@@ -95,14 +91,10 @@ func TestNodeIdentity(t *testing.T) {
 	})
 
 	t.Run("LoadExistingIdentity", func(t *testing.T) {
-		tmpDir, err := os.MkdirTemp("", "node-load-test")
-		if err != nil {
-			t.Fatalf("failed to create temp dir: %v", err)
-		}
-		defer os.RemoveAll(tmpDir)
+		tmpDir := t.TempDir()
 
-		keyPath := filepath.Join(tmpDir, "private.key")
-		configPath := filepath.Join(tmpDir, "node.json")
+		keyPath := core.PathJoin(tmpDir, "private.key")
+		configPath := core.PathJoin(tmpDir, "node.json")
 
 		// First, create an identity
 		nm1, err := NewNodeManagerWithPaths(keyPath, configPath)
@@ -140,15 +132,15 @@ func TestNodeIdentity(t *testing.T) {
 
 	t.Run("DeriveSharedSecret", func(t *testing.T) {
 		// Create two node managers with separate temp directories
-		tmpDir1, _ := os.MkdirTemp("", "node1")
-		tmpDir2, _ := os.MkdirTemp("", "node2")
-		defer os.RemoveAll(tmpDir1)
-		defer os.RemoveAll(tmpDir2)
+		tmpDir1 := t.TempDir()
+		tmpDir2 := t.TempDir()
+		defer core.RemoveAll(tmpDir1)
+		defer core.RemoveAll(tmpDir2)
 
 		// Node 1
 		nm1, err := NewNodeManagerWithPaths(
-			filepath.Join(tmpDir1, "private.key"),
-			filepath.Join(tmpDir1, "node.json"),
+			core.PathJoin(tmpDir1, "private.key"),
+			core.PathJoin(tmpDir1, "node.json"),
 		)
 		if err != nil {
 			t.Fatalf("failed to create node manager 1: %v", err)
@@ -160,8 +152,8 @@ func TestNodeIdentity(t *testing.T) {
 
 		// Node 2
 		nm2, err := NewNodeManagerWithPaths(
-			filepath.Join(tmpDir2, "private.key"),
-			filepath.Join(tmpDir2, "node.json"),
+			core.PathJoin(tmpDir2, "private.key"),
+			core.PathJoin(tmpDir2, "node.json"),
 		)
 		if err != nil {
 			t.Fatalf("failed to create node manager 2: %v", err)
@@ -218,14 +210,10 @@ func TestNodeIdentity(t *testing.T) {
 	})
 
 	t.Run("LoadOrCreateIdentityWithPaths", func(t *testing.T) {
-		tmpDir, err := os.MkdirTemp("", "node-load-or-create-test")
-		if err != nil {
-			t.Fatalf("failed to create temp dir: %v", err)
-		}
-		defer os.RemoveAll(tmpDir)
+		tmpDir := t.TempDir()
 
-		keyPath := filepath.Join(tmpDir, "private.key")
-		configPath := filepath.Join(tmpDir, "node.json")
+		keyPath := core.PathJoin(tmpDir, "private.key")
+		configPath := core.PathJoin(tmpDir, "node.json")
 
 		nm, err := LoadOrCreateIdentityWithPaths(keyPath, configPath)
 		if err != nil {
@@ -249,11 +237,11 @@ func TestNodeIdentity(t *testing.T) {
 			t.Errorf("expected default role dual, got %s", identity.Role)
 		}
 
-		if _, err := os.Stat(keyPath); err != nil {
+		if _, err := testStat(keyPath); err != nil {
 			t.Fatalf("expected private key to be persisted: %v", err)
 		}
 
-		if _, err := os.Stat(configPath); err != nil {
+		if _, err := testStat(configPath); err != nil {
 			t.Fatalf("expected identity config to be persisted: %v", err)
 		}
 	})
@@ -288,7 +276,7 @@ func TestIdentity_GenerateChallenge_Ugly(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GenerateChallenge second: %v", err)
 	}
-	if bytes.Equal(first, second) {
+	if core.DeepEqual(first, second) {
 		t.Fatal("two random challenges unexpectedly matched")
 	}
 }
@@ -397,7 +385,7 @@ func TestIdentity_NewNodeManager_Ugly(t *testing.T) {
 
 func TestIdentity_NewNodeManagerWithPaths_Good(t *testing.T) {
 	dir := t.TempDir()
-	nm, err := NewNodeManagerWithPaths(filepath.Join(dir, "private.key"), filepath.Join(dir, "node.json"))
+	nm, err := NewNodeManagerWithPaths(core.PathJoin(dir, "private.key"), core.PathJoin(dir, "node.json"))
 	if err != nil {
 		t.Fatalf("NewNodeManagerWithPaths: %v", err)
 	}
@@ -418,7 +406,7 @@ func TestIdentity_NewNodeManagerWithPaths_Bad(t *testing.T) {
 
 func TestIdentity_NewNodeManagerWithPaths_Ugly(t *testing.T) {
 	dir := t.TempDir()
-	nm, err := NewNodeManagerWithPaths(filepath.Join(dir, "nested", "private.key"), filepath.Join(dir, "nested", "node.json"))
+	nm, err := NewNodeManagerWithPaths(core.PathJoin(dir, "nested", "private.key"), core.PathJoin(dir, "nested", "node.json"))
 	if err != nil {
 		t.Fatalf("NewNodeManagerWithPaths nested: %v", err)
 	}
@@ -472,7 +460,7 @@ func TestIdentity_LoadOrCreateIdentity_Ugly(t *testing.T) {
 
 func TestIdentity_LoadOrCreateIdentityWithPaths_Good(t *testing.T) {
 	dir := t.TempDir()
-	nm, err := LoadOrCreateIdentityWithPaths(filepath.Join(dir, "private.key"), filepath.Join(dir, "node.json"))
+	nm, err := LoadOrCreateIdentityWithPaths(core.PathJoin(dir, "private.key"), core.PathJoin(dir, "node.json"))
 	if err != nil {
 		t.Fatalf("LoadOrCreateIdentityWithPaths: %v", err)
 	}
@@ -483,11 +471,11 @@ func TestIdentity_LoadOrCreateIdentityWithPaths_Good(t *testing.T) {
 
 func TestIdentity_LoadOrCreateIdentityWithPaths_Bad(t *testing.T) {
 	dir := t.TempDir()
-	err := os.Mkdir(filepath.Join(dir, "private.key"), 0755)
+	err := testMkdir(core.PathJoin(dir, "private.key"), 0755)
 	if err != nil {
 		t.Fatalf("mkdir private key path: %v", err)
 	}
-	nm, err := LoadOrCreateIdentityWithPaths(filepath.Join(dir, "private.key"), filepath.Join(dir, "node.json"))
+	nm, err := LoadOrCreateIdentityWithPaths(core.PathJoin(dir, "private.key"), core.PathJoin(dir, "node.json"))
 	if err == nil {
 		t.Fatal("expected write error")
 	}
@@ -498,8 +486,8 @@ func TestIdentity_LoadOrCreateIdentityWithPaths_Bad(t *testing.T) {
 
 func TestIdentity_LoadOrCreateIdentityWithPaths_Ugly(t *testing.T) {
 	dir := t.TempDir()
-	keyPath := filepath.Join(dir, "private.key")
-	configPath := filepath.Join(dir, "node.json")
+	keyPath := core.PathJoin(dir, "private.key")
+	configPath := core.PathJoin(dir, "node.json")
 	first, err := LoadOrCreateIdentityWithPaths(keyPath, configPath)
 	if err != nil {
 		t.Fatalf("first load: %v", err)
@@ -592,11 +580,11 @@ func TestIdentity_NodeManager_GenerateIdentity_Good(t *testing.T) {
 
 func TestIdentity_NodeManager_GenerateIdentity_Bad(t *testing.T) {
 	dir := t.TempDir()
-	err := os.Mkdir(filepath.Join(dir, "private.key"), 0755)
+	err := testMkdir(core.PathJoin(dir, "private.key"), 0755)
 	if err != nil {
 		t.Fatalf("mkdir private key path: %v", err)
 	}
-	nm, err := NewNodeManagerWithPaths(filepath.Join(dir, "private.key"), filepath.Join(dir, "node.json"))
+	nm, err := NewNodeManagerWithPaths(core.PathJoin(dir, "private.key"), core.PathJoin(dir, "node.json"))
 	if err != nil {
 		t.Fatalf("NewNodeManagerWithPaths: %v", err)
 	}
@@ -812,20 +800,20 @@ func TestChallengeResponse(t *testing.T) {
 
 	t.Run("IntegrationWithSharedSecret", func(t *testing.T) {
 		// Create two nodes and test end-to-end challenge-response
-		tmpDir1, _ := os.MkdirTemp("", "node-challenge-1")
-		tmpDir2, _ := os.MkdirTemp("", "node-challenge-2")
-		defer os.RemoveAll(tmpDir1)
-		defer os.RemoveAll(tmpDir2)
+		tmpDir1 := t.TempDir()
+		tmpDir2 := t.TempDir()
+		defer core.RemoveAll(tmpDir1)
+		defer core.RemoveAll(tmpDir2)
 
 		nm1, _ := NewNodeManagerWithPaths(
-			filepath.Join(tmpDir1, "private.key"),
-			filepath.Join(tmpDir1, "node.json"),
+			core.PathJoin(tmpDir1, "private.key"),
+			core.PathJoin(tmpDir1, "node.json"),
 		)
 		nm1.GenerateIdentity("challenger", RoleDual)
 
 		nm2, _ := NewNodeManagerWithPaths(
-			filepath.Join(tmpDir2, "private.key"),
-			filepath.Join(tmpDir2, "node.json"),
+			core.PathJoin(tmpDir2, "private.key"),
+			core.PathJoin(tmpDir2, "node.json"),
 		)
 		nm2.GenerateIdentity("responder", RoleDual)
 
@@ -873,8 +861,8 @@ func TestNodeManager_GetIdentity_NilWhenNoIdentity(t *testing.T) {
 func TestNodeManager_Delete_NoFiles(t *testing.T) {
 	tmpDir := t.TempDir()
 	nm, err := NewNodeManagerWithPaths(
-		filepath.Join(tmpDir, "nonexistent.key"),
-		filepath.Join(tmpDir, "nonexistent.json"),
+		core.PathJoin(tmpDir, "nonexistent.key"),
+		core.PathJoin(tmpDir, "nonexistent.json"),
 	)
 	if err != nil {
 		t.Fatalf("failed to create node manager: %v", err)

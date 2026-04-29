@@ -1,7 +1,6 @@
 package node
 
 import (
-	"encoding/json"
 	"testing"
 	"time"
 )
@@ -117,6 +116,66 @@ func TestMessage_NewMessage_Ugly(t *testing.T) {
 	}
 }
 
+func TestMessage_RawMessage_MarshalJSON_Good(t *testing.T) {
+	raw := RawMessage(`{"ok":true}`)
+	data, err := raw.MarshalJSON()
+	if err != nil {
+		t.Fatalf("MarshalJSON: %v", err)
+	}
+	if string(data) != `{"ok":true}` {
+		t.Fatalf("data: got %s", data)
+	}
+}
+
+func TestMessage_RawMessage_MarshalJSON_Bad(t *testing.T) {
+	var raw RawMessage
+	data, err := raw.MarshalJSON()
+	if err != nil {
+		t.Fatalf("MarshalJSON nil: %v", err)
+	}
+	if string(data) != "null" {
+		t.Fatalf("data: got %s", data)
+	}
+}
+
+func TestMessage_RawMessage_MarshalJSON_Ugly(t *testing.T) {
+	raw := RawMessage(`[]`)
+	data, err := raw.MarshalJSON()
+	if err != nil {
+		t.Fatalf("MarshalJSON array: %v", err)
+	}
+	if string(data) != `[]` {
+		t.Fatalf("data: got %s", data)
+	}
+}
+
+func TestMessage_RawMessage_UnmarshalJSON_Good(t *testing.T) {
+	var raw RawMessage
+	if err := raw.UnmarshalJSON([]byte(`{"ok":true}`)); err != nil {
+		t.Fatalf("UnmarshalJSON: %v", err)
+	}
+	if string(raw) != `{"ok":true}` {
+		t.Fatalf("raw: got %s", raw)
+	}
+}
+
+func TestMessage_RawMessage_UnmarshalJSON_Bad(t *testing.T) {
+	var raw *RawMessage
+	if err := raw.UnmarshalJSON([]byte(`{"ok":true}`)); err == nil {
+		t.Fatal("expected UnmarshalJSON nil pointer error")
+	}
+}
+
+func TestMessage_RawMessage_UnmarshalJSON_Ugly(t *testing.T) {
+	raw := RawMessage(`{"old":true}`)
+	if err := raw.UnmarshalJSON([]byte(`null`)); err != nil {
+		t.Fatalf("UnmarshalJSON null: %v", err)
+	}
+	if string(raw) != `null` {
+		t.Fatalf("raw: got %s", raw)
+	}
+}
+
 func TestMessage_Message_Reply_Good(t *testing.T) {
 	msg, err := NewMessage(MsgPing, "from", "to", nil)
 	if err != nil {
@@ -162,7 +221,7 @@ func TestMessage_Message_ParsePayload_Good(t *testing.T) {
 }
 
 func TestMessage_Message_ParsePayload_Bad(t *testing.T) {
-	msg := &Message{Payload: json.RawMessage(`{`)}
+	msg := &Message{Payload: RawMessage(`{`)}
 	var payload PingPayload
 	err := msg.ParsePayload(&payload)
 	if err == nil {
@@ -352,14 +411,14 @@ func TestMessageSerialization(t *testing.T) {
 	})
 
 	// Serialize
-	data, err := json.Marshal(original)
+	data, err := testJSONMarshal(original)
 	if err != nil {
 		t.Fatalf("failed to serialize message: %v", err)
 	}
 
 	// Deserialize
 	var restored Message
-	err = json.Unmarshal(data, &restored)
+	err = testJSONUnmarshal(data, &restored)
 	if err != nil {
 		t.Fatalf("failed to deserialize message: %v", err)
 	}

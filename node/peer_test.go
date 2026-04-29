@@ -1,29 +1,25 @@
 package node
 
 import (
-	"os"
-	"path/filepath"
+	core "dappco.re/go"
 	"slices"
 	"testing"
 	"time"
 )
 
 func setupTestPeerRegistry(t *testing.T) (*PeerRegistry, func()) {
-	tmpDir, err := os.MkdirTemp("", "peer-registry-test")
-	if err != nil {
-		t.Fatalf("failed to create temp dir: %v", err)
-	}
+	tmpDir := t.TempDir()
 
-	peersPath := filepath.Join(tmpDir, "peers.json")
+	peersPath := core.PathJoin(tmpDir, "peers.json")
 
 	pr, err := NewPeerRegistryWithPath(peersPath)
 	if err != nil {
-		os.RemoveAll(tmpDir)
+		core.RemoveAll(tmpDir)
 		t.Fatalf("failed to create peer registry: %v", err)
 	}
 
 	cleanup := func() {
-		os.RemoveAll(tmpDir)
+		core.RemoveAll(tmpDir)
 	}
 
 	return pr, cleanup
@@ -60,7 +56,7 @@ func TestPeerRegistry_NewPeerRegistry(t *testing.T) {
 }
 
 func TestPeer_NewPeerRegistry_Good(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "peers.json")
+	path := core.PathJoin(t.TempDir(), "peers.json")
 	registry, err := NewPeerRegistry(path)
 	if err != nil {
 		t.Fatalf("NewPeerRegistry: %v", err)
@@ -98,7 +94,7 @@ func TestPeer_NewPeerRegistry_Ugly(t *testing.T) {
 }
 
 func TestPeer_NewPeerRegistryWithPath_Good(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "peers.json")
+	path := core.PathJoin(t.TempDir(), "peers.json")
 	registry, err := NewPeerRegistryWithPath(path)
 	if err != nil {
 		t.Fatalf("NewPeerRegistryWithPath: %v", err)
@@ -122,7 +118,7 @@ func TestPeer_NewPeerRegistryWithPath_Bad(t *testing.T) {
 
 func TestPeer_NewPeerRegistryWithPath_Ugly(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "nested", "peers.json")
+	path := core.PathJoin(dir, "nested", "peers.json")
 	registry, err := NewPeerRegistryWithPath(path)
 	if err != nil {
 		t.Fatalf("NewPeerRegistryWithPath nested: %v", err)
@@ -1324,10 +1320,10 @@ func TestPeerRegistry_SelectNearestPeers(t *testing.T) {
 }
 
 func TestPeerRegistry_Persistence(t *testing.T) {
-	tmpDir, _ := os.MkdirTemp("", "persist-test")
-	defer os.RemoveAll(tmpDir)
+	tmpDir := t.TempDir()
+	defer core.RemoveAll(tmpDir)
 
-	peersPath := filepath.Join(tmpDir, "peers.json")
+	peersPath := core.PathJoin(tmpDir, "peers.json")
 
 	// Create and save
 	pr1, err := NewPeerRegistryWithPath(peersPath)
@@ -1371,10 +1367,10 @@ func TestPeerRegistry_Persistence(t *testing.T) {
 }
 
 func TestPeerRegistry_AllowlistPersistence(t *testing.T) {
-	tmpDir, _ := os.MkdirTemp("", "allowlist-persist-test")
-	defer os.RemoveAll(tmpDir)
+	tmpDir := t.TempDir()
+	defer core.RemoveAll(tmpDir)
 
-	peersPath := filepath.Join(tmpDir, "peers.json")
+	peersPath := core.PathJoin(tmpDir, "peers.json")
 
 	pr1, err := NewPeerRegistryWithPath(peersPath)
 	if err != nil {
@@ -1865,10 +1861,10 @@ func TestPeerRegistry_Close_NoDirtyData(t *testing.T) {
 }
 
 func TestPeerRegistry_Close_WithDirtyData(t *testing.T) {
-	tmpDir, _ := os.MkdirTemp("", "close-dirty-test")
-	defer os.RemoveAll(tmpDir)
+	tmpDir := t.TempDir()
+	defer core.RemoveAll(tmpDir)
 
-	peersPath := filepath.Join(tmpDir, "peers.json")
+	peersPath := core.PathJoin(tmpDir, "peers.json")
 	pr, err := NewPeerRegistryWithPath(peersPath)
 	if err != nil {
 		t.Fatalf("failed to create registry: %v", err)
@@ -1894,10 +1890,10 @@ func TestPeerRegistry_Close_WithDirtyData(t *testing.T) {
 }
 
 func TestPeerRegistry_ScheduleSave_Debounce(t *testing.T) {
-	tmpDir, _ := os.MkdirTemp("", "debounce-test")
-	defer os.RemoveAll(tmpDir)
+	tmpDir := t.TempDir()
+	defer core.RemoveAll(tmpDir)
 
-	peersPath := filepath.Join(tmpDir, "peers.json")
+	peersPath := core.PathJoin(tmpDir, "peers.json")
 	pr, err := NewPeerRegistryWithPath(peersPath)
 	if err != nil {
 		t.Fatalf("failed to create registry: %v", err)
@@ -1916,10 +1912,10 @@ func TestPeerRegistry_ScheduleSave_Debounce(t *testing.T) {
 }
 
 func TestPeerRegistry_SaveNow(t *testing.T) {
-	tmpDir, _ := os.MkdirTemp("", "savenow-test")
-	defer os.RemoveAll(tmpDir)
+	tmpDir := t.TempDir()
+	defer core.RemoveAll(tmpDir)
 
-	peersPath := filepath.Join(tmpDir, "subdir", "peers.json")
+	peersPath := core.PathJoin(tmpDir, "subdir", "peers.json")
 	pr, err := NewPeerRegistryWithPath(peersPath)
 	if err != nil {
 		t.Fatalf("failed to create registry: %v", err)
@@ -1936,7 +1932,7 @@ func TestPeerRegistry_SaveNow(t *testing.T) {
 	}
 
 	// Verify the file was written
-	if _, err := os.Stat(peersPath); os.IsNotExist(err) {
+	if _, err := testStat(peersPath); core.IsNotExist(err) {
 		t.Error("peers.json should exist after saveNow")
 	}
 }
@@ -1946,10 +1942,10 @@ func TestPeerRegistry_ScheduleSave_TimerFires(t *testing.T) {
 		t.Skip("skipping debounce timer test in short mode")
 	}
 
-	tmpDir, _ := os.MkdirTemp("", "timer-fire-test")
-	defer os.RemoveAll(tmpDir)
+	tmpDir := t.TempDir()
+	defer core.RemoveAll(tmpDir)
 
-	peersPath := filepath.Join(tmpDir, "peers.json")
+	peersPath := core.PathJoin(tmpDir, "peers.json")
 	pr, err := NewPeerRegistryWithPath(peersPath)
 	if err != nil {
 		t.Fatalf("failed to create registry: %v", err)
@@ -1961,7 +1957,7 @@ func TestPeerRegistry_ScheduleSave_TimerFires(t *testing.T) {
 	time.Sleep(6 * time.Second)
 
 	// The file should have been saved by the timer
-	if _, err := os.Stat(peersPath); os.IsNotExist(err) {
+	if _, err := testStat(peersPath); core.IsNotExist(err) {
 		t.Error("peers.json should exist after debounce timer fires")
 	}
 

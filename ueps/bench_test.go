@@ -2,8 +2,9 @@ package ueps
 
 import (
 	"bufio"
-	"bytes"
 	"testing"
+
+	core "dappco.re/go"
 )
 
 // benchSecret is a deterministic shared secret for reproducible benchmarks.
@@ -11,7 +12,7 @@ var benchSecret = []byte("bench-shared-secret-32-bytes!!!!")
 
 // BenchmarkPacketBuild measures UEPS PacketBuilder marshal + HMAC signing.
 func BenchmarkPacketBuild(b *testing.B) {
-	payload := bytes.Repeat([]byte("A"), 256)
+	payload := repeatBytes([]byte("A"), 256)
 
 	b.ReportAllocs()
 	b.ResetTimer()
@@ -27,7 +28,7 @@ func BenchmarkPacketBuild(b *testing.B) {
 
 // BenchmarkPacketRead measures UEPS ReadAndVerify (unmarshal + HMAC verification).
 func BenchmarkPacketRead(b *testing.B) {
-	payload := bytes.Repeat([]byte("B"), 256)
+	payload := repeatBytes([]byte("B"), 256)
 	builder := NewBuilder(0x20, payload)
 	frame, err := builder.MarshalAndSign(benchSecret)
 	if err != nil {
@@ -38,7 +39,7 @@ func BenchmarkPacketRead(b *testing.B) {
 	b.ResetTimer()
 
 	for b.Loop() {
-		reader := bufio.NewReader(bytes.NewReader(frame))
+		reader := bufio.NewReader(core.NewBuffer(frame))
 		_, err := ReadAndVerify(reader, benchSecret)
 		if err != nil {
 			b.Fatalf("ReadAndVerify: %v", err)
@@ -60,7 +61,7 @@ func BenchmarkPacketRoundTrip(b *testing.B) {
 			b.Fatalf("MarshalAndSign: %v", err)
 		}
 
-		_, err = ReadAndVerify(bufio.NewReader(bytes.NewReader(frame)), benchSecret)
+		_, err = ReadAndVerify(bufio.NewReader(core.NewBuffer(frame)), benchSecret)
 		if err != nil {
 			b.Fatalf("ReadAndVerify: %v", err)
 		}
@@ -69,7 +70,7 @@ func BenchmarkPacketRoundTrip(b *testing.B) {
 
 // BenchmarkPacketBuild_LargePayload measures marshalling with a 4KB payload.
 func BenchmarkPacketBuild_LargePayload(b *testing.B) {
-	payload := bytes.Repeat([]byte("X"), 4096)
+	payload := repeatBytes([]byte("X"), 4096)
 
 	b.ReportAllocs()
 	b.ResetTimer()
@@ -85,7 +86,7 @@ func BenchmarkPacketBuild_LargePayload(b *testing.B) {
 
 // BenchmarkPacketRead_LargePayload measures reading/verifying a 4KB payload.
 func BenchmarkPacketRead_LargePayload(b *testing.B) {
-	payload := bytes.Repeat([]byte("Y"), 4096)
+	payload := repeatBytes([]byte("Y"), 4096)
 	builder := NewBuilder(0xFF, payload)
 	frame, err := builder.MarshalAndSign(benchSecret)
 	if err != nil {
@@ -96,7 +97,7 @@ func BenchmarkPacketRead_LargePayload(b *testing.B) {
 	b.ResetTimer()
 
 	for b.Loop() {
-		_, err := ReadAndVerify(bufio.NewReader(bytes.NewReader(frame)), benchSecret)
+		_, err := ReadAndVerify(bufio.NewReader(core.NewBuffer(frame)), benchSecret)
 		if err != nil {
 			b.Fatalf("ReadAndVerify: %v", err)
 		}

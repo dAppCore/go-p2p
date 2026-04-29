@@ -4,11 +4,12 @@
 package levin
 
 import (
-	"errors"
 	"net"
 	"reflect"
 	"testing"
 	"time"
+
+	core "dappco.re/go"
 )
 
 func TestConnection_RoundTrip(t *testing.T) {
@@ -385,7 +386,7 @@ func TestConnection_PayloadTooBig(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
-	if !errors.Is(err, ErrPayloadTooBig) {
+	if !core.Is(err, ErrPayloadTooBig) {
 		t.Fatalf("expected error %v, got %v", ErrPayloadTooBig, err)
 	}
 

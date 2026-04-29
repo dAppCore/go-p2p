@@ -1,8 +1,7 @@
 package node
 
 import (
-	"fmt"
-
+	core "dappco.re/go"
 	coreerr "dappco.re/go/log"
 )
 
@@ -13,7 +12,7 @@ type ProtocolError struct {
 }
 
 func (e *ProtocolError) Error() string {
-	return fmt.Sprintf("remote error (%d): %s", e.Code, e.Message)
+	return core.Sprintf("remote error (%d): %s", e.Code, e.Message)
 }
 
 // ResponseHandler provides helpers for handling protocol responses.

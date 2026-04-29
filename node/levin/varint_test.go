@@ -4,9 +4,10 @@
 package levin
 
 import (
-	"errors"
 	"reflect"
 	"testing"
+
+	core "dappco.re/go"
 )
 
 func TestPackVarint_Value5(t *testing.T) {
@@ -75,7 +76,7 @@ func TestVarint_UnpackVarint_Good(t *testing.T) {
 
 func TestVarint_UnpackVarint_Bad(t *testing.T) {
 	value, consumed, err := UnpackVarint(nil)
-	if !errors.Is(err, ErrVarintTruncated) {
+	if !core.Is(err, ErrVarintTruncated) {
 		t.Fatalf("error: got %v", err)
 	}
 	if value != 0 || consumed != 0 {
@@ -85,7 +86,7 @@ func TestVarint_UnpackVarint_Bad(t *testing.T) {
 
 func TestVarint_UnpackVarint_Ugly(t *testing.T) {
 	value, consumed, err := UnpackVarint([]byte{varintMark8})
-	if !errors.Is(err, ErrVarintTruncated) {
+	if !core.Is(err, ErrVarintTruncated) {
 		t.Fatalf("error: got %v", err)
 	}
 	if value != 0 || consumed != 0 {
@@ -163,7 +164,7 @@ func TestUnpackVarint_EmptyInput(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
-	if !errors.Is(err, ErrVarintTruncated) {
+	if !core.Is(err, ErrVarintTruncated) {
 		t.Fatalf("expected error %v, got %v", ErrVarintTruncated, err)
 	}
 }
@@ -178,7 +179,7 @@ func TestUnpackVarint_Truncated2Byte(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
-	if !errors.Is(err, ErrVarintTruncated) {
+	if !core.Is(err, ErrVarintTruncated) {
 		t.Fatalf("expected error %v, got %v", ErrVarintTruncated, err)
 	}
 }
@@ -192,7 +193,7 @@ func TestUnpackVarint_Truncated4Byte(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
-	if !errors.Is(err, ErrVarintTruncated) {
+	if !core.Is(err, ErrVarintTruncated) {
 		t.Fatalf("expected error %v, got %v", ErrVarintTruncated, err)
 	}
 }
@@ -206,7 +207,7 @@ func TestUnpackVarint_Truncated8Byte(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
-	if !errors.Is(err, ErrVarintTruncated) {
+	if !core.Is(err, ErrVarintTruncated) {
 		t.Fatalf("expected error %v, got %v", ErrVarintTruncated, err)
 	}
 }

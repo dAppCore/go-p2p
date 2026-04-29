@@ -1,21 +1,28 @@
 package logging
 
 import (
-	"bytes"
-	"strings"
 	"testing"
+
+	core "dappco.re/go"
 )
 
-func axLoggerBuffer(level Level) (*Logger, *bytes.Buffer) {
-	var buf bytes.Buffer
-	logger := New(Config{Output: &buf, Level: level, Component: "test"})
-	return logger, &buf
+type loggerTestBuffer interface {
+	core.Writer
+	Len() int
+	Reset()
+	String() string
+}
+
+func axLoggerBuffer(level Level) (*Logger, loggerTestBuffer) {
+	buf := core.NewBuffer()
+	logger := New(Config{Output: buf, Level: level, Component: "test"})
+	return logger, buf
 }
 
 func TestLoggerLevels(t *testing.T) {
-	var buf bytes.Buffer
+	buf := core.NewBuffer()
 	logger := New(Config{
-		Output: &buf,
+		Output: buf,
 		Level:  LevelInfo,
 	})
 
@@ -27,24 +34,24 @@ func TestLoggerLevels(t *testing.T) {
 
 	// Info should appear
 	logger.Info("info message")
-	if !strings.Contains(buf.String(), "[INFO]") {
+	if !core.Contains(buf.String(), "[INFO]") {
 		t.Error("Info message should appear")
 	}
-	if !strings.Contains(buf.String(), "info message") {
+	if !core.Contains(buf.String(), "info message") {
 		t.Error("Info message content should appear")
 	}
 	buf.Reset()
 
 	// Warn should appear
 	logger.Warn("warn message")
-	if !strings.Contains(buf.String(), "[WARN]") {
+	if !core.Contains(buf.String(), "[WARN]") {
 		t.Error("Warn message should appear")
 	}
 	buf.Reset()
 
 	// Error should appear
 	logger.Error("error message")
-	if !strings.Contains(buf.String(), "[ERROR]") {
+	if !core.Contains(buf.String(), "[ERROR]") {
 		t.Error("Error message should appear")
 	}
 }
@@ -109,8 +116,8 @@ func TestLogger_DefaultConfig_Ugly(t *testing.T) {
 }
 
 func TestLogger_New_Good(t *testing.T) {
-	var buf bytes.Buffer
-	logger := New(Config{Output: &buf, Level: LevelDebug, Component: "core"})
+	buf := core.NewBuffer()
+	logger := New(Config{Output: buf, Level: LevelDebug, Component: "core"})
 	if logger == nil {
 		t.Fatal("expected logger")
 	}
@@ -222,7 +229,7 @@ func TestLogger_Logger_GetLevel_Ugly(t *testing.T) {
 func TestLogger_Logger_Debug_Good(t *testing.T) {
 	logger, buf := axLoggerBuffer(LevelDebug)
 	logger.Debug("debug", Fields{"k": "v"})
-	if !strings.Contains(buf.String(), "[DEBUG]") {
+	if !core.Contains(buf.String(), "[DEBUG]") {
 		t.Fatalf("log: %q", buf.String())
 	}
 }
@@ -238,7 +245,7 @@ func TestLogger_Logger_Debug_Bad(t *testing.T) {
 func TestLogger_Logger_Debug_Ugly(t *testing.T) {
 	logger, buf := axLoggerBuffer(LevelDebug)
 	logger.Debug("")
-	if !strings.Contains(buf.String(), "[DEBUG]") {
+	if !core.Contains(buf.String(), "[DEBUG]") {
 		t.Fatalf("log: %q", buf.String())
 	}
 }
@@ -246,7 +253,7 @@ func TestLogger_Logger_Debug_Ugly(t *testing.T) {
 func TestLogger_Logger_Info_Good(t *testing.T) {
 	logger, buf := axLoggerBuffer(LevelInfo)
 	logger.Info("info")
-	if !strings.Contains(buf.String(), "[INFO]") {
+	if !core.Contains(buf.String(), "[INFO]") {
 		t.Fatalf("log: %q", buf.String())
 	}
 }
@@ -262,7 +269,7 @@ func TestLogger_Logger_Info_Bad(t *testing.T) {
 func TestLogger_Logger_Info_Ugly(t *testing.T) {
 	logger, buf := axLoggerBuffer(LevelInfo)
 	logger.Info("info", nil)
-	if !strings.Contains(buf.String(), "info") {
+	if !core.Contains(buf.String(), "info") {
 		t.Fatalf("log: %q", buf.String())
 	}
 }
@@ -270,7 +277,7 @@ func TestLogger_Logger_Info_Ugly(t *testing.T) {
 func TestLogger_Logger_Warn_Good(t *testing.T) {
 	logger, buf := axLoggerBuffer(LevelWarn)
 	logger.Warn("warn")
-	if !strings.Contains(buf.String(), "[WARN]") {
+	if !core.Contains(buf.String(), "[WARN]") {
 		t.Fatalf("log: %q", buf.String())
 	}
 }
@@ -286,7 +293,7 @@ func TestLogger_Logger_Warn_Bad(t *testing.T) {
 func TestLogger_Logger_Warn_Ugly(t *testing.T) {
 	logger, buf := axLoggerBuffer(LevelWarn)
 	logger.Warn("", Fields{"empty": true})
-	if !strings.Contains(buf.String(), "empty=true") {
+	if !core.Contains(buf.String(), "empty=true") {
 		t.Fatalf("log: %q", buf.String())
 	}
 }
@@ -294,7 +301,7 @@ func TestLogger_Logger_Warn_Ugly(t *testing.T) {
 func TestLogger_Logger_Error_Good(t *testing.T) {
 	logger, buf := axLoggerBuffer(LevelError)
 	logger.Error("error")
-	if !strings.Contains(buf.String(), "[ERROR]") {
+	if !core.Contains(buf.String(), "[ERROR]") {
 		t.Fatalf("log: %q", buf.String())
 	}
 }
@@ -310,7 +317,7 @@ func TestLogger_Logger_Error_Bad(t *testing.T) {
 func TestLogger_Logger_Error_Ugly(t *testing.T) {
 	logger, buf := axLoggerBuffer(LevelError)
 	logger.Error("", Fields{"code": 500})
-	if !strings.Contains(buf.String(), "code=500") {
+	if !core.Contains(buf.String(), "code=500") {
 		t.Fatalf("log: %q", buf.String())
 	}
 }
@@ -318,7 +325,7 @@ func TestLogger_Logger_Error_Ugly(t *testing.T) {
 func TestLogger_Logger_Debugf_Good(t *testing.T) {
 	logger, buf := axLoggerBuffer(LevelDebug)
 	logger.Debugf("debug %d", 1)
-	if !strings.Contains(buf.String(), "debug 1") {
+	if !core.Contains(buf.String(), "debug 1") {
 		t.Fatalf("log: %q", buf.String())
 	}
 }
@@ -334,7 +341,7 @@ func TestLogger_Logger_Debugf_Bad(t *testing.T) {
 func TestLogger_Logger_Debugf_Ugly(t *testing.T) {
 	logger, buf := axLoggerBuffer(LevelDebug)
 	logger.Debugf("%s", "")
-	if !strings.Contains(buf.String(), "[DEBUG]") {
+	if !core.Contains(buf.String(), "[DEBUG]") {
 		t.Fatalf("log: %q", buf.String())
 	}
 }
@@ -342,7 +349,7 @@ func TestLogger_Logger_Debugf_Ugly(t *testing.T) {
 func TestLogger_Logger_Infof_Good(t *testing.T) {
 	logger, buf := axLoggerBuffer(LevelInfo)
 	logger.Infof("info %d", 1)
-	if !strings.Contains(buf.String(), "info 1") {
+	if !core.Contains(buf.String(), "info 1") {
 		t.Fatalf("log: %q", buf.String())
 	}
 }
@@ -358,7 +365,7 @@ func TestLogger_Logger_Infof_Bad(t *testing.T) {
 func TestLogger_Logger_Infof_Ugly(t *testing.T) {
 	logger, buf := axLoggerBuffer(LevelInfo)
 	logger.Infof("%s", "")
-	if !strings.Contains(buf.String(), "[INFO]") {
+	if !core.Contains(buf.String(), "[INFO]") {
 		t.Fatalf("log: %q", buf.String())
 	}
 }
@@ -366,7 +373,7 @@ func TestLogger_Logger_Infof_Ugly(t *testing.T) {
 func TestLogger_Logger_Warnf_Good(t *testing.T) {
 	logger, buf := axLoggerBuffer(LevelWarn)
 	logger.Warnf("warn %d", 1)
-	if !strings.Contains(buf.String(), "warn 1") {
+	if !core.Contains(buf.String(), "warn 1") {
 		t.Fatalf("log: %q", buf.String())
 	}
 }
@@ -382,7 +389,7 @@ func TestLogger_Logger_Warnf_Bad(t *testing.T) {
 func TestLogger_Logger_Warnf_Ugly(t *testing.T) {
 	logger, buf := axLoggerBuffer(LevelWarn)
 	logger.Warnf("%s", "")
-	if !strings.Contains(buf.String(), "[WARN]") {
+	if !core.Contains(buf.String(), "[WARN]") {
 		t.Fatalf("log: %q", buf.String())
 	}
 }
@@ -390,7 +397,7 @@ func TestLogger_Logger_Warnf_Ugly(t *testing.T) {
 func TestLogger_Logger_Errorf_Good(t *testing.T) {
 	logger, buf := axLoggerBuffer(LevelError)
 	logger.Errorf("error %d", 1)
-	if !strings.Contains(buf.String(), "error 1") {
+	if !core.Contains(buf.String(), "error 1") {
 		t.Fatalf("log: %q", buf.String())
 	}
 }
@@ -406,7 +413,7 @@ func TestLogger_Logger_Errorf_Bad(t *testing.T) {
 func TestLogger_Logger_Errorf_Ugly(t *testing.T) {
 	logger, buf := axLoggerBuffer(LevelError)
 	logger.Errorf("%s", "")
-	if !strings.Contains(buf.String(), "[ERROR]") {
+	if !core.Contains(buf.String(), "[ERROR]") {
 		t.Fatalf("log: %q", buf.String())
 	}
 }
@@ -506,7 +513,7 @@ func TestLogger_Debug_Good(t *testing.T) {
 	SetGlobal(logger)
 	t.Cleanup(func() { SetGlobal(previous) })
 	Debug("debug")
-	if !strings.Contains(buf.String(), "[DEBUG]") {
+	if !core.Contains(buf.String(), "[DEBUG]") {
 		t.Fatalf("log: %q", buf.String())
 	}
 }
@@ -528,7 +535,7 @@ func TestLogger_Debug_Ugly(t *testing.T) {
 	SetGlobal(logger)
 	t.Cleanup(func() { SetGlobal(previous) })
 	Debug("", nil)
-	if !strings.Contains(buf.String(), "[DEBUG]") {
+	if !core.Contains(buf.String(), "[DEBUG]") {
 		t.Fatalf("log: %q", buf.String())
 	}
 }
@@ -539,7 +546,7 @@ func TestLogger_Info_Good(t *testing.T) {
 	SetGlobal(logger)
 	t.Cleanup(func() { SetGlobal(previous) })
 	Info("info")
-	if !strings.Contains(buf.String(), "[INFO]") {
+	if !core.Contains(buf.String(), "[INFO]") {
 		t.Fatalf("log: %q", buf.String())
 	}
 }
@@ -561,7 +568,7 @@ func TestLogger_Info_Ugly(t *testing.T) {
 	SetGlobal(logger)
 	t.Cleanup(func() { SetGlobal(previous) })
 	Info("", Fields{"k": "v"})
-	if !strings.Contains(buf.String(), "k=v") {
+	if !core.Contains(buf.String(), "k=v") {
 		t.Fatalf("log: %q", buf.String())
 	}
 }
@@ -572,7 +579,7 @@ func TestLogger_Warn_Good(t *testing.T) {
 	SetGlobal(logger)
 	t.Cleanup(func() { SetGlobal(previous) })
 	Warn("warn")
-	if !strings.Contains(buf.String(), "[WARN]") {
+	if !core.Contains(buf.String(), "[WARN]") {
 		t.Fatalf("log: %q", buf.String())
 	}
 }
@@ -594,7 +601,7 @@ func TestLogger_Warn_Ugly(t *testing.T) {
 	SetGlobal(logger)
 	t.Cleanup(func() { SetGlobal(previous) })
 	Warn("", Fields{"empty": true})
-	if !strings.Contains(buf.String(), "empty=true") {
+	if !core.Contains(buf.String(), "empty=true") {
 		t.Fatalf("log: %q", buf.String())
 	}
 }
@@ -605,7 +612,7 @@ func TestLogger_Error_Good(t *testing.T) {
 	SetGlobal(logger)
 	t.Cleanup(func() { SetGlobal(previous) })
 	Error("error")
-	if !strings.Contains(buf.String(), "[ERROR]") {
+	if !core.Contains(buf.String(), "[ERROR]") {
 		t.Fatalf("log: %q", buf.String())
 	}
 }
@@ -627,7 +634,7 @@ func TestLogger_Error_Ugly(t *testing.T) {
 	SetGlobal(logger)
 	t.Cleanup(func() { SetGlobal(previous) })
 	Error("", Fields{"code": 500})
-	if !strings.Contains(buf.String(), "code=500") {
+	if !core.Contains(buf.String(), "code=500") {
 		t.Fatalf("log: %q", buf.String())
 	}
 }
@@ -638,7 +645,7 @@ func TestLogger_Debugf_Good(t *testing.T) {
 	SetGlobal(logger)
 	t.Cleanup(func() { SetGlobal(previous) })
 	Debugf("debug %d", 1)
-	if !strings.Contains(buf.String(), "debug 1") {
+	if !core.Contains(buf.String(), "debug 1") {
 		t.Fatalf("log: %q", buf.String())
 	}
 }
@@ -660,7 +667,7 @@ func TestLogger_Debugf_Ugly(t *testing.T) {
 	SetGlobal(logger)
 	t.Cleanup(func() { SetGlobal(previous) })
 	Debugf("%s", "")
-	if !strings.Contains(buf.String(), "[DEBUG]") {
+	if !core.Contains(buf.String(), "[DEBUG]") {
 		t.Fatalf("log: %q", buf.String())
 	}
 }
@@ -671,7 +678,7 @@ func TestLogger_Infof_Good(t *testing.T) {
 	SetGlobal(logger)
 	t.Cleanup(func() { SetGlobal(previous) })
 	Infof("info %d", 1)
-	if !strings.Contains(buf.String(), "info 1") {
+	if !core.Contains(buf.String(), "info 1") {
 		t.Fatalf("log: %q", buf.String())
 	}
 }
@@ -693,7 +700,7 @@ func TestLogger_Infof_Ugly(t *testing.T) {
 	SetGlobal(logger)
 	t.Cleanup(func() { SetGlobal(previous) })
 	Infof("%s", "")
-	if !strings.Contains(buf.String(), "[INFO]") {
+	if !core.Contains(buf.String(), "[INFO]") {
 		t.Fatalf("log: %q", buf.String())
 	}
 }
@@ -704,7 +711,7 @@ func TestLogger_Warnf_Good(t *testing.T) {
 	SetGlobal(logger)
 	t.Cleanup(func() { SetGlobal(previous) })
 	Warnf("warn %d", 1)
-	if !strings.Contains(buf.String(), "warn 1") {
+	if !core.Contains(buf.String(), "warn 1") {
 		t.Fatalf("log: %q", buf.String())
 	}
 }
@@ -726,7 +733,7 @@ func TestLogger_Warnf_Ugly(t *testing.T) {
 	SetGlobal(logger)
 	t.Cleanup(func() { SetGlobal(previous) })
 	Warnf("%s", "")
-	if !strings.Contains(buf.String(), "[WARN]") {
+	if !core.Contains(buf.String(), "[WARN]") {
 		t.Fatalf("log: %q", buf.String())
 	}
 }
@@ -737,7 +744,7 @@ func TestLogger_Errorf_Good(t *testing.T) {
 	SetGlobal(logger)
 	t.Cleanup(func() { SetGlobal(previous) })
 	Errorf("error %d", 1)
-	if !strings.Contains(buf.String(), "error 1") {
+	if !core.Contains(buf.String(), "error 1") {
 		t.Fatalf("log: %q", buf.String())
 	}
 }
@@ -759,7 +766,7 @@ func TestLogger_Errorf_Ugly(t *testing.T) {
 	SetGlobal(logger)
 	t.Cleanup(func() { SetGlobal(previous) })
 	Errorf("%s", "")
-	if !strings.Contains(buf.String(), "[ERROR]") {
+	if !core.Contains(buf.String(), "[ERROR]") {
 		t.Fatalf("log: %q", buf.String())
 	}
 }
@@ -795,40 +802,40 @@ func TestLogger_ParseLevel_Ugly(t *testing.T) {
 }
 
 func TestLoggerDebugLevel(t *testing.T) {
-	var buf bytes.Buffer
+	buf := core.NewBuffer()
 	logger := New(Config{
-		Output: &buf,
+		Output: buf,
 		Level:  LevelDebug,
 	})
 
 	logger.Debug("debug message")
-	if !strings.Contains(buf.String(), "[DEBUG]") {
+	if !core.Contains(buf.String(), "[DEBUG]") {
 		t.Error("Debug message should appear at Debug level")
 	}
 }
 
 func TestLoggerWithFields(t *testing.T) {
-	var buf bytes.Buffer
+	buf := core.NewBuffer()
 	logger := New(Config{
-		Output: &buf,
+		Output: buf,
 		Level:  LevelInfo,
 	})
 
 	logger.Info("test message", Fields{"key": "value", "num": 42})
 	output := buf.String()
 
-	if !strings.Contains(output, "key=value") {
+	if !core.Contains(output, "key=value") {
 		t.Error("Field key=value should appear")
 	}
-	if !strings.Contains(output, "num=42") {
+	if !core.Contains(output, "num=42") {
 		t.Error("Field num=42 should appear")
 	}
 }
 
 func TestLoggerWithComponent(t *testing.T) {
-	var buf bytes.Buffer
+	buf := core.NewBuffer()
 	logger := New(Config{
-		Output:    &buf,
+		Output:    buf,
 		Level:     LevelInfo,
 		Component: "TestComponent",
 	})
@@ -836,15 +843,15 @@ func TestLoggerWithComponent(t *testing.T) {
 	logger.Info("test message")
 	output := buf.String()
 
-	if !strings.Contains(output, "[TestComponent]") {
+	if !core.Contains(output, "[TestComponent]") {
 		t.Error("Component name should appear in log")
 	}
 }
 
 func TestLoggerDerivedComponent(t *testing.T) {
-	var buf bytes.Buffer
+	buf := core.NewBuffer()
 	parent := New(Config{
-		Output: &buf,
+		Output: buf,
 		Level:  LevelInfo,
 	})
 
@@ -852,30 +859,30 @@ func TestLoggerDerivedComponent(t *testing.T) {
 	child.Info("child message")
 	output := buf.String()
 
-	if !strings.Contains(output, "[ChildComponent]") {
+	if !core.Contains(output, "[ChildComponent]") {
 		t.Error("Derived component name should appear")
 	}
 }
 
 func TestLoggerFormatted(t *testing.T) {
-	var buf bytes.Buffer
+	buf := core.NewBuffer()
 	logger := New(Config{
-		Output: &buf,
+		Output: buf,
 		Level:  LevelInfo,
 	})
 
 	logger.Infof("formatted %s %d", "string", 123)
 	output := buf.String()
 
-	if !strings.Contains(output, "formatted string 123") {
+	if !core.Contains(output, "formatted string 123") {
 		t.Errorf("Formatted message should appear, got: %s", output)
 	}
 }
 
 func TestSetLevel(t *testing.T) {
-	var buf bytes.Buffer
+	buf := core.NewBuffer()
 	logger := New(Config{
-		Output: &buf,
+		Output: buf,
 		Level:  LevelError,
 	})
 
@@ -888,7 +895,7 @@ func TestSetLevel(t *testing.T) {
 	// Change to Info level
 	logger.SetLevel(LevelInfo)
 	logger.Info("should appear now")
-	if !strings.Contains(buf.String(), "should appear now") {
+	if !core.Contains(buf.String(), "should appear now") {
 		t.Error("Info should appear after level change")
 	}
 
@@ -932,16 +939,16 @@ func TestParseLevel(t *testing.T) {
 }
 
 func TestGlobalLogger(t *testing.T) {
-	var buf bytes.Buffer
+	buf := core.NewBuffer()
 	logger := New(Config{
-		Output: &buf,
+		Output: buf,
 		Level:  LevelInfo,
 	})
 
 	SetGlobal(logger)
 
 	Info("global test")
-	if !strings.Contains(buf.String(), "global test") {
+	if !core.Contains(buf.String(), "global test") {
 		t.Error("Global logger should write message")
 	}
 

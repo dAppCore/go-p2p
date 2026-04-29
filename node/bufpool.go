@@ -1,28 +1,39 @@
 package node
 
 import (
-	"bytes"
-	"encoding/json"
 	"sync"
+
+	core "dappco.re/go"
 )
+
+type pooledBuffer interface {
+	Write([]byte) (int, error)
+	WriteString(string) (int, error)
+	Bytes() []byte
+	Len() int
+	Cap() int
+	Reset()
+	Grow(int)
+	String() string
+}
 
 // bufferPool provides reusable byte buffers for JSON encoding.
 // This reduces allocation overhead in hot paths like message serialization.
 var bufferPool = sync.Pool{
 	New: func() any {
-		return bytes.NewBuffer(make([]byte, 0, 1024))
+		return core.NewBuffer(make([]byte, 0, 1024))
 	},
 }
 
 // getBuffer retrieves a buffer from the pool.
-func getBuffer() *bytes.Buffer {
-	buf := bufferPool.Get().(*bytes.Buffer)
+func getBuffer() pooledBuffer {
+	buf := bufferPool.Get().(pooledBuffer)
 	buf.Reset()
 	return buf
 }
 
 // putBuffer returns a buffer to the pool.
-func putBuffer(buf *bytes.Buffer) {
+func putBuffer(buf pooledBuffer) {
 	// Don't pool buffers that grew too large (>64KB)
 	if buf.Cap() <= 65536 {
 		bufferPool.Put(buf)
@@ -32,23 +43,20 @@ func putBuffer(buf *bytes.Buffer) {
 // MarshalJSON encodes a value to JSON using a pooled buffer.
 // Returns a copy of the encoded bytes (safe to use after the function returns).
 func MarshalJSON(v any) ([]byte, error) {
-	buf := getBuffer()
-	defer putBuffer(buf)
-
-	enc := json.NewEncoder(buf)
-	// Don't escape HTML characters (matches json.Marshal behavior for these use cases)
-	enc.SetEscapeHTML(false)
-	if err := enc.Encode(v); err != nil {
-		return nil, err
+	r := core.JSONMarshal(v)
+	if !r.OK {
+		if err, ok := r.Value.(error); ok {
+			return nil, err
+		}
+		return nil, core.NewError("json marshal failed")
 	}
 
-	// json.Encoder.Encode adds a newline; remove it to match json.Marshal
-	data := buf.Bytes()
-	if len(data) > 0 && data[len(data)-1] == '\n' {
-		data = data[:len(data)-1]
-	}
+	text := string(r.Value.([]byte))
+	text = core.Replace(text, `\u003c`, "<")
+	text = core.Replace(text, `\u003e`, ">")
+	text = core.Replace(text, `\u0026`, "&")
+	data := []byte(text)
 
-	// Return a copy since the buffer will be reused
 	result := make([]byte, len(data))
 	copy(result, data)
 	return result, nil

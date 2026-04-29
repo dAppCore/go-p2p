@@ -2,11 +2,10 @@ package node
 
 import (
 	"encoding/base64"
-	"encoding/json"
-	"path/filepath"
 	"testing"
 	"time"
 
+	core "dappco.re/go"
 	"forge.lthn.ai/Snider/Borg/pkg/smsg"
 )
 
@@ -17,8 +16,8 @@ func BenchmarkIdentityGenerate(b *testing.B) {
 	for b.Loop() {
 		dir := b.TempDir()
 		nm, err := NewNodeManagerWithPaths(
-			filepath.Join(dir, "private.key"),
-			filepath.Join(dir, "node.json"),
+			core.PathJoin(dir, "private.key"),
+			core.PathJoin(dir, "node.json"),
 		)
 		if err != nil {
 			b.Fatalf("create node manager: %v", err)
@@ -34,10 +33,10 @@ func BenchmarkDeriveSharedSecret(b *testing.B) {
 	dir1 := b.TempDir()
 	dir2 := b.TempDir()
 
-	nm1, _ := NewNodeManagerWithPaths(filepath.Join(dir1, "k"), filepath.Join(dir1, "n"))
+	nm1, _ := NewNodeManagerWithPaths(core.PathJoin(dir1, "k"), core.PathJoin(dir1, "n"))
 	nm1.GenerateIdentity("node1", RoleDual)
 
-	nm2, _ := NewNodeManagerWithPaths(filepath.Join(dir2, "k"), filepath.Join(dir2, "n"))
+	nm2, _ := NewNodeManagerWithPaths(core.PathJoin(dir2, "k"), core.PathJoin(dir2, "n"))
 	nm2.GenerateIdentity("node2", RoleDual)
 
 	peerPubKey := nm2.GetIdentity().PublicKey
@@ -88,7 +87,7 @@ func BenchmarkMessageSerialise(b *testing.B) {
 		}
 
 		var restored Message
-		if err := json.Unmarshal(data, &restored); err != nil {
+		if err := testJSONUnmarshal(data, &restored); err != nil {
 			b.Fatalf("unmarshal message: %v", err)
 		}
 	}
@@ -136,7 +135,7 @@ func BenchmarkMarshalJSON(b *testing.B) {
 	b.Run("Stdlib", func(b *testing.B) {
 		b.ReportAllocs()
 		for b.Loop() {
-			_, err := json.Marshal(data)
+			_, err := testJSONMarshal(data)
 			if err != nil {
 				b.Fatal(err)
 			}
@@ -150,10 +149,10 @@ func BenchmarkSMSGEncryptDecrypt(b *testing.B) {
 	dir1 := b.TempDir()
 	dir2 := b.TempDir()
 
-	nm1, _ := NewNodeManagerWithPaths(filepath.Join(dir1, "k"), filepath.Join(dir1, "n"))
+	nm1, _ := NewNodeManagerWithPaths(core.PathJoin(dir1, "k"), core.PathJoin(dir1, "n"))
 	nm1.GenerateIdentity("node1", RoleDual)
 
-	nm2, _ := NewNodeManagerWithPaths(filepath.Join(dir2, "k"), filepath.Join(dir2, "n"))
+	nm2, _ := NewNodeManagerWithPaths(core.PathJoin(dir2, "k"), core.PathJoin(dir2, "n"))
 	nm2.GenerateIdentity("node2", RoleDual)
 
 	sharedSecret, _ := nm1.DeriveSharedSecret(nm2.GetIdentity().PublicKey)
@@ -202,7 +201,7 @@ func BenchmarkChallengeSignVerify(b *testing.B) {
 // BenchmarkPeerScoring measures KD-tree rebuild and peer selection.
 func BenchmarkPeerScoring(b *testing.B) {
 	dir := b.TempDir()
-	reg, err := NewPeerRegistryWithPath(filepath.Join(dir, "peers.json"))
+	reg, err := NewPeerRegistryWithPath(core.PathJoin(dir, "peers.json"))
 	if err != nil {
 		b.Fatalf("create registry: %v", err)
 	}
@@ -211,7 +210,7 @@ func BenchmarkPeerScoring(b *testing.B) {
 	// Add 50 peers with varied metrics
 	for i := range 50 {
 		peer := &Peer{
-			ID:      filepath.Join("peer", string(rune('A'+i%26)), string(rune('0'+i/26))),
+			ID:      core.PathJoin("peer", string(rune('A'+i%26)), string(rune('0'+i/26))),
 			Name:    "peer",
 			PingMS:  float64(i*10 + 5),
 			Hops:    i%5 + 1,

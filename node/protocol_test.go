@@ -1,7 +1,7 @@
 package node
 
 import (
-	"fmt"
+	core "dappco.re/go"
 	"testing"
 )
 
@@ -210,13 +210,13 @@ func TestProtocol_IsProtocolError_Good(t *testing.T) {
 	if !IsProtocolError(err) {
 		t.Fatal("expected protocol error")
 	}
-	if fmt.Sprint(err) == "" {
+	if core.Sprint(err) == "" {
 		t.Fatal("expected error text")
 	}
 }
 
 func TestProtocol_IsProtocolError_Bad(t *testing.T) {
-	err := fmt.Errorf("plain")
+	err := core.Errorf("plain")
 	if IsProtocolError(err) {
 		t.Fatal("plain error should not be protocol error")
 	}
@@ -245,11 +245,11 @@ func TestProtocol_GetProtocolErrorCode_Good(t *testing.T) {
 }
 
 func TestProtocol_GetProtocolErrorCode_Bad(t *testing.T) {
-	code := GetProtocolErrorCode(fmt.Errorf("plain"))
+	code := GetProtocolErrorCode(core.Errorf("plain"))
 	if code != 0 {
 		t.Fatalf("code: got %d", code)
 	}
-	if IsProtocolError(fmt.Errorf("plain")) {
+	if IsProtocolError(core.Errorf("plain")) {
 		t.Fatal("plain error should not be protocol error")
 	}
 }
@@ -367,7 +367,7 @@ func TestConvenienceFunctions(t *testing.T) {
 }
 
 func TestGetProtocolErrorCode_NonProtocolError(t *testing.T) {
-	err := fmt.Errorf("regular error")
+	err := core.Errorf("regular error")
 	if GetProtocolErrorCode(err) != 0 {
 		t.Error("Expected 0 for non-ProtocolError")
 	}

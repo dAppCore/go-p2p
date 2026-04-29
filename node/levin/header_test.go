@@ -5,9 +5,10 @@ package levin
 
 import (
 	"encoding/binary"
-	"errors"
 	"reflect"
 	"testing"
+
+	core "dappco.re/go"
 )
 
 func TestHeaderSizeIs33(t *testing.T) {
@@ -118,7 +119,7 @@ func TestHeader_DecodeHeader_Good(t *testing.T) {
 func TestHeader_DecodeHeader_Bad(t *testing.T) {
 	encoded := EncodeHeader(&Header{Signature: 0})
 	header, err := DecodeHeader(encoded)
-	if !errors.Is(err, ErrBadSignature) {
+	if !core.Is(err, ErrBadSignature) {
 		t.Fatalf("error: got %v", err)
 	}
 	if header.Signature != 0 {
@@ -129,7 +130,7 @@ func TestHeader_DecodeHeader_Bad(t *testing.T) {
 func TestHeader_DecodeHeader_Ugly(t *testing.T) {
 	encoded := EncodeHeader(&Header{Signature: Signature, PayloadSize: MaxPayloadSize + 1})
 	header, err := DecodeHeader(encoded)
-	if !errors.Is(err, ErrPayloadTooBig) {
+	if !core.Is(err, ErrPayloadTooBig) {
 		t.Fatalf("error: got %v", err)
 	}
 	if header.PayloadSize != 0 {
@@ -247,7 +248,7 @@ func TestDecodeHeader_BadSignature(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
-	if !errors.Is(err, ErrBadSignature) {
+	if !core.Is(err, ErrBadSignature) {
 		t.Fatalf("expected error %v, got %v", ErrBadSignature, err)
 	}
 }
@@ -263,7 +264,7 @@ func TestDecodeHeader_PayloadTooBig(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
-	if !errors.Is(err, ErrPayloadTooBig) {
+	if !core.Is(err, ErrPayloadTooBig) {
 		t.Fatalf("expected error %v, got %v", ErrPayloadTooBig, err)
 	}
 }

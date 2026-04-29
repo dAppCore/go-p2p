@@ -3,7 +3,8 @@ package node
 import (
 	"crypto/hkdf"
 	"crypto/sha256"
-	"fmt"
+
+	core "dappco.re/go"
 )
 
 const (
@@ -23,7 +24,7 @@ type transportSubKeys struct {
 
 func deriveSubKeys(sharedSecret []byte) (transportSubKeys, error) {
 	if len(sharedSecret) != sharedSecretSize {
-		return transportSubKeys{}, fmt.Errorf("shared secret length %d, want %d", len(sharedSecret), sharedSecretSize)
+		return transportSubKeys{}, core.Errorf("shared secret length %d, want %d", len(sharedSecret), sharedSecretSize)
 	}
 
 	encKey, err := deriveSubKey(sharedSecret, keyInfoEncryptV1)
@@ -49,7 +50,7 @@ func deriveSubKeys(sharedSecret []byte) (transportSubKeys, error) {
 func deriveSubKey(sharedSecret []byte, info string) ([]byte, error) {
 	key, err := hkdf.Expand(sha256.New, sharedSecret, info, subKeySize)
 	if err != nil {
-		return nil, fmt.Errorf("derive %s key: %w", info, err)
+		return nil, core.Errorf("derive %s key: %w", info, err)
 	}
 	return key, nil
 }

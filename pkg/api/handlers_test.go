@@ -3,11 +3,11 @@
 package api
 
 import (
-	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
+	core "dappco.re/go"
 	p2pnode "dappco.re/go/p2p/node"
 )
 
@@ -201,8 +201,8 @@ func TestListPeers_Bad(t *testing.T) {
 func decodeJSONBody(t *testing.T, recorder *httptest.ResponseRecorder) map[string]any {
 	t.Helper()
 	var body map[string]any
-	if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
-		t.Fatalf("decode response body: %v", err)
+	if r := core.JSONUnmarshal(recorder.Body.Bytes(), &body); !r.OK {
+		t.Fatalf("decode response body: %v", r.Value)
 	}
 	return body
 }

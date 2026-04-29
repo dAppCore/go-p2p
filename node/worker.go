@@ -2,10 +2,9 @@ package node
 
 import (
 	"encoding/base64"
-	"encoding/json"
-	"path/filepath"
 	"time"
 
+	core "dappco.re/go"
 	coreerr "dappco.re/go/log"
 
 	"dappco.re/go/p2p/logging"
@@ -390,7 +389,8 @@ func (w *Worker) handleDeploy(conn *PeerConnection, msg *Message) (*Message, err
 
 		// Unmarshal into interface{} to pass to ProfileManager
 		var profile any
-		if err := json.Unmarshal(profileData, &profile); err != nil {
+		if r := core.JSONUnmarshal(profileData, &profile); !r.OK {
+			err, _ := r.Value.(error)
 			return nil, coreerr.E("Worker.handleDeploy", "invalid profile data JSON", err)
 		}
 
@@ -412,13 +412,13 @@ func (w *Worker) handleDeploy(conn *PeerConnection, msg *Message) (*Message, err
 	case BundleMiner, BundleFull:
 		// Determine installation directory
 		// We use w.DataDir/lethean-desktop/miners/<bundle_name>
-		minersDir := filepath.Join(w.DataDir, "lethean-desktop", "miners")
-		installDir := filepath.Join(minersDir, payload.Name)
+		minersDir := core.PathJoin(w.DataDir, "lethean-desktop", "miners")
+		installDir := core.PathJoin(minersDir, payload.Name)
 
 		logging.Info("deploying miner bundle", logging.Fields{
-			"name": payload.Name,
-			"path": installDir,
-			"type": payload.BundleType,
+			"name":         payload.Name,
+			"install_path": installDir,
+			"type":         payload.BundleType,
 		})
 
 		// Extract miner bundle
@@ -430,7 +430,8 @@ func (w *Worker) handleDeploy(conn *PeerConnection, msg *Message) (*Message, err
 		// If the bundle contained a profile config, save it
 		if len(profileData) > 0 && w.profileManager != nil {
 			var profile any
-			if err := json.Unmarshal(profileData, &profile); err != nil {
+			if r := core.JSONUnmarshal(profileData, &profile); !r.OK {
+				err, _ := r.Value.(error)
 				logging.Warn("failed to parse profile from miner bundle", logging.Fields{"error": err})
 			} else {
 				if err := w.profileManager.SaveProfile(profile); err != nil {

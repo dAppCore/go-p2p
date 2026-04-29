@@ -2,15 +2,11 @@ package node
 
 import (
 	"archive/tar"
-	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"io"
-	"os"
-	"path/filepath"
-	"strings"
 
+	core "dappco.re/go"
 	coreio "dappco.re/go/io"
 	coreerr "dappco.re/go/log"
 
@@ -94,7 +90,7 @@ func CreateMinerBundle(minerPath string, profileJSON []byte, name string, passwo
 
 	// Create a tarball with the miner binary
 	tarData, err := createTarball(map[string][]byte{
-		filepath.Base(minerPath): minerData,
+		core.PathBase(minerPath): minerData,
 	})
 	if err != nil {
 		return nil, coreerr.E("CreateMinerBundle", "failed to create tarball", err)
@@ -195,7 +191,7 @@ func calculateChecksum(data []byte) string {
 
 // isJSON checks if data starts with JSON characters.
 func isJSON(data []byte) bool {
-	data = bytes.TrimSpace(data)
+	data = []byte(core.Trim(string(data)))
 	if len(data) == 0 {
 		return false
 	}
@@ -205,15 +201,15 @@ func isJSON(data []byte) bool {
 
 // createTarball creates a tar archive from a map of filename -> content.
 func createTarball(files map[string][]byte) ([]byte, error) {
-	var buf bytes.Buffer
-	tw := tar.NewWriter(&buf)
+	buf := core.NewBuffer()
+	tw := tar.NewWriter(buf)
 
 	// Track directories we've created
 	dirs := make(map[string]bool)
 
 	for name, content := range files {
 		// Create parent directories if needed
-		dir := filepath.Dir(name)
+		dir := core.PathDir(name)
 		if dir != "." && !dirs[dir] {
 			hdr := &tar.Header{
 				Name:     dir + "/",
@@ -228,7 +224,7 @@ func createTarball(files map[string][]byte) ([]byte, error) {
 
 		// Determine file mode (executable for binaries in miners/)
 		mode := int64(0644)
-		if filepath.Dir(name) == "miners" || !isJSON(content) {
+		if core.PathDir(name) == "miners" || !isJSON(content) {
 			mode = 0755
 		}
 
@@ -249,23 +245,28 @@ func createTarball(files map[string][]byte) ([]byte, error) {
 		return nil, err
 	}
 
-	return buf.Bytes(), nil
+	out := make([]byte, len(buf.Bytes()))
+	copy(out, buf.Bytes())
+	return out, nil
 }
 
 // extractTarball extracts a tar archive to a directory, returns first executable found.
 func extractTarball(tarData []byte, destDir string) (string, error) {
 	// Ensure destDir is an absolute, clean path for security checks
-	absDestDir, err := filepath.Abs(destDir)
-	if err != nil {
-		return "", coreerr.E("extractTarball", "failed to resolve destination directory", err)
+	absResult := core.PathAbs(destDir)
+	if !absResult.OK {
+		if err, ok := absResult.Value.(error); ok {
+			return "", coreerr.E("extractTarball", "failed to resolve destination directory", err)
+		}
+		return "", coreerr.E("extractTarball", "failed to resolve destination directory", nil)
 	}
-	absDestDir = filepath.Clean(absDestDir)
+	absDestDir := core.CleanPath(absResult.Value.(string), string(core.PathSeparator))
 
 	if err := coreio.Local.EnsureDir(absDestDir); err != nil {
 		return "", err
 	}
 
-	tr := tar.NewReader(bytes.NewReader(tarData))
+	tr := tar.NewReader(core.NewBuffer(tarData))
 	var firstExecutable string
 
 	for {
@@ -278,24 +279,24 @@ func extractTarball(tarData []byte, destDir string) (string, error) {
 		}
 
 		// Security: Sanitize the tar entry name to prevent path traversal (Zip Slip)
-		cleanName := filepath.Clean(hdr.Name)
+		cleanName := core.CleanPath(hdr.Name, string(core.PathSeparator))
 
 		// Reject absolute paths
-		if filepath.IsAbs(cleanName) {
+		if core.PathIsAbs(cleanName) {
 			return "", coreerr.E("extractTarball", "invalid tar entry: absolute path not allowed: "+hdr.Name, nil)
 		}
 
 		// Reject paths that escape the destination directory
-		if strings.HasPrefix(cleanName, ".."+string(os.PathSeparator)) || cleanName == ".." {
+		if core.HasPrefix(cleanName, ".."+string(core.PathSeparator)) || cleanName == ".." {
 			return "", coreerr.E("extractTarball", "invalid tar entry: path traversal attempt: "+hdr.Name, nil)
 		}
 
 		// Build the full path and verify it's within destDir
-		fullPath := filepath.Join(absDestDir, cleanName)
-		fullPath = filepath.Clean(fullPath)
+		fullPath := core.PathJoin(absDestDir, cleanName)
+		fullPath = core.CleanPath(fullPath, string(core.PathSeparator))
 
 		// Final security check: ensure the path is still within destDir
-		if !strings.HasPrefix(fullPath, absDestDir+string(os.PathSeparator)) && fullPath != absDestDir {
+		if !core.HasPrefix(fullPath, absDestDir+string(core.PathSeparator)) && fullPath != absDestDir {
 			return "", coreerr.E("extractTarball", "invalid tar entry: path escape attempt: "+hdr.Name, nil)
 		}
 
@@ -306,17 +307,19 @@ func extractTarball(tarData []byte, destDir string) (string, error) {
 			}
 		case tar.TypeReg:
 			// Ensure parent directory exists
-			if err := coreio.Local.EnsureDir(filepath.Dir(fullPath)); err != nil {
+			if err := coreio.Local.EnsureDir(core.PathDir(fullPath)); err != nil {
 				return "", err
 			}
 
-			// os.OpenFile is used deliberately here instead of coreio.Local.Create/Write
+			// core.OpenFile is used deliberately here instead of coreio.Local.Create/Write
 			// because coreio hardcodes file permissions (0644) and we need to preserve
 			// the tar header's mode bits — executable binaries require 0755.
-			f, err := os.OpenFile(fullPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, os.FileMode(hdr.Mode))
-			if err != nil {
+			openResult := core.OpenFile(fullPath, core.O_CREATE|core.O_WRONLY|core.O_TRUNC, core.FileMode(hdr.Mode))
+			if !openResult.OK {
+				err, _ := openResult.Value.(error)
 				return "", coreerr.E("extractTarball", "failed to create file "+hdr.Name, err)
 			}
+			f := openResult.Value.(*core.OSFile)
 
 			// Limit file size to prevent decompression bombs (100MB max per file)
 			const maxFileSize int64 = 100 * 1024 * 1024
@@ -347,8 +350,15 @@ func extractTarball(tarData []byte, destDir string) (string, error) {
 
 // StreamBundle writes a bundle to a writer (for large transfers).
 func StreamBundle(bundle *Bundle, w io.Writer) error {
-	encoder := json.NewEncoder(w)
-	return encoder.Encode(bundle)
+	data, err := MarshalJSON(bundle)
+	if err != nil {
+		return err
+	}
+	if _, err := w.Write(data); err != nil {
+		return err
+	}
+	_, err = w.Write([]byte("\n"))
+	return err
 }
 
 // ReadBundle reads a bundle from a reader.
@@ -359,8 +369,12 @@ func ReadBundle(r io.Reader) (*Bundle, error) {
 	}
 
 	var bundle Bundle
-	if err := json.Unmarshal(raw, &bundle); err != nil {
-		return nil, err
+	result := core.JSONUnmarshal(raw, &bundle)
+	if !result.OK {
+		if err, ok := result.Value.(error); ok {
+			return nil, err
+		}
+		return nil, core.NewError("bundle unmarshal failed")
 	}
 	return &bundle, nil
 }

@@ -4,9 +4,10 @@
 package levin
 
 import (
-	"errors"
 	"reflect"
 	"testing"
+
+	core "dappco.re/go"
 )
 
 func requireStorageNoError(t *testing.T, err error) {
@@ -83,7 +84,7 @@ func TestStorage_EncodeStorage_Good(t *testing.T) {
 func TestStorage_EncodeStorage_Bad(t *testing.T) {
 	_, err := EncodeStorage(Section{string(make([]byte, 256)): Uint8Val(1)})
 	requireStorageError(t, err)
-	if !errors.Is(err, ErrStorageNameTooLong) {
+	if !core.Is(err, ErrStorageNameTooLong) {
 		t.Fatalf("error: got %v", err)
 	}
 }
@@ -1231,7 +1232,7 @@ func TestDecodeStorage_BadSignature(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
-	if !errors.Is(err, ErrStorageBadSignature) {
+	if !core.Is(err, ErrStorageBadSignature) {
 		t.Fatalf("expected error %v, got %v", ErrStorageBadSignature, err)
 	}
 }
@@ -1241,7 +1242,7 @@ func TestDecodeStorage_TooShort(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
-	if !errors.Is(err, ErrStorageTruncated) {
+	if !core.Is(err, ErrStorageTruncated) {
 		t.Fatalf("expected error %v, got %v", ErrStorageTruncated, err)
 	}
 }
@@ -1282,27 +1283,27 @@ func TestStorage_TypeMismatchErrors(t *testing.T) {
 	v := Uint64Val(42)
 
 	_, err := v.AsUint32()
-	if !errors.Is(err, ErrStorageTypeMismatch) {
+	if !core.Is(err, ErrStorageTypeMismatch) {
 		t.Fatalf("expected error %v, got %v", ErrStorageTypeMismatch, err)
 	}
 
 	_, err = v.AsString()
-	if !errors.Is(err, ErrStorageTypeMismatch) {
+	if !core.Is(err, ErrStorageTypeMismatch) {
 		t.Fatalf("expected error %v, got %v", ErrStorageTypeMismatch, err)
 	}
 
 	_, err = v.AsBool()
-	if !errors.Is(err, ErrStorageTypeMismatch) {
+	if !core.Is(err, ErrStorageTypeMismatch) {
 		t.Fatalf("expected error %v, got %v", ErrStorageTypeMismatch, err)
 	}
 
 	_, err = v.AsSection()
-	if !errors.Is(err, ErrStorageTypeMismatch) {
+	if !core.Is(err, ErrStorageTypeMismatch) {
 		t.Fatalf("expected error %v, got %v", ErrStorageTypeMismatch, err)
 	}
 
 	_, err = v.AsUint64Array()
-	if !errors.Is(err, ErrStorageTypeMismatch) {
+	if !core.Is(err, ErrStorageTypeMismatch) {
 		t.Fatalf("expected error %v, got %v", ErrStorageTypeMismatch, err)
 	}
 }
@@ -1338,7 +1339,7 @@ func TestDecodeStorage_BadVersion(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
-	if !errors.Is(err, ErrStorageBadVersion) {
+	if !core.Is(err, ErrStorageBadVersion) {
 		t.Fatalf("expected error %v, got %v", ErrStorageBadVersion, err)
 	}
 }
