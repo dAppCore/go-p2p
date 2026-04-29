@@ -19,7 +19,7 @@ func BenchmarkPacketBuild(b *testing.B) {
 
 	for b.Loop() {
 		builder := NewBuilder(0x20, payload)
-		_, err := builder.MarshalAndSign(benchSecret)
+		_, err := uepsResultValue[[]byte](builder.MarshalAndSign(benchSecret))
 		if err != nil {
 			b.Fatalf("MarshalAndSign: %v", err)
 		}
@@ -30,7 +30,7 @@ func BenchmarkPacketBuild(b *testing.B) {
 func BenchmarkPacketRead(b *testing.B) {
 	payload := repeatBytes([]byte("B"), 256)
 	builder := NewBuilder(0x20, payload)
-	frame, err := builder.MarshalAndSign(benchSecret)
+	frame, err := uepsResultValue[[]byte](builder.MarshalAndSign(benchSecret))
 	if err != nil {
 		b.Fatalf("MarshalAndSign: %v", err)
 	}
@@ -40,7 +40,7 @@ func BenchmarkPacketRead(b *testing.B) {
 
 	for b.Loop() {
 		reader := bufio.NewReader(core.NewBuffer(frame))
-		_, err := ReadAndVerify(reader, benchSecret)
+		_, err := uepsResultValue[*ParsedPacket](ReadAndVerify(reader, benchSecret))
 		if err != nil {
 			b.Fatalf("ReadAndVerify: %v", err)
 		}
@@ -56,12 +56,12 @@ func BenchmarkPacketRoundTrip(b *testing.B) {
 
 	for b.Loop() {
 		builder := NewBuilder(0x01, payload)
-		frame, err := builder.MarshalAndSign(benchSecret)
+		frame, err := uepsResultValue[[]byte](builder.MarshalAndSign(benchSecret))
 		if err != nil {
 			b.Fatalf("MarshalAndSign: %v", err)
 		}
 
-		_, err = ReadAndVerify(bufio.NewReader(core.NewBuffer(frame)), benchSecret)
+		_, err = uepsResultValue[*ParsedPacket](ReadAndVerify(bufio.NewReader(core.NewBuffer(frame)), benchSecret))
 		if err != nil {
 			b.Fatalf("ReadAndVerify: %v", err)
 		}
@@ -77,7 +77,7 @@ func BenchmarkPacketBuild_LargePayload(b *testing.B) {
 
 	for b.Loop() {
 		builder := NewBuilder(0xFF, payload)
-		_, err := builder.MarshalAndSign(benchSecret)
+		_, err := uepsResultValue[[]byte](builder.MarshalAndSign(benchSecret))
 		if err != nil {
 			b.Fatalf("MarshalAndSign: %v", err)
 		}
@@ -88,7 +88,7 @@ func BenchmarkPacketBuild_LargePayload(b *testing.B) {
 func BenchmarkPacketRead_LargePayload(b *testing.B) {
 	payload := repeatBytes([]byte("Y"), 4096)
 	builder := NewBuilder(0xFF, payload)
-	frame, err := builder.MarshalAndSign(benchSecret)
+	frame, err := uepsResultValue[[]byte](builder.MarshalAndSign(benchSecret))
 	if err != nil {
 		b.Fatalf("MarshalAndSign: %v", err)
 	}
@@ -97,7 +97,7 @@ func BenchmarkPacketRead_LargePayload(b *testing.B) {
 	b.ResetTimer()
 
 	for b.Loop() {
-		_, err := ReadAndVerify(bufio.NewReader(core.NewBuffer(frame)), benchSecret)
+		_, err := uepsResultValue[*ParsedPacket](ReadAndVerify(bufio.NewReader(core.NewBuffer(frame)), benchSecret))
 		if err != nil {
 			b.Fatalf("ReadAndVerify: %v", err)
 		}
@@ -109,7 +109,7 @@ func BenchmarkPacketBuild_EmptyPayload(b *testing.B) {
 	b.ReportAllocs()
 	for b.Loop() {
 		builder := NewBuilder(0x01, nil)
-		_, err := builder.MarshalAndSign(benchSecret)
+		_, err := uepsResultValue[[]byte](builder.MarshalAndSign(benchSecret))
 		if err != nil {
 			b.Fatalf("MarshalAndSign: %v", err)
 		}

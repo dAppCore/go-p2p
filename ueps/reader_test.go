@@ -8,11 +8,11 @@ import (
 )
 
 func TestReader_ReadAndVerify_Good(t *testing.T) {
-	frame, err := NewBuilder(0x20, []byte("payload")).MarshalAndSign(testSecret)
+	frame, err := uepsResultValue[[]byte](NewBuilder(0x20, []byte("payload")).MarshalAndSign(testSecret))
 	if err != nil {
 		t.Fatalf("MarshalAndSign: %v", err)
 	}
-	parsed, err := ReadAndVerify(bufio.NewReader(core.NewBuffer(frame)), testSecret)
+	parsed, err := uepsResultValue[*ParsedPacket](ReadAndVerify(bufio.NewReader(core.NewBuffer(frame)), testSecret))
 	if err != nil {
 		t.Fatalf("ReadAndVerify: %v", err)
 	}
@@ -22,11 +22,11 @@ func TestReader_ReadAndVerify_Good(t *testing.T) {
 }
 
 func TestReader_ReadAndVerify_Bad(t *testing.T) {
-	frame, err := NewBuilder(0x20, []byte("payload")).MarshalAndSign(testSecret)
+	frame, err := uepsResultValue[[]byte](NewBuilder(0x20, []byte("payload")).MarshalAndSign(testSecret))
 	if err != nil {
 		t.Fatalf("MarshalAndSign: %v", err)
 	}
-	_, err = ReadAndVerify(bufio.NewReader(core.NewBuffer(frame)), []byte("wrong-secret"))
+	_, err = uepsResultValue[*ParsedPacket](ReadAndVerify(bufio.NewReader(core.NewBuffer(frame)), []byte("wrong-secret")))
 	if err == nil {
 		t.Fatal("expected HMAC mismatch")
 	}
@@ -36,7 +36,7 @@ func TestReader_ReadAndVerify_Bad(t *testing.T) {
 }
 
 func TestReader_ReadAndVerify_Ugly(t *testing.T) {
-	parsed, err := ReadAndVerify(bufio.NewReader(core.NewBuffer(nil)), testSecret)
+	parsed, err := uepsResultValue[*ParsedPacket](ReadAndVerify(bufio.NewReader(core.NewBuffer(nil)), testSecret))
 	if err != io.EOF {
 		t.Fatalf("error: got %v, want EOF", err)
 	}

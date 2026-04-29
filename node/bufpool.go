@@ -42,13 +42,29 @@ func putBuffer(buf pooledBuffer) {
 
 // MarshalJSON encodes a value to JSON using a pooled buffer.
 // Returns a copy of the encoded bytes (safe to use after the function returns).
-func MarshalJSON(v any) ([]byte, error) {
+func MarshalJSON(v any) core.Result {
+	if raw, ok := v.(RawMessage); ok {
+		return raw.MarshalRawJSON()
+	}
+	if raw, ok := v.(*RawMessage); ok {
+		if raw == nil {
+			return core.Fail(core.NewError("node.RawMessage: marshal on nil pointer"))
+		}
+		return raw.MarshalRawJSON()
+	}
+	if msg, ok := v.(*Message); ok {
+		return marshalMessageJSON(msg)
+	}
+	if msg, ok := v.(Message); ok {
+		return marshalMessageJSON(&msg)
+	}
+
 	r := core.JSONMarshal(v)
 	if !r.OK {
 		if err, ok := r.Value.(error); ok {
-			return nil, err
+			return core.Fail(err)
 		}
-		return nil, core.NewError("json marshal failed")
+		return core.Fail(core.NewError("json marshal failed"))
 	}
 
 	text := string(r.Value.([]byte))
@@ -59,5 +75,5 @@ func MarshalJSON(v any) ([]byte, error) {
 
 	result := make([]byte, len(data))
 	copy(result, data)
-	return result, nil
+	return core.Ok(result)
 }

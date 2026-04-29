@@ -13,7 +13,7 @@ func setupTestNodeManager(t *testing.T) (*NodeManager, func()) {
 	keyPath := core.PathJoin(tmpDir, "private.key")
 	configPath := core.PathJoin(tmpDir, "node.json")
 
-	nm, err := NewNodeManagerWithPaths(keyPath, configPath)
+	nm, err := resultValue[*NodeManager](NewNodeManagerWithPaths(keyPath, configPath))
 	if err != nil {
 		core.RemoveAll(tmpDir)
 		t.Fatalf("failed to create node manager: %v", err)
@@ -40,7 +40,7 @@ func TestNodeIdentity(t *testing.T) {
 		nm, cleanup := setupTestNodeManager(t)
 		defer cleanup()
 
-		err := nm.GenerateIdentity("test-node", RoleDual)
+		err := resultErr(nm.GenerateIdentity("test-node", RoleDual))
 		if err != nil {
 			t.Fatalf("failed to generate identity: %v", err)
 		}
@@ -75,7 +75,7 @@ func TestNodeIdentity(t *testing.T) {
 		nm, cleanup := setupTestNodeManager(t)
 		defer cleanup()
 
-		err := nm.GenerateIdentity("permission-test", RoleDual)
+		err := resultErr(nm.GenerateIdentity("permission-test", RoleDual))
 		if err != nil {
 			t.Fatalf("failed to generate identity: %v", err)
 		}
@@ -97,12 +97,12 @@ func TestNodeIdentity(t *testing.T) {
 		configPath := core.PathJoin(tmpDir, "node.json")
 
 		// First, create an identity
-		nm1, err := NewNodeManagerWithPaths(keyPath, configPath)
+		nm1, err := resultValue[*NodeManager](NewNodeManagerWithPaths(keyPath, configPath))
 		if err != nil {
 			t.Fatalf("failed to create first node manager: %v", err)
 		}
 
-		err = nm1.GenerateIdentity("persistent-node", RoleWorker)
+		err = resultErr(nm1.GenerateIdentity("persistent-node", RoleWorker))
 		if err != nil {
 			t.Fatalf("failed to generate identity: %v", err)
 		}
@@ -111,7 +111,7 @@ func TestNodeIdentity(t *testing.T) {
 		originalPubKey := nm1.GetIdentity().PublicKey
 
 		// Create a new manager - should load existing identity
-		nm2, err := NewNodeManagerWithPaths(keyPath, configPath)
+		nm2, err := resultValue[*NodeManager](NewNodeManagerWithPaths(keyPath, configPath))
 		if err != nil {
 			t.Fatalf("failed to create second node manager: %v", err)
 		}
@@ -138,38 +138,38 @@ func TestNodeIdentity(t *testing.T) {
 		defer core.RemoveAll(tmpDir2)
 
 		// Node 1
-		nm1, err := NewNodeManagerWithPaths(
+		nm1, err := resultValue[*NodeManager](NewNodeManagerWithPaths(
 			core.PathJoin(tmpDir1, "private.key"),
 			core.PathJoin(tmpDir1, "node.json"),
-		)
+		))
 		if err != nil {
 			t.Fatalf("failed to create node manager 1: %v", err)
 		}
-		err = nm1.GenerateIdentity("node1", RoleDual)
+		err = resultErr(nm1.GenerateIdentity("node1", RoleDual))
 		if err != nil {
 			t.Fatalf("failed to generate identity 1: %v", err)
 		}
 
 		// Node 2
-		nm2, err := NewNodeManagerWithPaths(
+		nm2, err := resultValue[*NodeManager](NewNodeManagerWithPaths(
 			core.PathJoin(tmpDir2, "private.key"),
 			core.PathJoin(tmpDir2, "node.json"),
-		)
+		))
 		if err != nil {
 			t.Fatalf("failed to create node manager 2: %v", err)
 		}
-		err = nm2.GenerateIdentity("node2", RoleDual)
+		err = resultErr(nm2.GenerateIdentity("node2", RoleDual))
 		if err != nil {
 			t.Fatalf("failed to generate identity 2: %v", err)
 		}
 
 		// Derive shared secrets - should be identical
-		secret1, err := nm1.DeriveSharedSecret(nm2.GetIdentity().PublicKey)
+		secret1, err := resultValue[[]byte](nm1.DeriveSharedSecret(nm2.GetIdentity().PublicKey))
 		if err != nil {
 			t.Fatalf("failed to derive shared secret from node 1: %v", err)
 		}
 
-		secret2, err := nm2.DeriveSharedSecret(nm1.GetIdentity().PublicKey)
+		secret2, err := resultValue[[]byte](nm2.DeriveSharedSecret(nm1.GetIdentity().PublicKey))
 		if err != nil {
 			t.Fatalf("failed to derive shared secret from node 2: %v", err)
 		}
@@ -190,7 +190,7 @@ func TestNodeIdentity(t *testing.T) {
 		nm, cleanup := setupTestNodeManager(t)
 		defer cleanup()
 
-		err := nm.GenerateIdentity("delete-me", RoleDual)
+		err := resultErr(nm.GenerateIdentity("delete-me", RoleDual))
 		if err != nil {
 			t.Fatalf("failed to generate identity: %v", err)
 		}
@@ -199,7 +199,7 @@ func TestNodeIdentity(t *testing.T) {
 			t.Error("should have identity before delete")
 		}
 
-		err = nm.Delete()
+		err = resultErr(nm.Delete())
 		if err != nil {
 			t.Fatalf("failed to delete identity: %v", err)
 		}
@@ -215,7 +215,7 @@ func TestNodeIdentity(t *testing.T) {
 		keyPath := core.PathJoin(tmpDir, "private.key")
 		configPath := core.PathJoin(tmpDir, "node.json")
 
-		nm, err := LoadOrCreateIdentityWithPaths(keyPath, configPath)
+		nm, err := resultValue[*NodeManager](LoadOrCreateIdentityWithPaths(keyPath, configPath))
 		if err != nil {
 			t.Fatalf("failed to load or create identity: %v", err)
 		}
@@ -248,7 +248,7 @@ func TestNodeIdentity(t *testing.T) {
 }
 
 func TestIdentity_GenerateChallenge_Good(t *testing.T) {
-	challenge, err := GenerateChallenge()
+	challenge, err := resultValue[[]byte](GenerateChallenge())
 	if err != nil {
 		t.Fatalf("GenerateChallenge: %v", err)
 	}
@@ -258,7 +258,7 @@ func TestIdentity_GenerateChallenge_Good(t *testing.T) {
 }
 
 func TestIdentity_GenerateChallenge_Bad(t *testing.T) {
-	challenge, err := GenerateChallenge()
+	challenge, err := resultValue[[]byte](GenerateChallenge())
 	if err != nil {
 		t.Fatalf("GenerateChallenge: %v", err)
 	}
@@ -268,11 +268,11 @@ func TestIdentity_GenerateChallenge_Bad(t *testing.T) {
 }
 
 func TestIdentity_GenerateChallenge_Ugly(t *testing.T) {
-	first, err := GenerateChallenge()
+	first, err := resultValue[[]byte](GenerateChallenge())
 	if err != nil {
 		t.Fatalf("GenerateChallenge first: %v", err)
 	}
-	second, err := GenerateChallenge()
+	second, err := resultValue[[]byte](GenerateChallenge())
 	if err != nil {
 		t.Fatalf("GenerateChallenge second: %v", err)
 	}
@@ -343,7 +343,7 @@ func TestIdentity_VerifyChallenge_Ugly(t *testing.T) {
 func TestIdentity_NewNodeManager_Good(t *testing.T) {
 	cleanup := setupTestEnv(t)
 	defer cleanup()
-	nm, err := NewNodeManager()
+	nm, err := resultValue[*NodeManager](NewNodeManager())
 	if err != nil {
 		t.Fatalf("NewNodeManager: %v", err)
 	}
@@ -355,7 +355,7 @@ func TestIdentity_NewNodeManager_Good(t *testing.T) {
 func TestIdentity_NewNodeManager_Bad(t *testing.T) {
 	cleanup := setupTestEnv(t)
 	defer cleanup()
-	nm, err := NewNodeManager()
+	nm, err := resultValue[*NodeManager](NewNodeManager())
 	if err != nil {
 		t.Fatalf("NewNodeManager: %v", err)
 	}
@@ -370,11 +370,11 @@ func TestIdentity_NewNodeManager_Bad(t *testing.T) {
 func TestIdentity_NewNodeManager_Ugly(t *testing.T) {
 	cleanup := setupTestEnv(t)
 	defer cleanup()
-	first, err := NewNodeManager()
+	first, err := resultValue[*NodeManager](NewNodeManager())
 	if err != nil {
 		t.Fatalf("NewNodeManager first: %v", err)
 	}
-	second, err := NewNodeManager()
+	second, err := resultValue[*NodeManager](NewNodeManager())
 	if err != nil {
 		t.Fatalf("NewNodeManager second: %v", err)
 	}
@@ -385,7 +385,7 @@ func TestIdentity_NewNodeManager_Ugly(t *testing.T) {
 
 func TestIdentity_NewNodeManagerWithPaths_Good(t *testing.T) {
 	dir := t.TempDir()
-	nm, err := NewNodeManagerWithPaths(core.PathJoin(dir, "private.key"), core.PathJoin(dir, "node.json"))
+	nm, err := resultValue[*NodeManager](NewNodeManagerWithPaths(core.PathJoin(dir, "private.key"), core.PathJoin(dir, "node.json")))
 	if err != nil {
 		t.Fatalf("NewNodeManagerWithPaths: %v", err)
 	}
@@ -395,7 +395,7 @@ func TestIdentity_NewNodeManagerWithPaths_Good(t *testing.T) {
 }
 
 func TestIdentity_NewNodeManagerWithPaths_Bad(t *testing.T) {
-	nm, err := NewNodeManagerWithPaths("", "")
+	nm, err := resultValue[*NodeManager](NewNodeManagerWithPaths("", ""))
 	if err != nil {
 		t.Fatalf("NewNodeManagerWithPaths empty paths: %v", err)
 	}
@@ -406,7 +406,7 @@ func TestIdentity_NewNodeManagerWithPaths_Bad(t *testing.T) {
 
 func TestIdentity_NewNodeManagerWithPaths_Ugly(t *testing.T) {
 	dir := t.TempDir()
-	nm, err := NewNodeManagerWithPaths(core.PathJoin(dir, "nested", "private.key"), core.PathJoin(dir, "nested", "node.json"))
+	nm, err := resultValue[*NodeManager](NewNodeManagerWithPaths(core.PathJoin(dir, "nested", "private.key"), core.PathJoin(dir, "nested", "node.json")))
 	if err != nil {
 		t.Fatalf("NewNodeManagerWithPaths nested: %v", err)
 	}
@@ -418,7 +418,7 @@ func TestIdentity_NewNodeManagerWithPaths_Ugly(t *testing.T) {
 func TestIdentity_LoadOrCreateIdentity_Good(t *testing.T) {
 	cleanup := setupTestEnv(t)
 	defer cleanup()
-	nm, err := LoadOrCreateIdentity()
+	nm, err := resultValue[*NodeManager](LoadOrCreateIdentity())
 	if err != nil {
 		t.Fatalf("LoadOrCreateIdentity: %v", err)
 	}
@@ -430,7 +430,7 @@ func TestIdentity_LoadOrCreateIdentity_Good(t *testing.T) {
 func TestIdentity_LoadOrCreateIdentity_Bad(t *testing.T) {
 	cleanup := setupTestEnv(t)
 	defer cleanup()
-	nm, err := LoadOrCreateIdentity()
+	nm, err := resultValue[*NodeManager](LoadOrCreateIdentity())
 	if err != nil {
 		t.Fatalf("LoadOrCreateIdentity: %v", err)
 	}
@@ -445,11 +445,11 @@ func TestIdentity_LoadOrCreateIdentity_Bad(t *testing.T) {
 func TestIdentity_LoadOrCreateIdentity_Ugly(t *testing.T) {
 	cleanup := setupTestEnv(t)
 	defer cleanup()
-	first, err := LoadOrCreateIdentity()
+	first, err := resultValue[*NodeManager](LoadOrCreateIdentity())
 	if err != nil {
 		t.Fatalf("LoadOrCreateIdentity first: %v", err)
 	}
-	second, err := LoadOrCreateIdentity()
+	second, err := resultValue[*NodeManager](LoadOrCreateIdentity())
 	if err != nil {
 		t.Fatalf("LoadOrCreateIdentity second: %v", err)
 	}
@@ -460,7 +460,7 @@ func TestIdentity_LoadOrCreateIdentity_Ugly(t *testing.T) {
 
 func TestIdentity_LoadOrCreateIdentityWithPaths_Good(t *testing.T) {
 	dir := t.TempDir()
-	nm, err := LoadOrCreateIdentityWithPaths(core.PathJoin(dir, "private.key"), core.PathJoin(dir, "node.json"))
+	nm, err := resultValue[*NodeManager](LoadOrCreateIdentityWithPaths(core.PathJoin(dir, "private.key"), core.PathJoin(dir, "node.json")))
 	if err != nil {
 		t.Fatalf("LoadOrCreateIdentityWithPaths: %v", err)
 	}
@@ -475,7 +475,7 @@ func TestIdentity_LoadOrCreateIdentityWithPaths_Bad(t *testing.T) {
 	if err != nil {
 		t.Fatalf("mkdir private key path: %v", err)
 	}
-	nm, err := LoadOrCreateIdentityWithPaths(core.PathJoin(dir, "private.key"), core.PathJoin(dir, "node.json"))
+	nm, err := resultValue[*NodeManager](LoadOrCreateIdentityWithPaths(core.PathJoin(dir, "private.key"), core.PathJoin(dir, "node.json")))
 	if err == nil {
 		t.Fatal("expected write error")
 	}
@@ -488,11 +488,11 @@ func TestIdentity_LoadOrCreateIdentityWithPaths_Ugly(t *testing.T) {
 	dir := t.TempDir()
 	keyPath := core.PathJoin(dir, "private.key")
 	configPath := core.PathJoin(dir, "node.json")
-	first, err := LoadOrCreateIdentityWithPaths(keyPath, configPath)
+	first, err := resultValue[*NodeManager](LoadOrCreateIdentityWithPaths(keyPath, configPath))
 	if err != nil {
 		t.Fatalf("first load: %v", err)
 	}
-	second, err := LoadOrCreateIdentityWithPaths(keyPath, configPath)
+	second, err := resultValue[*NodeManager](LoadOrCreateIdentityWithPaths(keyPath, configPath))
 	if err != nil {
 		t.Fatalf("second load: %v", err)
 	}
@@ -504,7 +504,7 @@ func TestIdentity_LoadOrCreateIdentityWithPaths_Ugly(t *testing.T) {
 func TestIdentity_NodeManager_HasIdentity_Good(t *testing.T) {
 	nm, cleanup := setupTestNodeManager(t)
 	defer cleanup()
-	if err := nm.GenerateIdentity("node", RoleDual); err != nil {
+	if err := resultErr(nm.GenerateIdentity("node", RoleDual)); err != nil {
 		t.Fatalf("GenerateIdentity: %v", err)
 	}
 	if !nm.HasIdentity() {
@@ -526,7 +526,7 @@ func TestIdentity_NodeManager_HasIdentity_Bad(t *testing.T) {
 func TestIdentity_NodeManager_HasIdentity_Ugly(t *testing.T) {
 	nm, cleanup := setupTestNodeManager(t)
 	defer cleanup()
-	_ = nm.Delete()
+	_ = resultErr(nm.Delete())
 	if nm.HasIdentity() {
 		t.Fatal("deleted manager should not have identity")
 	}
@@ -535,7 +535,7 @@ func TestIdentity_NodeManager_HasIdentity_Ugly(t *testing.T) {
 func TestIdentity_NodeManager_GetIdentity_Good(t *testing.T) {
 	nm, cleanup := setupTestNodeManager(t)
 	defer cleanup()
-	if err := nm.GenerateIdentity("node", RoleWorker); err != nil {
+	if err := resultErr(nm.GenerateIdentity("node", RoleWorker)); err != nil {
 		t.Fatalf("GenerateIdentity: %v", err)
 	}
 	identity := nm.GetIdentity()
@@ -556,7 +556,7 @@ func TestIdentity_NodeManager_GetIdentity_Bad(t *testing.T) {
 func TestIdentity_NodeManager_GetIdentity_Ugly(t *testing.T) {
 	nm, cleanup := setupTestNodeManager(t)
 	defer cleanup()
-	if err := nm.GenerateIdentity("node", RoleDual); err != nil {
+	if err := resultErr(nm.GenerateIdentity("node", RoleDual)); err != nil {
 		t.Fatalf("GenerateIdentity: %v", err)
 	}
 	identity := nm.GetIdentity()
@@ -569,7 +569,7 @@ func TestIdentity_NodeManager_GetIdentity_Ugly(t *testing.T) {
 func TestIdentity_NodeManager_GenerateIdentity_Good(t *testing.T) {
 	nm, cleanup := setupTestNodeManager(t)
 	defer cleanup()
-	err := nm.GenerateIdentity("node", RoleController)
+	err := resultErr(nm.GenerateIdentity("node", RoleController))
 	if err != nil {
 		t.Fatalf("GenerateIdentity: %v", err)
 	}
@@ -584,11 +584,11 @@ func TestIdentity_NodeManager_GenerateIdentity_Bad(t *testing.T) {
 	if err != nil {
 		t.Fatalf("mkdir private key path: %v", err)
 	}
-	nm, err := NewNodeManagerWithPaths(core.PathJoin(dir, "private.key"), core.PathJoin(dir, "node.json"))
+	nm, err := resultValue[*NodeManager](NewNodeManagerWithPaths(core.PathJoin(dir, "private.key"), core.PathJoin(dir, "node.json")))
 	if err != nil {
 		t.Fatalf("NewNodeManagerWithPaths: %v", err)
 	}
-	err = nm.GenerateIdentity("node", RoleDual)
+	err = resultErr(nm.GenerateIdentity("node", RoleDual))
 	if err == nil {
 		t.Fatal("expected save private key error")
 	}
@@ -597,7 +597,7 @@ func TestIdentity_NodeManager_GenerateIdentity_Bad(t *testing.T) {
 func TestIdentity_NodeManager_GenerateIdentity_Ugly(t *testing.T) {
 	nm, cleanup := setupTestNodeManager(t)
 	defer cleanup()
-	err := nm.GenerateIdentity("", "")
+	err := resultErr(nm.GenerateIdentity("", ""))
 	if err != nil {
 		t.Fatalf("GenerateIdentity empty fields: %v", err)
 	}
@@ -611,9 +611,9 @@ func TestIdentity_NodeManager_DeriveSharedSecret_Good(t *testing.T) {
 	defer cleanupLeft()
 	right, cleanupRight := setupTestNodeManager(t)
 	defer cleanupRight()
-	_ = left.GenerateIdentity("left", RoleDual)
-	_ = right.GenerateIdentity("right", RoleDual)
-	secret, err := left.DeriveSharedSecret(right.GetIdentity().PublicKey)
+	_ = resultErr(left.GenerateIdentity("left", RoleDual))
+	_ = resultErr(right.GenerateIdentity("right", RoleDual))
+	secret, err := resultValue[[]byte](left.DeriveSharedSecret(right.GetIdentity().PublicKey))
 	if err != nil {
 		t.Fatalf("DeriveSharedSecret: %v", err)
 	}
@@ -625,7 +625,7 @@ func TestIdentity_NodeManager_DeriveSharedSecret_Good(t *testing.T) {
 func TestIdentity_NodeManager_DeriveSharedSecret_Bad(t *testing.T) {
 	nm, cleanup := setupTestNodeManager(t)
 	defer cleanup()
-	secret, err := nm.DeriveSharedSecret("invalid")
+	secret, err := resultValue[[]byte](nm.DeriveSharedSecret("invalid"))
 	if err == nil {
 		t.Fatal("expected identity error")
 	}
@@ -637,8 +637,8 @@ func TestIdentity_NodeManager_DeriveSharedSecret_Bad(t *testing.T) {
 func TestIdentity_NodeManager_DeriveSharedSecret_Ugly(t *testing.T) {
 	nm, cleanup := setupTestNodeManager(t)
 	defer cleanup()
-	_ = nm.GenerateIdentity("node", RoleDual)
-	secret, err := nm.DeriveSharedSecret("invalid")
+	_ = resultErr(nm.GenerateIdentity("node", RoleDual))
+	secret, err := resultValue[[]byte](nm.DeriveSharedSecret("invalid"))
 	if err == nil {
 		t.Fatal("expected invalid public key error")
 	}
@@ -650,8 +650,8 @@ func TestIdentity_NodeManager_DeriveSharedSecret_Ugly(t *testing.T) {
 func TestIdentity_NodeManager_Delete_Good(t *testing.T) {
 	nm, cleanup := setupTestNodeManager(t)
 	defer cleanup()
-	_ = nm.GenerateIdentity("node", RoleDual)
-	err := nm.Delete()
+	_ = resultErr(nm.GenerateIdentity("node", RoleDual))
+	err := resultErr(nm.Delete())
 	if err != nil {
 		t.Fatalf("Delete: %v", err)
 	}
@@ -663,7 +663,7 @@ func TestIdentity_NodeManager_Delete_Good(t *testing.T) {
 func TestIdentity_NodeManager_Delete_Bad(t *testing.T) {
 	nm, cleanup := setupTestNodeManager(t)
 	defer cleanup()
-	err := nm.Delete()
+	err := resultErr(nm.Delete())
 	if err != nil {
 		t.Fatalf("Delete without files: %v", err)
 	}
@@ -675,9 +675,9 @@ func TestIdentity_NodeManager_Delete_Bad(t *testing.T) {
 func TestIdentity_NodeManager_Delete_Ugly(t *testing.T) {
 	nm, cleanup := setupTestNodeManager(t)
 	defer cleanup()
-	_ = nm.GenerateIdentity("node", RoleDual)
-	_ = nm.Delete()
-	err := nm.Delete()
+	_ = resultErr(nm.GenerateIdentity("node", RoleDual))
+	_ = resultErr(nm.Delete())
+	err := resultErr(nm.Delete())
 	if err != nil {
 		t.Fatalf("second Delete: %v", err)
 	}
@@ -704,7 +704,7 @@ func TestNodeRoles(t *testing.T) {
 
 func TestChallengeResponse(t *testing.T) {
 	t.Run("GenerateChallenge", func(t *testing.T) {
-		challenge, err := GenerateChallenge()
+		challenge, err := resultValue[[]byte](GenerateChallenge())
 		if err != nil {
 			t.Fatalf("failed to generate challenge: %v", err)
 		}
@@ -726,7 +726,7 @@ func TestChallengeResponse(t *testing.T) {
 		}
 
 		// Generate another and ensure they're different
-		challenge2, err := GenerateChallenge()
+		challenge2, err := resultValue[[]byte](GenerateChallenge())
 		if err != nil {
 			t.Fatalf("failed to generate second challenge: %v", err)
 		}
@@ -744,7 +744,7 @@ func TestChallengeResponse(t *testing.T) {
 	})
 
 	t.Run("SignAndVerifyChallenge", func(t *testing.T) {
-		challenge, _ := GenerateChallenge()
+		challenge, _ := resultValue[[]byte](GenerateChallenge())
 		sharedSecret := []byte("test-secret-key-32-bytes-long!!")
 
 		// Sign the challenge
@@ -760,7 +760,7 @@ func TestChallengeResponse(t *testing.T) {
 		}
 
 		// Verify should fail with wrong challenge
-		wrongChallenge, _ := GenerateChallenge()
+		wrongChallenge, _ := resultValue[[]byte](GenerateChallenge())
 		if VerifyChallenge(wrongChallenge, signature, sharedSecret) {
 			t.Error("verification should fail with wrong challenge")
 		}
@@ -805,27 +805,27 @@ func TestChallengeResponse(t *testing.T) {
 		defer core.RemoveAll(tmpDir1)
 		defer core.RemoveAll(tmpDir2)
 
-		nm1, _ := NewNodeManagerWithPaths(
+		nm1, _ := resultValue[*NodeManager](NewNodeManagerWithPaths(
 			core.PathJoin(tmpDir1, "private.key"),
 			core.PathJoin(tmpDir1, "node.json"),
-		)
-		nm1.GenerateIdentity("challenger", RoleDual)
+		))
+		_ = resultErr(nm1.GenerateIdentity("challenger", RoleDual))
 
-		nm2, _ := NewNodeManagerWithPaths(
+		nm2, _ := resultValue[*NodeManager](NewNodeManagerWithPaths(
 			core.PathJoin(tmpDir2, "private.key"),
 			core.PathJoin(tmpDir2, "node.json"),
-		)
-		nm2.GenerateIdentity("responder", RoleDual)
+		))
+		_ = resultErr(nm2.GenerateIdentity("responder", RoleDual))
 
 		// Challenger generates challenge
-		challenge, err := GenerateChallenge()
+		challenge, err := resultValue[[]byte](GenerateChallenge())
 		if err != nil {
 			t.Fatalf("failed to generate challenge: %v", err)
 		}
 
 		// Both derive the same shared secret
-		secret1, _ := nm1.DeriveSharedSecret(nm2.GetIdentity().PublicKey)
-		secret2, _ := nm2.DeriveSharedSecret(nm1.GetIdentity().PublicKey)
+		secret1, _ := resultValue[[]byte](nm1.DeriveSharedSecret(nm2.GetIdentity().PublicKey))
+		secret2, _ := resultValue[[]byte](nm2.DeriveSharedSecret(nm1.GetIdentity().PublicKey))
 
 		// Responder signs challenge with their derived secret
 		response := SignChallenge(challenge, secret2)
@@ -842,7 +842,7 @@ func TestNodeManager_DeriveSharedSecret_NoIdentity(t *testing.T) {
 	defer cleanup()
 
 	// No identity generated
-	_, err := nm.DeriveSharedSecret("some-key")
+	_, err := resultValue[[]byte](nm.DeriveSharedSecret("some-key"))
 	if err == nil {
 		t.Error("expected error when identity not initialized")
 	}
@@ -860,16 +860,16 @@ func TestNodeManager_GetIdentity_NilWhenNoIdentity(t *testing.T) {
 
 func TestNodeManager_Delete_NoFiles(t *testing.T) {
 	tmpDir := t.TempDir()
-	nm, err := NewNodeManagerWithPaths(
+	nm, err := resultValue[*NodeManager](NewNodeManagerWithPaths(
 		core.PathJoin(tmpDir, "nonexistent.key"),
 		core.PathJoin(tmpDir, "nonexistent.json"),
-	)
+	))
 	if err != nil {
 		t.Fatalf("failed to create node manager: %v", err)
 	}
 
 	// Delete when no files exist should succeed
-	err = nm.Delete()
+	err = resultErr(nm.Delete())
 	if err != nil {
 		t.Errorf("Delete should not error when files don't exist: %v", err)
 	}

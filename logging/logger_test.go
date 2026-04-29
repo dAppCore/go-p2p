@@ -19,6 +19,21 @@ func axLoggerBuffer(level Level) (*Logger, loggerTestBuffer) {
 	return logger, buf
 }
 
+func loggerResultValue[T any](r core.Result) (T, error) {
+	var zero T
+	if !r.OK {
+		if err, ok := r.Value.(error); ok {
+			return zero, err
+		}
+		return zero, core.NewError("operation failed")
+	}
+	value, ok := r.Value.(T)
+	if !ok {
+		return zero, core.NewError("unexpected result value")
+	}
+	return value, nil
+}
+
 func TestLoggerLevels(t *testing.T) {
 	buf := core.NewBuffer()
 	logger := New(Config{
@@ -772,7 +787,7 @@ func TestLogger_Errorf_Ugly(t *testing.T) {
 }
 
 func TestLogger_ParseLevel_Good(t *testing.T) {
-	level, err := ParseLevel("debug")
+	level, err := loggerResultValue[Level](ParseLevel("debug"))
 	if err != nil {
 		t.Fatalf("ParseLevel: %v", err)
 	}
@@ -782,17 +797,18 @@ func TestLogger_ParseLevel_Good(t *testing.T) {
 }
 
 func TestLogger_ParseLevel_Bad(t *testing.T) {
-	level, err := ParseLevel("trace")
+	result := ParseLevel("trace")
+	_, err := loggerResultValue[Level](result)
 	if err == nil {
 		t.Fatal("expected parse error")
 	}
-	if level != LevelInfo {
-		t.Fatalf("fallback level: got %v", level)
+	if result.OK {
+		t.Fatal("trace should not parse")
 	}
 }
 
 func TestLogger_ParseLevel_Ugly(t *testing.T) {
-	level, err := ParseLevel("WARNING")
+	level, err := loggerResultValue[Level](ParseLevel("WARNING"))
 	if err != nil {
 		t.Fatalf("ParseLevel: %v", err)
 	}
@@ -924,7 +940,7 @@ func TestParseLevel(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {
-			level, err := ParseLevel(tt.input)
+			level, err := loggerResultValue[Level](ParseLevel(tt.input))
 			if tt.wantErr && err == nil {
 				t.Error("Expected error but got none")
 			}

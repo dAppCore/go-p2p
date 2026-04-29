@@ -12,7 +12,7 @@ func setupTestPeerRegistry(t *testing.T) (*PeerRegistry, func()) {
 
 	peersPath := core.PathJoin(tmpDir, "peers.json")
 
-	pr, err := NewPeerRegistryWithPath(peersPath)
+	pr, err := resultValue[*PeerRegistry](NewPeerRegistryWithPath(peersPath))
 	if err != nil {
 		core.RemoveAll(tmpDir)
 		t.Fatalf("failed to create peer registry: %v", err)
@@ -29,7 +29,7 @@ func tripletPeerRegistry(t *testing.T) *PeerRegistry {
 	t.Helper()
 	registry, cleanup := setupTestPeerRegistry(t)
 	t.Cleanup(func() {
-		_ = registry.Close()
+		_ = resultErr(registry.Close())
 		cleanup()
 	})
 	return registry
@@ -57,11 +57,11 @@ func TestPeerRegistry_NewPeerRegistry(t *testing.T) {
 
 func TestPeer_NewPeerRegistry_Good(t *testing.T) {
 	path := core.PathJoin(t.TempDir(), "peers.json")
-	registry, err := NewPeerRegistry(path)
+	registry, err := resultValue[*PeerRegistry](NewPeerRegistry(path))
 	if err != nil {
 		t.Fatalf("NewPeerRegistry: %v", err)
 	}
-	t.Cleanup(func() { registry.Close() })
+	t.Cleanup(func() { _ = resultErr(registry.Close()) })
 	if registry.path != path {
 		t.Fatalf("path: got %q", registry.path)
 	}
@@ -70,11 +70,11 @@ func TestPeer_NewPeerRegistry_Good(t *testing.T) {
 func TestPeer_NewPeerRegistry_Bad(t *testing.T) {
 	cleanup := setupTestEnv(t)
 	defer cleanup()
-	registry, err := NewPeerRegistry()
+	registry, err := resultValue[*PeerRegistry](NewPeerRegistry())
 	if err != nil {
 		t.Fatalf("NewPeerRegistry default: %v", err)
 	}
-	t.Cleanup(func() { registry.Close() })
+	t.Cleanup(func() { _ = resultErr(registry.Close()) })
 	if registry.Count() != 0 {
 		t.Fatalf("count: got %d", registry.Count())
 	}
@@ -83,11 +83,11 @@ func TestPeer_NewPeerRegistry_Bad(t *testing.T) {
 func TestPeer_NewPeerRegistry_Ugly(t *testing.T) {
 	cleanup := setupTestEnv(t)
 	defer cleanup()
-	registry, err := NewPeerRegistry("")
+	registry, err := resultValue[*PeerRegistry](NewPeerRegistry(""))
 	if err != nil {
 		t.Fatalf("NewPeerRegistry empty path: %v", err)
 	}
-	t.Cleanup(func() { registry.Close() })
+	t.Cleanup(func() { _ = resultErr(registry.Close()) })
 	if registry.GetAuthMode() != PeerAuthOpen {
 		t.Fatalf("auth mode: got %v", registry.GetAuthMode())
 	}
@@ -95,22 +95,22 @@ func TestPeer_NewPeerRegistry_Ugly(t *testing.T) {
 
 func TestPeer_NewPeerRegistryWithPath_Good(t *testing.T) {
 	path := core.PathJoin(t.TempDir(), "peers.json")
-	registry, err := NewPeerRegistryWithPath(path)
+	registry, err := resultValue[*PeerRegistry](NewPeerRegistryWithPath(path))
 	if err != nil {
 		t.Fatalf("NewPeerRegistryWithPath: %v", err)
 	}
-	t.Cleanup(func() { registry.Close() })
+	t.Cleanup(func() { _ = resultErr(registry.Close()) })
 	if registry.allowlistPath != path+".allowlist.json" {
 		t.Fatalf("allowlist path: got %q", registry.allowlistPath)
 	}
 }
 
 func TestPeer_NewPeerRegistryWithPath_Bad(t *testing.T) {
-	registry, err := NewPeerRegistryWithPath("")
+	registry, err := resultValue[*PeerRegistry](NewPeerRegistryWithPath(""))
 	if err != nil {
 		t.Fatalf("NewPeerRegistryWithPath empty: %v", err)
 	}
-	t.Cleanup(func() { registry.Close() })
+	t.Cleanup(func() { _ = resultErr(registry.Close()) })
 	if registry.path != "" {
 		t.Fatalf("path: got %q", registry.path)
 	}
@@ -119,11 +119,11 @@ func TestPeer_NewPeerRegistryWithPath_Bad(t *testing.T) {
 func TestPeer_NewPeerRegistryWithPath_Ugly(t *testing.T) {
 	dir := t.TempDir()
 	path := core.PathJoin(dir, "nested", "peers.json")
-	registry, err := NewPeerRegistryWithPath(path)
+	registry, err := resultValue[*PeerRegistry](NewPeerRegistryWithPath(path))
 	if err != nil {
 		t.Fatalf("NewPeerRegistryWithPath nested: %v", err)
 	}
-	t.Cleanup(func() { registry.Close() })
+	t.Cleanup(func() { _ = resultErr(registry.Close()) })
 	if registry.Count() != 0 {
 		t.Fatalf("count: got %d", registry.Count())
 	}
@@ -339,7 +339,7 @@ func TestPeer_PeerRegistry_AllowedPublicKeys_Ugly(t *testing.T) {
 
 func TestPeer_PeerRegistry_AddPeer_Good(t *testing.T) {
 	registry := tripletPeerRegistry(t)
-	err := registry.AddPeer(tripletPeer("a"))
+	err := resultErr(registry.AddPeer(tripletPeer("a")))
 	if err != nil {
 		t.Fatalf("AddPeer: %v", err)
 	}
@@ -350,7 +350,7 @@ func TestPeer_PeerRegistry_AddPeer_Good(t *testing.T) {
 
 func TestPeer_PeerRegistry_AddPeer_Bad(t *testing.T) {
 	registry := tripletPeerRegistry(t)
-	err := registry.AddPeer(&Peer{})
+	err := resultErr(registry.AddPeer(&Peer{}))
 	if err == nil {
 		t.Fatal("expected missing ID error")
 	}
@@ -363,7 +363,7 @@ func TestPeer_PeerRegistry_AddPeer_Ugly(t *testing.T) {
 	registry := tripletPeerRegistry(t)
 	peer := tripletPeer("a")
 	peer.Name = "-bad"
-	err := registry.AddPeer(peer)
+	err := resultErr(registry.AddPeer(peer))
 	if err == nil {
 		t.Fatal("expected invalid name error")
 	}
@@ -375,9 +375,9 @@ func TestPeer_PeerRegistry_AddPeer_Ugly(t *testing.T) {
 func TestPeer_PeerRegistry_UpdatePeer_Good(t *testing.T) {
 	registry := tripletPeerRegistry(t)
 	peer := tripletPeer("a")
-	_ = registry.AddPeer(peer)
+	_ = resultErr(registry.AddPeer(peer))
 	peer.Name = "renamed"
-	err := registry.UpdatePeer(peer)
+	err := resultErr(registry.UpdatePeer(peer))
 	if err != nil {
 		t.Fatalf("UpdatePeer: %v", err)
 	}
@@ -388,7 +388,7 @@ func TestPeer_PeerRegistry_UpdatePeer_Good(t *testing.T) {
 
 func TestPeer_PeerRegistry_UpdatePeer_Bad(t *testing.T) {
 	registry := tripletPeerRegistry(t)
-	err := registry.UpdatePeer(tripletPeer("missing"))
+	err := resultErr(registry.UpdatePeer(tripletPeer("missing")))
 	if err == nil {
 		t.Fatal("expected missing peer error")
 	}
@@ -400,9 +400,9 @@ func TestPeer_PeerRegistry_UpdatePeer_Bad(t *testing.T) {
 func TestPeer_PeerRegistry_UpdatePeer_Ugly(t *testing.T) {
 	registry := tripletPeerRegistry(t)
 	peer := tripletPeer("a")
-	_ = registry.AddPeer(peer)
+	_ = resultErr(registry.AddPeer(peer))
 	peer.Score = 0
-	err := registry.UpdatePeer(peer)
+	err := resultErr(registry.UpdatePeer(peer))
 	if err != nil {
 		t.Fatalf("UpdatePeer: %v", err)
 	}
@@ -413,8 +413,8 @@ func TestPeer_PeerRegistry_UpdatePeer_Ugly(t *testing.T) {
 
 func TestPeer_PeerRegistry_RemovePeer_Good(t *testing.T) {
 	registry := tripletPeerRegistry(t)
-	_ = registry.AddPeer(tripletPeer("a"))
-	err := registry.RemovePeer("a")
+	_ = resultErr(registry.AddPeer(tripletPeer("a")))
+	err := resultErr(registry.RemovePeer("a"))
 	if err != nil {
 		t.Fatalf("RemovePeer: %v", err)
 	}
@@ -425,7 +425,7 @@ func TestPeer_PeerRegistry_RemovePeer_Good(t *testing.T) {
 
 func TestPeer_PeerRegistry_RemovePeer_Bad(t *testing.T) {
 	registry := tripletPeerRegistry(t)
-	err := registry.RemovePeer("missing")
+	err := resultErr(registry.RemovePeer("missing"))
 	if err == nil {
 		t.Fatal("expected missing peer error")
 	}
@@ -436,9 +436,9 @@ func TestPeer_PeerRegistry_RemovePeer_Bad(t *testing.T) {
 
 func TestPeer_PeerRegistry_RemovePeer_Ugly(t *testing.T) {
 	registry := tripletPeerRegistry(t)
-	_ = registry.AddPeer(tripletPeer("a"))
-	_ = registry.RemovePeer("a")
-	err := registry.RemovePeer("a")
+	_ = resultErr(registry.AddPeer(tripletPeer("a")))
+	_ = resultErr(registry.RemovePeer("a"))
+	err := resultErr(registry.RemovePeer("a"))
 	if err == nil {
 		t.Fatal("expected second remove error")
 	}
@@ -446,7 +446,7 @@ func TestPeer_PeerRegistry_RemovePeer_Ugly(t *testing.T) {
 
 func TestPeer_PeerRegistry_GetPeer_Good(t *testing.T) {
 	registry := tripletPeerRegistry(t)
-	_ = registry.AddPeer(tripletPeer("a"))
+	_ = resultErr(registry.AddPeer(tripletPeer("a")))
 	peer := registry.GetPeer("a")
 	if peer == nil || peer.ID != "a" {
 		t.Fatalf("peer: %#v", peer)
@@ -463,7 +463,7 @@ func TestPeer_PeerRegistry_GetPeer_Bad(t *testing.T) {
 
 func TestPeer_PeerRegistry_GetPeer_Ugly(t *testing.T) {
 	registry := tripletPeerRegistry(t)
-	_ = registry.AddPeer(tripletPeer("a"))
+	_ = resultErr(registry.AddPeer(tripletPeer("a")))
 	peer := registry.GetPeer("a")
 	peer.Name = "mutated"
 	if registry.GetPeer("a").Name == "mutated" {
@@ -473,7 +473,7 @@ func TestPeer_PeerRegistry_GetPeer_Ugly(t *testing.T) {
 
 func TestPeer_PeerRegistry_ListPeers_Good(t *testing.T) {
 	registry := tripletPeerRegistry(t)
-	_ = registry.AddPeer(tripletPeer("a"))
+	_ = resultErr(registry.AddPeer(tripletPeer("a")))
 	if len(registry.ListPeers()) != 1 {
 		t.Fatalf("peers: %#v", registry.ListPeers())
 	}
@@ -488,7 +488,7 @@ func TestPeer_PeerRegistry_ListPeers_Bad(t *testing.T) {
 
 func TestPeer_PeerRegistry_ListPeers_Ugly(t *testing.T) {
 	registry := tripletPeerRegistry(t)
-	_ = registry.AddPeer(tripletPeer("a"))
+	_ = resultErr(registry.AddPeer(tripletPeer("a")))
 	peers := registry.ListPeers()
 	peers[0].Name = "mutated"
 	if registry.GetPeer("a").Name == "mutated" {
@@ -498,7 +498,7 @@ func TestPeer_PeerRegistry_ListPeers_Ugly(t *testing.T) {
 
 func TestPeer_PeerRegistry_Peers_Good(t *testing.T) {
 	registry := tripletPeerRegistry(t)
-	_ = registry.AddPeer(tripletPeer("a"))
+	_ = resultErr(registry.AddPeer(tripletPeer("a")))
 	count := 0
 	for range registry.Peers() {
 		count++
@@ -521,7 +521,7 @@ func TestPeer_PeerRegistry_Peers_Bad(t *testing.T) {
 
 func TestPeer_PeerRegistry_Peers_Ugly(t *testing.T) {
 	registry := tripletPeerRegistry(t)
-	_ = registry.AddPeer(tripletPeer("a"))
+	_ = resultErr(registry.AddPeer(tripletPeer("a")))
 	count := 0
 	for range registry.Peers() {
 		count++
@@ -534,8 +534,8 @@ func TestPeer_PeerRegistry_Peers_Ugly(t *testing.T) {
 
 func TestPeer_PeerRegistry_UpdateMetrics_Good(t *testing.T) {
 	registry := tripletPeerRegistry(t)
-	_ = registry.AddPeer(tripletPeer("a"))
-	err := registry.UpdateMetrics("a", 10, 20, 1)
+	_ = resultErr(registry.AddPeer(tripletPeer("a")))
+	err := resultErr(registry.UpdateMetrics("a", 10, 20, 1))
 	if err != nil {
 		t.Fatalf("UpdateMetrics: %v", err)
 	}
@@ -546,7 +546,7 @@ func TestPeer_PeerRegistry_UpdateMetrics_Good(t *testing.T) {
 
 func TestPeer_PeerRegistry_UpdateMetrics_Bad(t *testing.T) {
 	registry := tripletPeerRegistry(t)
-	err := registry.UpdateMetrics("missing", 10, 20, 1)
+	err := resultErr(registry.UpdateMetrics("missing", 10, 20, 1))
 	if err == nil {
 		t.Fatal("expected missing peer error")
 	}
@@ -557,8 +557,8 @@ func TestPeer_PeerRegistry_UpdateMetrics_Bad(t *testing.T) {
 
 func TestPeer_PeerRegistry_UpdateMetrics_Ugly(t *testing.T) {
 	registry := tripletPeerRegistry(t)
-	_ = registry.AddPeer(tripletPeer("a"))
-	err := registry.UpdateMetrics("a", -1, -2, -3)
+	_ = resultErr(registry.AddPeer(tripletPeer("a")))
+	err := resultErr(registry.UpdateMetrics("a", -1, -2, -3))
 	if err != nil {
 		t.Fatalf("UpdateMetrics negative: %v", err)
 	}
@@ -569,8 +569,8 @@ func TestPeer_PeerRegistry_UpdateMetrics_Ugly(t *testing.T) {
 
 func TestPeer_PeerRegistry_UpdateScore_Good(t *testing.T) {
 	registry := tripletPeerRegistry(t)
-	_ = registry.AddPeer(tripletPeer("a"))
-	err := registry.UpdateScore("a", 80)
+	_ = resultErr(registry.AddPeer(tripletPeer("a")))
+	err := resultErr(registry.UpdateScore("a", 80))
 	if err != nil {
 		t.Fatalf("UpdateScore: %v", err)
 	}
@@ -581,7 +581,7 @@ func TestPeer_PeerRegistry_UpdateScore_Good(t *testing.T) {
 
 func TestPeer_PeerRegistry_UpdateScore_Bad(t *testing.T) {
 	registry := tripletPeerRegistry(t)
-	err := registry.UpdateScore("missing", 80)
+	err := resultErr(registry.UpdateScore("missing", 80))
 	if err == nil {
 		t.Fatal("expected missing peer error")
 	}
@@ -592,8 +592,8 @@ func TestPeer_PeerRegistry_UpdateScore_Bad(t *testing.T) {
 
 func TestPeer_PeerRegistry_UpdateScore_Ugly(t *testing.T) {
 	registry := tripletPeerRegistry(t)
-	_ = registry.AddPeer(tripletPeer("a"))
-	_ = registry.UpdateScore("a", 200)
+	_ = resultErr(registry.AddPeer(tripletPeer("a")))
+	_ = resultErr(registry.UpdateScore("a", 200))
 	if registry.GetPeer("a").Score != ScoreMaximum {
 		t.Fatalf("score: got %f", registry.GetPeer("a").Score)
 	}
@@ -601,7 +601,7 @@ func TestPeer_PeerRegistry_UpdateScore_Ugly(t *testing.T) {
 
 func TestPeer_PeerRegistry_SetConnected_Good(t *testing.T) {
 	registry := tripletPeerRegistry(t)
-	_ = registry.AddPeer(tripletPeer("a"))
+	_ = resultErr(registry.AddPeer(tripletPeer("a")))
 	registry.SetConnected("a", true)
 	if !registry.GetPeer("a").Connected {
 		t.Fatal("peer should be connected")
@@ -618,7 +618,7 @@ func TestPeer_PeerRegistry_SetConnected_Bad(t *testing.T) {
 
 func TestPeer_PeerRegistry_SetConnected_Ugly(t *testing.T) {
 	registry := tripletPeerRegistry(t)
-	_ = registry.AddPeer(tripletPeer("a"))
+	_ = resultErr(registry.AddPeer(tripletPeer("a")))
 	registry.SetConnected("a", true)
 	registry.SetConnected("a", false)
 	if registry.GetPeer("a").Connected {
@@ -629,7 +629,7 @@ func TestPeer_PeerRegistry_SetConnected_Ugly(t *testing.T) {
 func TestPeer_PeerRegistry_MarkSeen_Good(t *testing.T) {
 	registry := tripletPeerRegistry(t)
 	peer := tripletPeer("a")
-	_ = registry.AddPeer(peer)
+	_ = resultErr(registry.AddPeer(peer))
 	before := registry.GetPeer("a").LastSeen
 	registry.MarkSeen("a")
 	if !registry.GetPeer("a").LastSeen.After(before) && registry.GetPeer("a").LastSeen.Equal(before) {
@@ -649,7 +649,7 @@ func TestPeer_PeerRegistry_MarkSeen_Ugly(t *testing.T) {
 	registry := tripletPeerRegistry(t)
 	peer := tripletPeer("a")
 	peer.LastSeen = time.Time{}
-	_ = registry.AddPeer(peer)
+	_ = resultErr(registry.AddPeer(peer))
 	registry.MarkSeen("a")
 	if registry.GetPeer("a").LastSeen.IsZero() {
 		t.Fatal("LastSeen should be set")
@@ -660,7 +660,7 @@ func TestPeer_PeerRegistry_RecordSuccess_Good(t *testing.T) {
 	registry := tripletPeerRegistry(t)
 	peer := tripletPeer("a")
 	peer.Score = 50
-	_ = registry.AddPeer(peer)
+	_ = resultErr(registry.AddPeer(peer))
 	registry.RecordSuccess("a")
 	if registry.GetPeer("a").Score <= 50 {
 		t.Fatal("score should increase")
@@ -679,7 +679,7 @@ func TestPeer_PeerRegistry_RecordSuccess_Ugly(t *testing.T) {
 	registry := tripletPeerRegistry(t)
 	peer := tripletPeer("a")
 	peer.Score = ScoreMaximum
-	_ = registry.AddPeer(peer)
+	_ = resultErr(registry.AddPeer(peer))
 	registry.RecordSuccess("a")
 	if registry.GetPeer("a").Score != ScoreMaximum {
 		t.Fatal("score should clamp at maximum")
@@ -690,7 +690,7 @@ func TestPeer_PeerRegistry_RecordFailure_Good(t *testing.T) {
 	registry := tripletPeerRegistry(t)
 	peer := tripletPeer("a")
 	peer.Score = 50
-	_ = registry.AddPeer(peer)
+	_ = resultErr(registry.AddPeer(peer))
 	registry.RecordFailure("a")
 	if registry.GetPeer("a").Score >= 50 {
 		t.Fatal("score should decrease")
@@ -709,7 +709,7 @@ func TestPeer_PeerRegistry_RecordFailure_Ugly(t *testing.T) {
 	registry := tripletPeerRegistry(t)
 	peer := tripletPeer("a")
 	peer.Score = 1
-	_ = registry.AddPeer(peer)
+	_ = resultErr(registry.AddPeer(peer))
 	registry.RecordFailure("a")
 	if registry.GetPeer("a").Score != ScoreMinimum {
 		t.Fatal("score should clamp at minimum")
@@ -720,7 +720,7 @@ func TestPeer_PeerRegistry_RecordTimeout_Good(t *testing.T) {
 	registry := tripletPeerRegistry(t)
 	peer := tripletPeer("a")
 	peer.Score = 50
-	_ = registry.AddPeer(peer)
+	_ = resultErr(registry.AddPeer(peer))
 	registry.RecordTimeout("a")
 	if registry.GetPeer("a").Score >= 50 {
 		t.Fatal("score should decrease")
@@ -739,7 +739,7 @@ func TestPeer_PeerRegistry_RecordTimeout_Ugly(t *testing.T) {
 	registry := tripletPeerRegistry(t)
 	peer := tripletPeer("a")
 	peer.Score = 1
-	_ = registry.AddPeer(peer)
+	_ = resultErr(registry.AddPeer(peer))
 	registry.RecordTimeout("a")
 	if registry.GetPeer("a").Score != ScoreMinimum {
 		t.Fatal("score should clamp at minimum")
@@ -752,8 +752,8 @@ func TestPeer_PeerRegistry_GetPeersByScore_Good(t *testing.T) {
 	b := tripletPeer("b")
 	a.Score = 10
 	b.Score = 90
-	_ = registry.AddPeer(a)
-	_ = registry.AddPeer(b)
+	_ = resultErr(registry.AddPeer(a))
+	_ = resultErr(registry.AddPeer(b))
 	peers := registry.GetPeersByScore()
 	if peers[0].ID != "b" {
 		t.Fatalf("peers: %#v", peers)
@@ -770,7 +770,7 @@ func TestPeer_PeerRegistry_GetPeersByScore_Bad(t *testing.T) {
 
 func TestPeer_PeerRegistry_GetPeersByScore_Ugly(t *testing.T) {
 	registry := tripletPeerRegistry(t)
-	_ = registry.AddPeer(tripletPeer("a"))
+	_ = resultErr(registry.AddPeer(tripletPeer("a")))
 	peers := registry.GetPeersByScore()
 	peers[0].Name = "mutated"
 	if registry.GetPeer("a").Name == "mutated" {
@@ -780,7 +780,7 @@ func TestPeer_PeerRegistry_GetPeersByScore_Ugly(t *testing.T) {
 
 func TestPeer_PeerRegistry_PeersByScore_Good(t *testing.T) {
 	registry := tripletPeerRegistry(t)
-	_ = registry.AddPeer(tripletPeer("a"))
+	_ = resultErr(registry.AddPeer(tripletPeer("a")))
 	count := 0
 	for range registry.PeersByScore() {
 		count++
@@ -803,7 +803,7 @@ func TestPeer_PeerRegistry_PeersByScore_Bad(t *testing.T) {
 
 func TestPeer_PeerRegistry_PeersByScore_Ugly(t *testing.T) {
 	registry := tripletPeerRegistry(t)
-	_ = registry.AddPeer(tripletPeer("a"))
+	_ = resultErr(registry.AddPeer(tripletPeer("a")))
 	count := 0
 	for range registry.PeersByScore() {
 		count++
@@ -818,7 +818,7 @@ func TestPeer_PeerRegistry_SelectOptimalPeer_Good(t *testing.T) {
 	registry := tripletPeerRegistry(t)
 	peer := tripletPeer("a")
 	peer.Score = 100
-	_ = registry.AddPeer(peer)
+	_ = resultErr(registry.AddPeer(peer))
 	if registry.SelectOptimalPeer().ID != "a" {
 		t.Fatal("expected optimal peer")
 	}
@@ -833,7 +833,7 @@ func TestPeer_PeerRegistry_SelectOptimalPeer_Bad(t *testing.T) {
 
 func TestPeer_PeerRegistry_SelectOptimalPeer_Ugly(t *testing.T) {
 	registry := tripletPeerRegistry(t)
-	_ = registry.AddPeer(tripletPeer("a"))
+	_ = resultErr(registry.AddPeer(tripletPeer("a")))
 	peer := registry.SelectOptimalPeer()
 	peer.Name = "mutated"
 	if registry.GetPeer("a").Name == "mutated" {
@@ -843,7 +843,7 @@ func TestPeer_PeerRegistry_SelectOptimalPeer_Ugly(t *testing.T) {
 
 func TestPeer_PeerRegistry_SelectNearestPeers_Good(t *testing.T) {
 	registry := tripletPeerRegistry(t)
-	_ = registry.AddPeer(tripletPeer("a"))
+	_ = resultErr(registry.AddPeer(tripletPeer("a")))
 	peers := registry.SelectNearestPeers(1)
 	if len(peers) != 1 {
 		t.Fatalf("peers: %#v", peers)
@@ -860,7 +860,7 @@ func TestPeer_PeerRegistry_SelectNearestPeers_Bad(t *testing.T) {
 
 func TestPeer_PeerRegistry_SelectNearestPeers_Ugly(t *testing.T) {
 	registry := tripletPeerRegistry(t)
-	_ = registry.AddPeer(tripletPeer("a"))
+	_ = resultErr(registry.AddPeer(tripletPeer("a")))
 	peers := registry.SelectNearestPeers(0)
 	if len(peers) != 0 {
 		t.Fatalf("peers: %#v", peers)
@@ -872,8 +872,8 @@ func TestPeer_PeerRegistry_FindNearby_Good(t *testing.T) {
 	peer := tripletPeer("a")
 	peer.Latitude = 1
 	peer.Longitude = 1
-	_ = registry.AddPeer(peer)
-	peers, err := registry.FindNearby(1, 1, 0, 1)
+	_ = resultErr(registry.AddPeer(peer))
+	peers, err := resultValue[[]*Peer](registry.FindNearby(1, 1, 0, 1))
 	if err != nil || len(peers) != 1 {
 		t.Fatalf("peers=%#v err=%v", peers, err)
 	}
@@ -881,7 +881,7 @@ func TestPeer_PeerRegistry_FindNearby_Good(t *testing.T) {
 
 func TestPeer_PeerRegistry_FindNearby_Bad(t *testing.T) {
 	registry := tripletPeerRegistry(t)
-	peers, err := registry.FindNearby(0, 0, 0, 0)
+	peers, err := resultValue[[]*Peer](registry.FindNearby(0, 0, 0, 0))
 	if err != nil || len(peers) != 0 {
 		t.Fatalf("peers=%#v err=%v", peers, err)
 	}
@@ -889,8 +889,8 @@ func TestPeer_PeerRegistry_FindNearby_Bad(t *testing.T) {
 
 func TestPeer_PeerRegistry_FindNearby_Ugly(t *testing.T) {
 	registry := tripletPeerRegistry(t)
-	_ = registry.AddPeer(tripletPeer("a"))
-	peers, err := registry.FindNearby(0, 0, 0, 5)
+	_ = resultErr(registry.AddPeer(tripletPeer("a")))
+	peers, err := resultValue[[]*Peer](registry.FindNearby(0, 0, 0, 5))
 	if err != nil || len(peers) != 1 {
 		t.Fatalf("peers=%#v err=%v", peers, err)
 	}
@@ -898,7 +898,7 @@ func TestPeer_PeerRegistry_FindNearby_Ugly(t *testing.T) {
 
 func TestPeer_PeerRegistry_GetConnectedPeers_Good(t *testing.T) {
 	registry := tripletPeerRegistry(t)
-	_ = registry.AddPeer(tripletPeer("a"))
+	_ = resultErr(registry.AddPeer(tripletPeer("a")))
 	registry.SetConnected("a", true)
 	if len(registry.GetConnectedPeers()) != 1 {
 		t.Fatalf("connected: %#v", registry.GetConnectedPeers())
@@ -914,7 +914,7 @@ func TestPeer_PeerRegistry_GetConnectedPeers_Bad(t *testing.T) {
 
 func TestPeer_PeerRegistry_GetConnectedPeers_Ugly(t *testing.T) {
 	registry := tripletPeerRegistry(t)
-	_ = registry.AddPeer(tripletPeer("a"))
+	_ = resultErr(registry.AddPeer(tripletPeer("a")))
 	registry.SetConnected("a", false)
 	if len(registry.GetConnectedPeers()) != 0 {
 		t.Fatalf("connected: %#v", registry.GetConnectedPeers())
@@ -923,7 +923,7 @@ func TestPeer_PeerRegistry_GetConnectedPeers_Ugly(t *testing.T) {
 
 func TestPeer_PeerRegistry_ConnectedPeers_Good(t *testing.T) {
 	registry := tripletPeerRegistry(t)
-	_ = registry.AddPeer(tripletPeer("a"))
+	_ = resultErr(registry.AddPeer(tripletPeer("a")))
 	registry.SetConnected("a", true)
 	count := 0
 	for range registry.ConnectedPeers() {
@@ -947,7 +947,7 @@ func TestPeer_PeerRegistry_ConnectedPeers_Bad(t *testing.T) {
 
 func TestPeer_PeerRegistry_ConnectedPeers_Ugly(t *testing.T) {
 	registry := tripletPeerRegistry(t)
-	_ = registry.AddPeer(tripletPeer("a"))
+	_ = resultErr(registry.AddPeer(tripletPeer("a")))
 	registry.SetConnected("a", true)
 	count := 0
 	for range registry.ConnectedPeers() {
@@ -961,7 +961,7 @@ func TestPeer_PeerRegistry_ConnectedPeers_Ugly(t *testing.T) {
 
 func TestPeer_PeerRegistry_Count_Good(t *testing.T) {
 	registry := tripletPeerRegistry(t)
-	_ = registry.AddPeer(tripletPeer("a"))
+	_ = resultErr(registry.AddPeer(tripletPeer("a")))
 	if registry.Count() != 1 {
 		t.Fatalf("count: got %d", registry.Count())
 	}
@@ -976,8 +976,8 @@ func TestPeer_PeerRegistry_Count_Bad(t *testing.T) {
 
 func TestPeer_PeerRegistry_Count_Ugly(t *testing.T) {
 	registry := tripletPeerRegistry(t)
-	_ = registry.AddPeer(tripletPeer("a"))
-	_ = registry.RemovePeer("a")
+	_ = resultErr(registry.AddPeer(tripletPeer("a")))
+	_ = resultErr(registry.RemovePeer("a"))
 	if registry.Count() != 0 {
 		t.Fatalf("count: got %d", registry.Count())
 	}
@@ -986,8 +986,8 @@ func TestPeer_PeerRegistry_Count_Ugly(t *testing.T) {
 func TestPeer_PeerRegistry_Close_Good(t *testing.T) {
 	registry, cleanup := setupTestPeerRegistry(t)
 	defer cleanup()
-	_ = registry.AddPeer(tripletPeer("a"))
-	if err := registry.Close(); err != nil {
+	_ = resultErr(registry.AddPeer(tripletPeer("a")))
+	if err := resultErr(registry.Close()); err != nil {
 		t.Fatalf("Close: %v", err)
 	}
 	if registry.dirty {
@@ -998,7 +998,7 @@ func TestPeer_PeerRegistry_Close_Good(t *testing.T) {
 func TestPeer_PeerRegistry_Close_Bad(t *testing.T) {
 	registry, cleanup := setupTestPeerRegistry(t)
 	defer cleanup()
-	if err := registry.Close(); err != nil {
+	if err := resultErr(registry.Close()); err != nil {
 		t.Fatalf("Close clean: %v", err)
 	}
 	if registry.dirty {
@@ -1009,8 +1009,8 @@ func TestPeer_PeerRegistry_Close_Bad(t *testing.T) {
 func TestPeer_PeerRegistry_Close_Ugly(t *testing.T) {
 	registry, cleanup := setupTestPeerRegistry(t)
 	defer cleanup()
-	_ = registry.Close()
-	if err := registry.Close(); err != nil {
+	_ = resultErr(registry.Close())
+	if err := resultErr(registry.Close()); err != nil {
 		t.Fatalf("second Close: %v", err)
 	}
 }
@@ -1028,7 +1028,7 @@ func TestPeerRegistry_AddPeer(t *testing.T) {
 		Score:     75,
 	}
 
-	err := pr.AddPeer(peer)
+	err := resultErr(pr.AddPeer(peer))
 	if err != nil {
 		t.Fatalf("failed to add peer: %v", err)
 	}
@@ -1038,7 +1038,7 @@ func TestPeerRegistry_AddPeer(t *testing.T) {
 	}
 
 	// Try to add duplicate
-	err = pr.AddPeer(peer)
+	err = resultErr(pr.AddPeer(peer))
 	if err == nil {
 		t.Error("expected error when adding duplicate peer")
 	}
@@ -1111,7 +1111,7 @@ func TestPeerRegistry_RemovePeer(t *testing.T) {
 		t.Error("peer should exist before removal")
 	}
 
-	err := pr.RemovePeer("remove-test")
+	err := resultErr(pr.RemovePeer("remove-test"))
 	if err != nil {
 		t.Fatalf("failed to remove peer: %v", err)
 	}
@@ -1121,7 +1121,7 @@ func TestPeerRegistry_RemovePeer(t *testing.T) {
 	}
 
 	// Remove non-existent
-	err = pr.RemovePeer("non-existent")
+	err = resultErr(pr.RemovePeer("non-existent"))
 	if err == nil {
 		t.Error("expected error when removing non-existent peer")
 	}
@@ -1140,7 +1140,7 @@ func TestPeerRegistry_UpdateMetrics(t *testing.T) {
 
 	pr.AddPeer(peer)
 
-	err := pr.UpdateMetrics("metrics-test", 50.5, 100.2, 3)
+	err := resultErr(pr.UpdateMetrics("metrics-test", 50.5, 100.2, 3))
 	if err != nil {
 		t.Fatalf("failed to update metrics: %v", err)
 	}
@@ -1172,7 +1172,7 @@ func TestPeerRegistry_UpdateScore(t *testing.T) {
 
 	pr.AddPeer(peer)
 
-	err := pr.UpdateScore("score-test", 85.5)
+	err := resultErr(pr.UpdateScore("score-test", 85.5))
 	if err != nil {
 		t.Fatalf("failed to update score: %v", err)
 	}
@@ -1186,7 +1186,7 @@ func TestPeerRegistry_UpdateScore(t *testing.T) {
 	}
 
 	// Test clamping - over 100
-	err = pr.UpdateScore("score-test", 150)
+	err = resultErr(pr.UpdateScore("score-test", 150))
 	if err != nil {
 		t.Fatalf("failed to update score: %v", err)
 	}
@@ -1200,7 +1200,7 @@ func TestPeerRegistry_UpdateScore(t *testing.T) {
 	}
 
 	// Test clamping - below 0
-	err = pr.UpdateScore("score-test", -50)
+	err = resultErr(pr.UpdateScore("score-test", -50))
 	if err != nil {
 		t.Fatalf("failed to update score: %v", err)
 	}
@@ -1326,7 +1326,7 @@ func TestPeerRegistry_Persistence(t *testing.T) {
 	peersPath := core.PathJoin(tmpDir, "peers.json")
 
 	// Create and save
-	pr1, err := NewPeerRegistryWithPath(peersPath)
+	pr1, err := resultValue[*PeerRegistry](NewPeerRegistryWithPath(peersPath))
 	if err != nil {
 		t.Fatalf("failed to create first registry: %v", err)
 	}
@@ -1342,12 +1342,12 @@ func TestPeerRegistry_Persistence(t *testing.T) {
 	pr1.AddPeer(peer)
 
 	// Flush pending changes before reloading
-	if err := pr1.Close(); err != nil {
+	if err := resultErr(pr1.Close()); err != nil {
 		t.Fatalf("failed to close first registry: %v", err)
 	}
 
 	// Load in new registry from same path
-	pr2, err := NewPeerRegistryWithPath(peersPath)
+	pr2, err := resultValue[*PeerRegistry](NewPeerRegistryWithPath(peersPath))
 	if err != nil {
 		t.Fatalf("failed to create second registry: %v", err)
 	}
@@ -1372,7 +1372,7 @@ func TestPeerRegistry_AllowlistPersistence(t *testing.T) {
 
 	peersPath := core.PathJoin(tmpDir, "peers.json")
 
-	pr1, err := NewPeerRegistryWithPath(peersPath)
+	pr1, err := resultValue[*PeerRegistry](NewPeerRegistryWithPath(peersPath))
 	if err != nil {
 		t.Fatalf("failed to create first registry: %v", err)
 	}
@@ -1380,11 +1380,11 @@ func TestPeerRegistry_AllowlistPersistence(t *testing.T) {
 	key := "allowlist-key-1234567890"
 	pr1.AllowPublicKey(key)
 
-	if err := pr1.Close(); err != nil {
+	if err := resultErr(pr1.Close()); err != nil {
 		t.Fatalf("failed to close first registry: %v", err)
 	}
 
-	pr2, err := NewPeerRegistryWithPath(peersPath)
+	pr2, err := resultValue[*PeerRegistry](NewPeerRegistryWithPath(peersPath))
 	if err != nil {
 		t.Fatalf("failed to create second registry: %v", err)
 	}
@@ -1541,7 +1541,7 @@ func TestPeerRegistry_PeerNameValidation(t *testing.T) {
 				ID:   "test-peer-" + string(rune('A'+i)),
 				Name: tc.peerName,
 			}
-			err := pr.AddPeer(peer)
+			err := resultErr(pr.AddPeer(peer))
 			if tc.shouldErr && err == nil {
 				t.Errorf("expected error for name '%s' but got none", tc.peerName)
 			} else if !tc.shouldErr && err != nil {
@@ -1659,7 +1659,7 @@ func TestPeerRegistry_OptimalPeerRebuildsAfterScoreChange(t *testing.T) {
 	}
 
 	for _, p := range peers {
-		if err := pr.AddPeer(p); err != nil {
+		if err := resultErr(pr.AddPeer(p)); err != nil {
 			t.Fatalf("failed to add peer %s: %v", p.ID, err)
 		}
 	}
@@ -1724,7 +1724,7 @@ func TestValidatePeerName(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := validatePeerName(tt.peerName)
+			err := resultErr(validatePeerName(tt.peerName))
 			if tt.shouldErr && err == nil {
 				t.Errorf("expected error for name %q", tt.peerName)
 			}
@@ -1740,7 +1740,7 @@ func TestPeerRegistry_AddPeer_EmptyID(t *testing.T) {
 	defer cleanup()
 
 	peer := &Peer{ID: "", Name: "no-id"}
-	err := pr.AddPeer(peer)
+	err := resultErr(pr.AddPeer(peer))
 	if err == nil {
 		t.Error("expected error for empty peer ID")
 	}
@@ -1751,7 +1751,7 @@ func TestPeerRegistry_UpdatePeer(t *testing.T) {
 	defer cleanup()
 
 	// UpdatePeer for non-existent peer
-	err := pr.UpdatePeer(&Peer{ID: "non-existent"})
+	err := resultErr(pr.UpdatePeer(&Peer{ID: "non-existent"}))
 	if err == nil {
 		t.Error("expected error when updating non-existent peer")
 	}
@@ -1762,7 +1762,7 @@ func TestPeerRegistry_UpdatePeer(t *testing.T) {
 
 	peer.Name = "Updated"
 	peer.Score = 80
-	err = pr.UpdatePeer(peer)
+	err = resultErr(pr.UpdatePeer(peer))
 	if err != nil {
 		t.Fatalf("failed to update peer: %v", err)
 	}
@@ -1783,7 +1783,7 @@ func TestPeerRegistry_UpdateMetrics_NotFound(t *testing.T) {
 	pr, cleanup := setupTestPeerRegistry(t)
 	defer cleanup()
 
-	err := pr.UpdateMetrics("ghost", 10.0, 100.0, 1)
+	err := resultErr(pr.UpdateMetrics("ghost", 10.0, 100.0, 1))
 	if err == nil {
 		t.Error("expected error updating metrics for non-existent peer")
 	}
@@ -1793,7 +1793,7 @@ func TestPeerRegistry_UpdateScore_NotFound(t *testing.T) {
 	pr, cleanup := setupTestPeerRegistry(t)
 	defer cleanup()
 
-	err := pr.UpdateScore("ghost", 75.0)
+	err := resultErr(pr.UpdateScore("ghost", 75.0))
 	if err == nil {
 		t.Error("expected error updating score for non-existent peer")
 	}
@@ -1854,7 +1854,7 @@ func TestPeerRegistry_Close_NoDirtyData(t *testing.T) {
 	defer cleanup()
 
 	// Close without any changes should succeed
-	err := pr.Close()
+	err := resultErr(pr.Close())
 	if err != nil {
 		t.Errorf("Close with no dirty data should not error: %v", err)
 	}
@@ -1865,7 +1865,7 @@ func TestPeerRegistry_Close_WithDirtyData(t *testing.T) {
 	defer core.RemoveAll(tmpDir)
 
 	peersPath := core.PathJoin(tmpDir, "peers.json")
-	pr, err := NewPeerRegistryWithPath(peersPath)
+	pr, err := resultValue[*PeerRegistry](NewPeerRegistryWithPath(peersPath))
 	if err != nil {
 		t.Fatalf("failed to create registry: %v", err)
 	}
@@ -1874,13 +1874,13 @@ func TestPeerRegistry_Close_WithDirtyData(t *testing.T) {
 	pr.AddPeer(&Peer{ID: "dirty-peer", Name: "Dirty"})
 
 	// Close should flush dirty data
-	err = pr.Close()
+	err = resultErr(pr.Close())
 	if err != nil {
 		t.Errorf("Close should not error: %v", err)
 	}
 
 	// Verify data was saved
-	pr2, err := NewPeerRegistryWithPath(peersPath)
+	pr2, err := resultValue[*PeerRegistry](NewPeerRegistryWithPath(peersPath))
 	if err != nil {
 		t.Fatalf("failed to reload: %v", err)
 	}
@@ -1894,7 +1894,7 @@ func TestPeerRegistry_ScheduleSave_Debounce(t *testing.T) {
 	defer core.RemoveAll(tmpDir)
 
 	peersPath := core.PathJoin(tmpDir, "peers.json")
-	pr, err := NewPeerRegistryWithPath(peersPath)
+	pr, err := resultValue[*PeerRegistry](NewPeerRegistryWithPath(peersPath))
 	if err != nil {
 		t.Fatalf("failed to create registry: %v", err)
 	}
@@ -1905,7 +1905,7 @@ func TestPeerRegistry_ScheduleSave_Debounce(t *testing.T) {
 	}
 
 	// Close should flush
-	err = pr.Close()
+	err = resultErr(pr.Close())
 	if err != nil {
 		t.Errorf("Close should not error: %v", err)
 	}
@@ -1916,7 +1916,7 @@ func TestPeerRegistry_SaveNow(t *testing.T) {
 	defer core.RemoveAll(tmpDir)
 
 	peersPath := core.PathJoin(tmpDir, "subdir", "peers.json")
-	pr, err := NewPeerRegistryWithPath(peersPath)
+	pr, err := resultValue[*PeerRegistry](NewPeerRegistryWithPath(peersPath))
 	if err != nil {
 		t.Fatalf("failed to create registry: %v", err)
 	}
@@ -1925,7 +1925,7 @@ func TestPeerRegistry_SaveNow(t *testing.T) {
 
 	// Direct saveNow call
 	pr.mu.RLock()
-	err = pr.saveNow()
+	err = resultErr(pr.saveNow())
 	pr.mu.RUnlock()
 	if err != nil {
 		t.Fatalf("saveNow failed: %v", err)
@@ -1946,7 +1946,7 @@ func TestPeerRegistry_ScheduleSave_TimerFires(t *testing.T) {
 	defer core.RemoveAll(tmpDir)
 
 	peersPath := core.PathJoin(tmpDir, "peers.json")
-	pr, err := NewPeerRegistryWithPath(peersPath)
+	pr, err := resultValue[*PeerRegistry](NewPeerRegistryWithPath(peersPath))
 	if err != nil {
 		t.Fatalf("failed to create registry: %v", err)
 	}
@@ -1962,7 +1962,7 @@ func TestPeerRegistry_ScheduleSave_TimerFires(t *testing.T) {
 	}
 
 	// Reload and verify
-	pr2, err := NewPeerRegistryWithPath(peersPath)
+	pr2, err := resultValue[*PeerRegistry](NewPeerRegistryWithPath(peersPath))
 	if err != nil {
 		t.Fatalf("failed to reload: %v", err)
 	}
@@ -1981,7 +1981,7 @@ func TestPeerRegistry_MarkSeen_Good(t *testing.T) {
 	defer cleanup()
 
 	peer := &Peer{ID: "seen-peer", Name: "Seen"}
-	if err := pr.AddPeer(peer); err != nil {
+	if err := resultErr(pr.AddPeer(peer)); err != nil {
 		t.Fatalf("add peer: %v", err)
 	}
 
@@ -2036,12 +2036,12 @@ func TestPeerRegistry_FindNearby_Good(t *testing.T) {
 		{ID: "peer-mid", Name: "Mid", Latitude: 5.0, Longitude: 5.0, Hops: 3},
 	}
 	for _, p := range peers {
-		if err := pr.AddPeer(p); err != nil {
+		if err := resultErr(pr.AddPeer(p)); err != nil {
 			t.Fatalf("add peer %s: %v", p.ID, err)
 		}
 	}
 
-	results, err := pr.FindNearby(0, 0, 1, 2)
+	results, err := resultValue[[]*Peer](pr.FindNearby(0, 0, 1, 2))
 	if err != nil {
 		t.Fatalf("FindNearby: %v", err)
 	}
@@ -2071,7 +2071,7 @@ func TestPeerRegistry_FindNearby_Bad(t *testing.T) {
 	defer cleanup()
 
 	// Empty registry returns an empty slice, no error.
-	results, err := pr.FindNearby(0, 0, 0, 5)
+	results, err := resultValue[[]*Peer](pr.FindNearby(0, 0, 0, 5))
 	if err != nil {
 		t.Fatalf("empty registry should not error: %v", err)
 	}
@@ -2080,10 +2080,10 @@ func TestPeerRegistry_FindNearby_Bad(t *testing.T) {
 	}
 
 	// Non-positive maxResults returns an empty slice, no error.
-	if err := pr.AddPeer(&Peer{ID: "peer-a"}); err != nil {
+	if err := resultErr(pr.AddPeer(&Peer{ID: "peer-a"})); err != nil {
 		t.Fatalf("add peer: %v", err)
 	}
-	results, err = pr.FindNearby(0, 0, 0, 0)
+	results, err = resultValue[[]*Peer](pr.FindNearby(0, 0, 0, 0))
 	if err != nil {
 		t.Fatalf("maxResults=0 should not error: %v", err)
 	}
@@ -2095,13 +2095,13 @@ func TestPeerRegistry_FindNearby_Bad(t *testing.T) {
 	// distant peer, the closer GeoKM wins.
 	prFallback, cleanupFallback := setupTestPeerRegistry(t)
 	defer cleanupFallback()
-	if err := prFallback.AddPeer(&Peer{ID: "peer-close", GeoKM: 5}); err != nil {
+	if err := resultErr(prFallback.AddPeer(&Peer{ID: "peer-close", GeoKM: 5})); err != nil {
 		t.Fatalf("add peer-close: %v", err)
 	}
-	if err := prFallback.AddPeer(&Peer{ID: "peer-distant", GeoKM: 500}); err != nil {
+	if err := resultErr(prFallback.AddPeer(&Peer{ID: "peer-distant", GeoKM: 500})); err != nil {
 		t.Fatalf("add peer-distant: %v", err)
 	}
-	results, err = prFallback.FindNearby(0, 0, 0, 2)
+	results, err = resultValue[[]*Peer](prFallback.FindNearby(0, 0, 0, 2))
 	if err != nil {
 		t.Fatalf("FindNearby: %v", err)
 	}
@@ -2126,7 +2126,7 @@ func TestPeerRegistry_PeersByScore_Good(t *testing.T) {
 		{ID: "score-mid", Score: 55},
 	}
 	for _, p := range peers {
-		if err := pr.AddPeer(p); err != nil {
+		if err := resultErr(pr.AddPeer(p)); err != nil {
 			t.Fatalf("add peer %s: %v", p.ID, err)
 		}
 	}
@@ -2158,7 +2158,7 @@ func TestPeerRegistry_PeersByScore_Bad(t *testing.T) {
 
 	for i, score := range []float64{10, 20, 30, 40} {
 		p := &Peer{ID: "score-" + string(rune('a'+i)), Score: score}
-		if err := pr.AddPeer(p); err != nil {
+		if err := resultErr(pr.AddPeer(p)); err != nil {
 			t.Fatalf("add peer %s: %v", p.ID, err)
 		}
 	}

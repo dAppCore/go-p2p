@@ -12,21 +12,21 @@ import (
 // RawMessage preserves JSON payload bytes without decoding them eagerly.
 type RawMessage []byte
 
-// MarshalJSON writes the raw payload bytes into the enclosing message JSON.
-func (m RawMessage) MarshalJSON() ([]byte, error) {
+// MarshalRawJSON writes the raw payload bytes into the enclosing message JSON.
+func (m RawMessage) MarshalRawJSON() core.Result {
 	if m == nil {
-		return []byte("null"), nil
+		return core.Ok([]byte("null"))
 	}
-	return m, nil
+	return core.Ok([]byte(m))
 }
 
-// UnmarshalJSON stores the raw JSON payload bytes without decoding them.
-func (m *RawMessage) UnmarshalJSON(data []byte) error {
+// UnmarshalRawJSON stores the raw JSON payload bytes without decoding them.
+func (m *RawMessage) UnmarshalRawJSON(data []byte) core.Result {
 	if m == nil {
-		return core.NewError("node.RawMessage: unmarshal on nil pointer")
+		return core.Fail(core.NewError("node.RawMessage: unmarshal on nil pointer"))
 	}
 	*m = append((*m)[0:0], data...)
-	return nil
+	return core.Ok(nil)
 }
 
 // Protocol version constants
@@ -87,50 +87,119 @@ type Message struct {
 	ReplyTo   string      `json:"replyTo,omitempty"` // ID of message being replied to
 }
 
-// NewMessage creates a new message with a generated ID and timestamp.
-func NewMessage(msgType MessageType, from, to string, payload any) (*Message, error) {
-	var payloadBytes RawMessage
-	if payload != nil {
-		data, err := MarshalJSON(payload)
-		if err != nil {
-			return nil, err
-		}
-		payloadBytes = data
+type messageJSON struct {
+	ID        string      `json:"id"`
+	Type      MessageType `json:"type"`
+	From      string      `json:"from"`
+	To        string      `json:"to"`
+	Timestamp time.Time   `json:"timestamp"`
+	Payload   any         `json:"payload"`
+	ReplyTo   string      `json:"replyTo,omitempty"`
+}
+
+func marshalMessageJSON(m *Message) core.Result {
+	if m == nil {
+		return core.Ok([]byte("null"))
 	}
 
-	return &Message{
+	var payload any
+	if m.Payload != nil {
+		if r := core.JSONUnmarshal([]byte(m.Payload), &payload); !r.OK {
+			return r
+		}
+	}
+
+	r := core.JSONMarshal(messageJSON{
+		ID:        m.ID,
+		Type:      m.Type,
+		From:      m.From,
+		To:        m.To,
+		Timestamp: m.Timestamp,
+		Payload:   payload,
+		ReplyTo:   m.ReplyTo,
+	})
+	if !r.OK {
+		return r
+	}
+
+	text := string(r.Value.([]byte))
+	text = core.Replace(text, `\u003c`, "<")
+	text = core.Replace(text, `\u003e`, ">")
+	text = core.Replace(text, `\u0026`, "&")
+	return core.Ok([]byte(text))
+}
+
+func decodeMessageJSON(data []byte) core.Result {
+	var wire messageJSON
+	if r := core.JSONUnmarshal(data, &wire); !r.OK {
+		return r
+	}
+
+	var payload RawMessage
+	if wire.Payload != nil {
+		encoded := MarshalJSON(wire.Payload)
+		if !encoded.OK {
+			return encoded
+		}
+		payload = encoded.Value.([]byte)
+	}
+
+	return core.Ok(&Message{
+		ID:        wire.ID,
+		Type:      wire.Type,
+		From:      wire.From,
+		To:        wire.To,
+		Timestamp: wire.Timestamp,
+		Payload:   payload,
+		ReplyTo:   wire.ReplyTo,
+	})
+}
+
+// NewMessage creates a new message with a generated ID and timestamp.
+func NewMessage(msgType MessageType, from, to string, payload any) core.Result {
+	var payloadBytes RawMessage
+	if payload != nil {
+		data := MarshalJSON(payload)
+		if !data.OK {
+			return data
+		}
+		payloadBytes = data.Value.([]byte)
+	}
+
+	return core.Ok(&Message{
 		ID:        uuid.New().String(),
 		Type:      msgType,
 		From:      from,
 		To:        to,
 		Timestamp: time.Now(),
 		Payload:   payloadBytes,
-	}, nil
+	})
 }
 
 // Reply creates a reply message to this message.
-func (m *Message) Reply(msgType MessageType, payload any) (*Message, error) {
-	reply, err := NewMessage(msgType, m.To, m.From, payload)
-	if err != nil {
-		return nil, err
+func (m *Message) Reply(msgType MessageType, payload any) core.Result {
+	reply := NewMessage(msgType, m.To, m.From, payload)
+	if !reply.OK {
+		return reply
 	}
-	reply.ReplyTo = m.ID
-	return reply, nil
+	msg := reply.Value.(*Message)
+	msg.ReplyTo = m.ID
+	return core.Ok(msg)
 }
 
 // ParsePayload unmarshals the payload into the given struct.
-func (m *Message) ParsePayload(v any) error {
+func (m *Message) ParsePayload(v any) core.Result {
 	if m.Payload == nil {
-		return nil
+		return core.Ok(nil)
 	}
 	r := core.JSONUnmarshal([]byte(m.Payload), v)
 	if !r.OK {
 		if err, ok := r.Value.(error); ok {
-			return err
+			return core.Fail(err)
 		}
-		return core.NewError("payload unmarshal failed")
+		return core.Fail(core.NewError("payload unmarshal failed"))
 	}
-	return nil
+	return core.Ok(nil)
 }
 
 // --- Payload Types ---
@@ -262,14 +331,15 @@ const (
 )
 
 // NewErrorMessage creates an error response message.
-func NewErrorMessage(from, to string, code int, message string, replyTo string) (*Message, error) {
-	msg, err := NewMessage(MsgError, from, to, ErrorPayload{
+func NewErrorMessage(from, to string, code int, message string, replyTo string) core.Result {
+	msgResult := NewMessage(MsgError, from, to, ErrorPayload{
 		Code:    code,
 		Message: message,
 	})
-	if err != nil {
-		return nil, err
+	if !msgResult.OK {
+		return msgResult
 	}
+	msg := msgResult.Value.(*Message)
 	msg.ReplyTo = replyTo
-	return msg, nil
+	return core.Ok(msg)
 }

@@ -23,54 +23,55 @@ type ResponseHandler struct{}
 // 1. If response is nil (returns error)
 // 2. If response is an error message (returns ProtocolError)
 // 3. If response type matches expected (returns error if not)
-func (h *ResponseHandler) ValidateResponse(resp *Message, expectedType MessageType) error {
+func (h *ResponseHandler) ValidateResponse(resp *Message, expectedType MessageType) core.Result {
 	if resp == nil {
-		return coreerr.E("ResponseHandler.ValidateResponse", "nil response", nil)
+		return core.Fail(coreerr.E("ResponseHandler.ValidateResponse", "nil response", nil))
 	}
 
 	// Check for error response
 	if resp.Type == MsgError {
 		var errPayload ErrorPayload
-		if err := resp.ParsePayload(&errPayload); err != nil {
-			return &ProtocolError{Code: ErrCodeUnknown, Message: "unable to parse error response"}
+		if r := resp.ParsePayload(&errPayload); !r.OK {
+			return core.Fail(&ProtocolError{Code: ErrCodeUnknown, Message: "unable to parse error response"})
 		}
-		return &ProtocolError{Code: errPayload.Code, Message: errPayload.Message}
+		return core.Fail(&ProtocolError{Code: errPayload.Code, Message: errPayload.Message})
 	}
 
 	// Check expected type
 	if resp.Type != expectedType {
-		return coreerr.E("ResponseHandler.ValidateResponse", "unexpected response type: expected "+string(expectedType)+", got "+string(resp.Type), nil)
+		return core.Fail(coreerr.E("ResponseHandler.ValidateResponse", "unexpected response type: expected "+string(expectedType)+", got "+string(resp.Type), nil))
 	}
 
-	return nil
+	return core.Ok(nil)
 }
 
 // ParseResponse validates the response and parses the payload into the target.
 // This combines ValidateResponse and ParsePayload into a single call.
-func (h *ResponseHandler) ParseResponse(resp *Message, expectedType MessageType, target any) error {
-	if err := h.ValidateResponse(resp, expectedType); err != nil {
-		return err
+func (h *ResponseHandler) ParseResponse(resp *Message, expectedType MessageType, target any) core.Result {
+	if r := h.ValidateResponse(resp, expectedType); !r.OK {
+		return r
 	}
 
 	if target != nil {
-		if err := resp.ParsePayload(target); err != nil {
-			return coreerr.E("ResponseHandler.ParseResponse", "failed to parse "+string(expectedType)+" payload", err)
+		if r := resp.ParsePayload(target); !r.OK {
+			err, _ := r.Value.(error)
+			return core.Fail(coreerr.E("ResponseHandler.ParseResponse", "failed to parse "+string(expectedType)+" payload", err))
 		}
 	}
 
-	return nil
+	return core.Ok(nil)
 }
 
 // DefaultResponseHandler is the default response handler instance.
 var DefaultResponseHandler = &ResponseHandler{}
 
 // ValidateResponse is a convenience function using the default handler.
-func ValidateResponse(resp *Message, expectedType MessageType) error {
+func ValidateResponse(resp *Message, expectedType MessageType) core.Result {
 	return DefaultResponseHandler.ValidateResponse(resp, expectedType)
 }
 
 // ParseResponse is a convenience function using the default handler.
-func ParseResponse(resp *Message, expectedType MessageType, target any) error {
+func ParseResponse(resp *Message, expectedType MessageType, target any) core.Result {
 	return DefaultResponseHandler.ParseResponse(resp, expectedType, target)
 }
 

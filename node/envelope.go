@@ -21,54 +21,60 @@ type Envelope struct {
 
 // VerifySignature verifies signed envelopes and accepts unsigned envelopes for
 // backward compatibility during the identity migration.
-func (e Envelope) VerifySignature() error {
+func (e Envelope) VerifySignature() core.Result {
 	if len(e.Signature) == 0 {
-		return nil
+		return core.Ok(nil)
 	}
 	if len(e.PeerPubkey) != ed25519.PublicKeySize || len(e.Signature) != ed25519.SignatureSize {
-		return ErrEnvelopeSignatureInvalid
+		return core.Fail(ErrEnvelopeSignatureInvalid)
 	}
 	if !ed25519.Verify(ed25519.PublicKey(e.PeerPubkey), e.Body, e.Signature) {
-		return ErrEnvelopeSignatureInvalid
+		return core.Fail(ErrEnvelopeSignatureInvalid)
 	}
-	return nil
+	return core.Ok(nil)
 }
 
-func decodeReceivedMessage(data []byte) (*Message, error) {
-	body, err := unwrapEnvelope(data)
-	if err != nil {
-		return nil, err
+func decodeReceivedMessage(data []byte) core.Result {
+	bodyResult := unwrapEnvelope(data)
+	if !bodyResult.OK {
+		return bodyResult
 	}
+	body := bodyResult.Value.([]byte)
 
-	var msg Message
-	r := core.JSONUnmarshal(body, &msg)
+	r := decodeMessageJSON(body)
 	if !r.OK {
 		if err, ok := r.Value.(error); ok {
-			return nil, err
+			return core.Fail(err)
 		}
-		return nil, core.NewError("message unmarshal failed")
+		return core.Fail(core.NewError("message unmarshal failed"))
 	}
-	return &msg, nil
+	return r
 }
 
-func unwrapEnvelope(data []byte) ([]byte, error) {
-	env, ok, err := decodeEnvelope(data)
-	if err != nil {
-		return nil, err
+func unwrapEnvelope(data []byte) core.Result {
+	envelope := decodeEnvelope(data)
+	if !envelope.OK {
+		return envelope
 	}
-	if !ok {
-		return data, nil
+	decoded := envelope.Value.(decodeEnvelopeResult)
+	if !decoded.OK {
+		return core.Ok(data)
 	}
-	if len(env.Body) == 0 {
-		return nil, ErrEnvelopeBodyEmpty
+	if len(decoded.Envelope.Body) == 0 {
+		return core.Fail(ErrEnvelopeBodyEmpty)
 	}
-	if err := env.VerifySignature(); err != nil {
-		return nil, err
+	if verified := decoded.Envelope.VerifySignature(); !verified.OK {
+		return verified
 	}
-	return env.Body, nil
+	return core.Ok(decoded.Envelope.Body)
 }
 
-func decodeEnvelope(data []byte) (Envelope, bool, error) {
+type decodeEnvelopeResult struct {
+	Envelope Envelope
+	OK       bool
+}
+
+func decodeEnvelope(data []byte) core.Result {
 	var probe struct {
 		PeerPubkey RawMessage `json:"peerPubkey"`
 		Body       RawMessage `json:"body"`
@@ -77,21 +83,28 @@ func decodeEnvelope(data []byte) (Envelope, bool, error) {
 	r := core.JSONUnmarshal(data, &probe)
 	if !r.OK {
 		if err, ok := r.Value.(error); ok {
-			return Envelope{}, false, err
+			return core.Fail(err)
 		}
-		return Envelope{}, false, core.NewError("envelope probe unmarshal failed")
+		return core.Fail(core.NewError("envelope probe unmarshal failed"))
 	}
 	if len(probe.PeerPubkey) == 0 && len(probe.Body) == 0 && len(probe.Signature) == 0 {
-		return Envelope{}, false, nil
+		return core.Ok(decodeEnvelopeResult{})
 	}
 
-	var env Envelope
-	r = core.JSONUnmarshal(data, &env)
+	var wire struct {
+		PeerPubkey []byte `json:"peerPubkey,omitempty"`
+		Body       []byte `json:"body"`
+		Signature  []byte `json:"signature,omitempty"`
+	}
+	r = core.JSONUnmarshal(data, &wire)
 	if !r.OK {
 		if err, ok := r.Value.(error); ok {
-			return Envelope{}, true, err
+			return core.Fail(err)
 		}
-		return Envelope{}, true, core.NewError("envelope unmarshal failed")
+		return core.Fail(core.NewError("envelope unmarshal failed"))
 	}
-	return env, true, nil
+	return core.Ok(decodeEnvelopeResult{
+		Envelope: Envelope{PeerPubkey: wire.PeerPubkey, Body: wire.Body, Signature: wire.Signature},
+		OK:       true,
+	})
 }

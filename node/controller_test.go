@@ -77,7 +77,7 @@ func TestController_RequestResponseCorrelation(t *testing.T) {
 
 	// Send a ping request via the controller; the server-side worker
 	// replies with MsgPong, setting ReplyTo to the original message ID.
-	rtt, err := controller.PingPeer(serverID)
+	rtt, err := resultValue[float64](controller.PingPeer(serverID))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -120,7 +120,7 @@ func TestController_NewController_Ugly(t *testing.T) {
 
 func TestController_Controller_GetRemoteStats_Good(t *testing.T) {
 	controller, _, tp := setupControllerPair(t)
-	stats, err := controller.GetRemoteStats(tp.ServerNode.GetIdentity().ID)
+	stats, err := resultValue[*StatsPayload](controller.GetRemoteStats(tp.ServerNode.GetIdentity().ID))
 	if err != nil {
 		t.Fatalf("GetRemoteStats: %v", err)
 	}
@@ -131,9 +131,9 @@ func TestController_Controller_GetRemoteStats_Good(t *testing.T) {
 
 func TestController_Controller_GetRemoteStats_Bad(t *testing.T) {
 	tp := setupTestTransportPair(t)
-	nm, _ := NewNodeManagerWithPaths(core.PathJoin(t.TempDir(), "private.key"), core.PathJoin(t.TempDir(), "node.json"))
+	nm, _ := resultValue[*NodeManager](NewNodeManagerWithPaths(core.PathJoin(t.TempDir(), "private.key"), core.PathJoin(t.TempDir(), "node.json")))
 	controller := NewController(nm, tp.ClientReg, tp.Client)
-	stats, err := controller.GetRemoteStats("peer")
+	stats, err := resultValue[*StatsPayload](controller.GetRemoteStats("peer"))
 	if err == nil {
 		t.Fatal("expected identity error")
 	}
@@ -144,7 +144,7 @@ func TestController_Controller_GetRemoteStats_Bad(t *testing.T) {
 
 func TestController_Controller_GetRemoteStats_Ugly(t *testing.T) {
 	controller, _, tp := setupControllerPairWithMiner(t)
-	stats, err := controller.GetRemoteStats(tp.ServerNode.GetIdentity().ID)
+	stats, err := resultValue[*StatsPayload](controller.GetRemoteStats(tp.ServerNode.GetIdentity().ID))
 	if err != nil {
 		t.Fatalf("GetRemoteStats with miners: %v", err)
 	}
@@ -155,7 +155,7 @@ func TestController_Controller_GetRemoteStats_Ugly(t *testing.T) {
 
 func TestController_Controller_StartRemoteMiner_Good(t *testing.T) {
 	controller, _, tp := setupControllerPairWithMiner(t)
-	err := controller.StartRemoteMiner(tp.ServerNode.GetIdentity().ID, "xmrig", "", RawMessage(`{"pool":"p"}`))
+	err := resultErr(controller.StartRemoteMiner(tp.ServerNode.GetIdentity().ID, "xmrig", "", RawMessage(`{"pool":"p"}`)))
 	if err != nil {
 		t.Fatalf("StartRemoteMiner: %v", err)
 	}
@@ -163,7 +163,7 @@ func TestController_Controller_StartRemoteMiner_Good(t *testing.T) {
 
 func TestController_Controller_StartRemoteMiner_Bad(t *testing.T) {
 	controller, _, tp := setupControllerPairWithMiner(t)
-	err := controller.StartRemoteMiner(tp.ServerNode.GetIdentity().ID, "", "", nil)
+	err := resultErr(controller.StartRemoteMiner(tp.ServerNode.GetIdentity().ID, "", "", nil))
 	if err == nil {
 		t.Fatal("expected miner type error")
 	}
@@ -171,9 +171,9 @@ func TestController_Controller_StartRemoteMiner_Bad(t *testing.T) {
 
 func TestController_Controller_StartRemoteMiner_Ugly(t *testing.T) {
 	tp := setupTestTransportPair(t)
-	nm, _ := NewNodeManagerWithPaths(core.PathJoin(t.TempDir(), "private.key"), core.PathJoin(t.TempDir(), "node.json"))
+	nm, _ := resultValue[*NodeManager](NewNodeManagerWithPaths(core.PathJoin(t.TempDir(), "private.key"), core.PathJoin(t.TempDir(), "node.json")))
 	controller := NewController(nm, tp.ClientReg, tp.Client)
-	err := controller.StartRemoteMiner("peer", "xmrig", "", nil)
+	err := resultErr(controller.StartRemoteMiner("peer", "xmrig", "", nil))
 	if err == nil {
 		t.Fatal("expected identity error")
 	}
@@ -181,7 +181,7 @@ func TestController_Controller_StartRemoteMiner_Ugly(t *testing.T) {
 
 func TestController_Controller_StopRemoteMiner_Good(t *testing.T) {
 	controller, _, tp := setupControllerPairWithMiner(t)
-	err := controller.StopRemoteMiner(tp.ServerNode.GetIdentity().ID, "running-miner")
+	err := resultErr(controller.StopRemoteMiner(tp.ServerNode.GetIdentity().ID, "running-miner"))
 	if err != nil {
 		t.Fatalf("StopRemoteMiner: %v", err)
 	}
@@ -189,7 +189,7 @@ func TestController_Controller_StopRemoteMiner_Good(t *testing.T) {
 
 func TestController_Controller_StopRemoteMiner_Bad(t *testing.T) {
 	controller, _, tp := setupControllerPairWithMiner(t)
-	err := controller.StopRemoteMiner(tp.ServerNode.GetIdentity().ID, "missing")
+	err := resultErr(controller.StopRemoteMiner(tp.ServerNode.GetIdentity().ID, "missing"))
 	if err == nil {
 		t.Fatal("expected missing miner error")
 	}
@@ -197,9 +197,9 @@ func TestController_Controller_StopRemoteMiner_Bad(t *testing.T) {
 
 func TestController_Controller_StopRemoteMiner_Ugly(t *testing.T) {
 	tp := setupTestTransportPair(t)
-	nm, _ := NewNodeManagerWithPaths(core.PathJoin(t.TempDir(), "private.key"), core.PathJoin(t.TempDir(), "node.json"))
+	nm, _ := resultValue[*NodeManager](NewNodeManagerWithPaths(core.PathJoin(t.TempDir(), "private.key"), core.PathJoin(t.TempDir(), "node.json")))
 	controller := NewController(nm, tp.ClientReg, tp.Client)
-	err := controller.StopRemoteMiner("peer", "")
+	err := resultErr(controller.StopRemoteMiner("peer", ""))
 	if err == nil {
 		t.Fatal("expected identity error")
 	}
@@ -207,7 +207,7 @@ func TestController_Controller_StopRemoteMiner_Ugly(t *testing.T) {
 
 func TestController_Controller_GetRemoteLogs_Good(t *testing.T) {
 	controller, _, tp := setupControllerPairWithMiner(t)
-	lines, err := controller.GetRemoteLogs(tp.ServerNode.GetIdentity().ID, "running-miner", 2)
+	lines, err := resultValue[[]string](controller.GetRemoteLogs(tp.ServerNode.GetIdentity().ID, "running-miner", 2))
 	if err != nil {
 		t.Fatalf("GetRemoteLogs: %v", err)
 	}
@@ -218,7 +218,7 @@ func TestController_Controller_GetRemoteLogs_Good(t *testing.T) {
 
 func TestController_Controller_GetRemoteLogs_Bad(t *testing.T) {
 	controller, _, tp := setupControllerPairWithMiner(t)
-	lines, err := controller.GetRemoteLogs(tp.ServerNode.GetIdentity().ID, "missing", 2)
+	lines, err := resultValue[[]string](controller.GetRemoteLogs(tp.ServerNode.GetIdentity().ID, "missing", 2))
 	if err == nil {
 		t.Fatal("expected missing miner error")
 	}
@@ -229,9 +229,9 @@ func TestController_Controller_GetRemoteLogs_Bad(t *testing.T) {
 
 func TestController_Controller_GetRemoteLogs_Ugly(t *testing.T) {
 	tp := setupTestTransportPair(t)
-	nm, _ := NewNodeManagerWithPaths(core.PathJoin(t.TempDir(), "private.key"), core.PathJoin(t.TempDir(), "node.json"))
+	nm, _ := resultValue[*NodeManager](NewNodeManagerWithPaths(core.PathJoin(t.TempDir(), "private.key"), core.PathJoin(t.TempDir(), "node.json")))
 	controller := NewController(nm, tp.ClientReg, tp.Client)
-	lines, err := controller.GetRemoteLogs("peer", "", 0)
+	lines, err := resultValue[[]string](controller.GetRemoteLogs("peer", "", 0))
 	if err == nil {
 		t.Fatal("expected identity error")
 	}
@@ -243,7 +243,7 @@ func TestController_Controller_GetRemoteLogs_Ugly(t *testing.T) {
 func TestController_Controller_GetRemoteLogsSince_Good(t *testing.T) {
 	controller, _, tp := setupControllerPairWithMiner(t)
 	since, _ := time.Parse("2006-01-02 15:04:05", "2026-02-20 10:00:01")
-	lines, err := controller.GetRemoteLogsSince(tp.ServerNode.GetIdentity().ID, "running-miner", 10, since)
+	lines, err := resultValue[[]string](controller.GetRemoteLogsSince(tp.ServerNode.GetIdentity().ID, "running-miner", 10, since))
 	if err != nil {
 		t.Fatalf("GetRemoteLogsSince: %v", err)
 	}
@@ -254,7 +254,7 @@ func TestController_Controller_GetRemoteLogsSince_Good(t *testing.T) {
 
 func TestController_Controller_GetRemoteLogsSince_Bad(t *testing.T) {
 	controller, _, tp := setupControllerPairWithMiner(t)
-	lines, err := controller.GetRemoteLogsSince(tp.ServerNode.GetIdentity().ID, "missing", 10, time.Now())
+	lines, err := resultValue[[]string](controller.GetRemoteLogsSince(tp.ServerNode.GetIdentity().ID, "missing", 10, time.Now()))
 	if err == nil {
 		t.Fatal("expected missing miner error")
 	}
@@ -265,7 +265,7 @@ func TestController_Controller_GetRemoteLogsSince_Bad(t *testing.T) {
 
 func TestController_Controller_GetRemoteLogsSince_Ugly(t *testing.T) {
 	controller, _, tp := setupControllerPairWithMiner(t)
-	lines, err := controller.GetRemoteLogsSince(tp.ServerNode.GetIdentity().ID, "running-miner", 0, time.Time{})
+	lines, err := resultValue[[]string](controller.GetRemoteLogsSince(tp.ServerNode.GetIdentity().ID, "running-miner", 0, time.Time{}))
 	if err != nil {
 		t.Fatalf("GetRemoteLogsSince zero lines: %v", err)
 	}
@@ -305,7 +305,7 @@ func TestController_Controller_GetAllStats_Ugly(t *testing.T) {
 
 func TestController_Controller_PingPeer_Good(t *testing.T) {
 	controller, _, tp := setupControllerPair(t)
-	rtt, err := controller.PingPeer(tp.ServerNode.GetIdentity().ID)
+	rtt, err := resultValue[float64](controller.PingPeer(tp.ServerNode.GetIdentity().ID))
 	if err != nil {
 		t.Fatalf("PingPeer: %v", err)
 	}
@@ -316,9 +316,9 @@ func TestController_Controller_PingPeer_Good(t *testing.T) {
 
 func TestController_Controller_PingPeer_Bad(t *testing.T) {
 	tp := setupTestTransportPair(t)
-	nm, _ := NewNodeManagerWithPaths(core.PathJoin(t.TempDir(), "private.key"), core.PathJoin(t.TempDir(), "node.json"))
+	nm, _ := resultValue[*NodeManager](NewNodeManagerWithPaths(core.PathJoin(t.TempDir(), "private.key"), core.PathJoin(t.TempDir(), "node.json")))
 	controller := NewController(nm, tp.ClientReg, tp.Client)
-	rtt, err := controller.PingPeer("peer")
+	rtt, err := resultValue[float64](controller.PingPeer("peer"))
 	if err == nil {
 		t.Fatal("expected identity error")
 	}
@@ -330,7 +330,7 @@ func TestController_Controller_PingPeer_Bad(t *testing.T) {
 func TestController_Controller_PingPeer_Ugly(t *testing.T) {
 	tp := setupTestTransportPair(t)
 	controller := NewController(tp.ClientNode, tp.ClientReg, tp.Client)
-	rtt, err := controller.PingPeer("missing")
+	rtt, err := resultValue[float64](controller.PingPeer("missing"))
 	if err == nil {
 		t.Fatal("expected missing peer error")
 	}
@@ -346,7 +346,7 @@ func TestController_Controller_ConnectToPeer_Good(t *testing.T) {
 	controller := NewController(tp.ClientNode, tp.ClientReg, tp.Client)
 	peer := &Peer{ID: tp.ServerNode.GetIdentity().ID, Name: "server", Address: tp.ServerAddr, Role: RoleWorker}
 	_ = tp.ClientReg.AddPeer(peer)
-	if err := controller.ConnectToPeer(peer.ID); err != nil {
+	if err := resultErr(controller.ConnectToPeer(peer.ID)); err != nil {
 		t.Fatalf("ConnectToPeer: %v", err)
 	}
 }
@@ -354,7 +354,7 @@ func TestController_Controller_ConnectToPeer_Good(t *testing.T) {
 func TestController_Controller_ConnectToPeer_Bad(t *testing.T) {
 	tp := setupTestTransportPair(t)
 	controller := NewController(tp.ClientNode, tp.ClientReg, tp.Client)
-	err := controller.ConnectToPeer("missing")
+	err := resultErr(controller.ConnectToPeer("missing"))
 	if err == nil {
 		t.Fatal("expected missing peer error")
 	}
@@ -365,7 +365,7 @@ func TestController_Controller_ConnectToPeer_Ugly(t *testing.T) {
 	controller := NewController(tp.ClientNode, tp.ClientReg, tp.Client)
 	peer := &Peer{ID: "bad", Address: "127.0.0.1:1"}
 	_ = tp.ClientReg.AddPeer(peer)
-	err := controller.ConnectToPeer("bad")
+	err := resultErr(controller.ConnectToPeer("bad"))
 	if err == nil {
 		t.Fatal("expected connect error")
 	}
@@ -373,7 +373,7 @@ func TestController_Controller_ConnectToPeer_Ugly(t *testing.T) {
 
 func TestController_Controller_DisconnectFromPeer_Good(t *testing.T) {
 	controller, _, tp := setupControllerPair(t)
-	err := controller.DisconnectFromPeer(tp.ServerNode.GetIdentity().ID)
+	err := resultErr(controller.DisconnectFromPeer(tp.ServerNode.GetIdentity().ID))
 	if err != nil {
 		t.Fatalf("DisconnectFromPeer: %v", err)
 	}
@@ -382,7 +382,7 @@ func TestController_Controller_DisconnectFromPeer_Good(t *testing.T) {
 func TestController_Controller_DisconnectFromPeer_Bad(t *testing.T) {
 	tp := setupTestTransportPair(t)
 	controller := NewController(tp.ClientNode, tp.ClientReg, tp.Client)
-	err := controller.DisconnectFromPeer("missing")
+	err := resultErr(controller.DisconnectFromPeer("missing"))
 	if err == nil {
 		t.Fatal("expected not connected error")
 	}
@@ -391,7 +391,7 @@ func TestController_Controller_DisconnectFromPeer_Bad(t *testing.T) {
 func TestController_Controller_DisconnectFromPeer_Ugly(t *testing.T) {
 	controller, _, tp := setupControllerPair(t)
 	_ = controller.DisconnectFromPeer(tp.ServerNode.GetIdentity().ID)
-	err := controller.DisconnectFromPeer(tp.ServerNode.GetIdentity().ID)
+	err := resultErr(controller.DisconnectFromPeer(tp.ServerNode.GetIdentity().ID))
 	if err == nil {
 		t.Fatal("expected second disconnect error")
 	}
@@ -414,15 +414,15 @@ func TestController_RequestTimeout(t *testing.T) {
 	clientID := tp.ClientNode.GetIdentity().ID
 
 	// Use sendRequest directly with a short deadline (PingPeer uses 5s internally).
-	msg, err := NewMessage(MsgPing, clientID, serverID, PingPayload{
+	msg, err := resultValue[*Message](NewMessage(MsgPing, clientID, serverID, PingPayload{
 		SentAt: time.Now().UnixMilli(),
-	})
+	}))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
 	start := time.Now()
-	_, err = controller.sendRequest(serverID, msg, 200*time.Millisecond)
+	_, err = resultValue[*Message](controller.sendRequest(serverID, msg, 200*time.Millisecond))
 	elapsed := time.Since(start)
 
 	if err == nil {
@@ -462,7 +462,7 @@ func TestController_AutoConnect(t *testing.T) {
 	}
 
 	// Send a request — controller should auto-connect via transport before sending.
-	rtt, err := controller.PingPeer(serverIdentity.ID)
+	rtt, err := resultValue[float64](controller.PingPeer(serverIdentity.ID))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -499,7 +499,7 @@ func TestController_GetAllStats(t *testing.T) {
 		}
 		controllerReg.AddPeer(peer)
 
-		_, err := controllerTransport.Connect(peer)
+		_, err := resultValue[*PeerConnection](controllerTransport.Connect(peer))
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -543,7 +543,7 @@ func TestController_PingPeerRTT(t *testing.T) {
 	initialPingMS := peerBefore.PingMS
 
 	// Send a ping.
-	rtt, err := controller.PingPeer(serverID)
+	rtt, err := resultValue[float64](controller.PingPeer(serverID))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -591,7 +591,7 @@ func TestController_ConcurrentRequests(t *testing.T) {
 		}
 		controllerReg.AddPeer(peer)
 
-		_, err := controllerTransport.Connect(peer)
+		_, err := resultValue[*PeerConnection](controllerTransport.Connect(peer))
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -609,7 +609,7 @@ func TestController_ConcurrentRequests(t *testing.T) {
 		wg.Add(1)
 		go func(idx int, peerID string) {
 			defer wg.Done()
-			rtt, err := controller.PingPeer(peerID)
+			rtt, err := resultValue[float64](controller.PingPeer(peerID))
 			results[idx] = rtt
 			errors[idx] = err
 		}(i, pID)
@@ -641,14 +641,14 @@ func TestController_DeadPeerCleanup(t *testing.T) {
 	clientID := tp.ClientNode.GetIdentity().ID
 
 	// Fire off a request that will time out.
-	msg, err := NewMessage(MsgPing, clientID, serverID, PingPayload{
+	msg, err := resultValue[*Message](NewMessage(MsgPing, clientID, serverID, PingPayload{
 		SentAt: time.Now().UnixMilli(),
-	})
+	}))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	_, err = controller.sendRequest(serverID, msg, 100*time.Millisecond)
+	_, err = resultValue[*Message](controller.sendRequest(serverID, msg, 100*time.Millisecond))
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -676,7 +676,7 @@ func TestController_MultipleSequentialPings(t *testing.T) {
 	serverID := tp.ServerNode.GetIdentity().ID
 
 	for range 5 {
-		rtt, err := controller.PingPeer(serverID)
+		rtt, err := resultValue[float64](controller.PingPeer(serverID))
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -698,7 +698,7 @@ func TestController_ConcurrentRequestsSamePeer(t *testing.T) {
 
 	for range goroutines {
 		wg.Go(func() {
-			rtt, err := controller.PingPeer(serverID)
+			rtt, err := resultValue[float64](controller.PingPeer(serverID))
 			if err == nil && rtt > 0 {
 				successCount.Add(1)
 			}
@@ -715,7 +715,7 @@ func TestController_GetRemoteStats(t *testing.T) {
 	controller, _, tp := setupControllerPair(t)
 	serverID := tp.ServerNode.GetIdentity().ID
 
-	stats, err := controller.GetRemoteStats(serverID)
+	stats, err := resultValue[*StatsPayload](controller.GetRemoteStats(serverID))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -741,7 +741,7 @@ func TestController_ConnectToPeerUnknown(t *testing.T) {
 	tp := setupTestTransportPair(t)
 	controller := NewController(tp.ClientNode, tp.ClientReg, tp.Client)
 
-	err := controller.ConnectToPeer("non-existent-peer-id")
+	err := resultErr(controller.ConnectToPeer("non-existent-peer-id"))
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -758,7 +758,7 @@ func TestController_DisconnectFromPeer(t *testing.T) {
 		t.Fatalf("want %v, got %v", 1, tp.Client.ConnectedPeers())
 	}
 
-	err := controller.DisconnectFromPeer(serverID)
+	err := resultErr(controller.DisconnectFromPeer(serverID))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -768,7 +768,7 @@ func TestController_DisconnectFromPeerNotConnected(t *testing.T) {
 	tp := setupTestTransportPair(t)
 	controller := NewController(tp.ClientNode, tp.ClientReg, tp.Client)
 
-	err := controller.DisconnectFromPeer("non-existent-peer-id")
+	err := resultErr(controller.DisconnectFromPeer("non-existent-peer-id"))
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -782,15 +782,15 @@ func TestController_SendRequestPeerNotFound(t *testing.T) {
 	controller := NewController(tp.ClientNode, tp.ClientReg, tp.Client)
 
 	clientID := tp.ClientNode.GetIdentity().ID
-	msg, err := NewMessage(MsgPing, clientID, "ghost-peer", PingPayload{
+	msg, err := resultValue[*Message](NewMessage(MsgPing, clientID, "ghost-peer", PingPayload{
 		SentAt: time.Now().UnixMilli(),
-	})
+	}))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
 	// Peer is neither connected nor in the registry — sendRequest should fail.
-	_, err = controller.sendRequest("ghost-peer", msg, 1*time.Second)
+	_, err = resultValue[*Message](controller.sendRequest("ghost-peer", msg, 1*time.Second))
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -966,7 +966,7 @@ func TestController_StartRemoteMiner(t *testing.T) {
 	controller, _, tp := setupControllerPairWithMiner(t)
 	serverID := tp.ServerNode.GetIdentity().ID
 	configOverride := RawMessage(`{"pool":"pool.example.com:3333"}`)
-	err := controller.StartRemoteMiner(serverID, "xmrig", "profile-1", configOverride)
+	err := resultErr(controller.StartRemoteMiner(serverID, "xmrig", "profile-1", configOverride))
 
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -978,7 +978,7 @@ func TestController_StartRemoteMiner_WithConfig(t *testing.T) {
 	serverID := tp.ServerNode.GetIdentity().ID
 
 	configOverride := RawMessage(`{"pool":"custom-pool:3333","threads":4}`)
-	err := controller.StartRemoteMiner(serverID, "xmrig", "", configOverride)
+	err := resultErr(controller.StartRemoteMiner(serverID, "xmrig", "", configOverride))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -988,7 +988,7 @@ func TestController_StartRemoteMiner_EmptyType(t *testing.T) {
 	controller, _, tp := setupControllerPairWithMiner(t)
 	serverID := tp.ServerNode.GetIdentity().ID
 
-	err := controller.StartRemoteMiner(serverID, "", "profile-1", nil)
+	err := resultErr(controller.StartRemoteMiner(serverID, "", "profile-1", nil))
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -1001,17 +1001,17 @@ func TestController_StartRemoteMiner_NoIdentity(t *testing.T) {
 	tp := setupTestTransportPair(t)
 
 	// Create a node without identity
-	nmNoID, err := NewNodeManagerWithPaths(
+	nmNoID, err := resultValue[*NodeManager](NewNodeManagerWithPaths(
 		core.PathJoin(t.TempDir(), "priv.key"),
 		core.PathJoin(t.TempDir(), "node.json"),
-	)
+	))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
 	controller := NewController(nmNoID, tp.ClientReg, tp.Client)
 
-	err = controller.StartRemoteMiner("some-peer", "xmrig", "profile-1", nil)
+	err = resultErr(controller.StartRemoteMiner("some-peer", "xmrig", "profile-1", nil))
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -1024,7 +1024,7 @@ func TestController_StopRemoteMiner(t *testing.T) {
 	controller, _, tp := setupControllerPairWithMiner(t)
 	serverID := tp.ServerNode.GetIdentity().ID
 
-	err := controller.StopRemoteMiner(serverID, "running-miner")
+	err := resultErr(controller.StopRemoteMiner(serverID, "running-miner"))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1034,7 +1034,7 @@ func TestController_StopRemoteMiner_NotFound(t *testing.T) {
 	controller, _, tp := setupControllerPairWithMiner(t)
 	serverID := tp.ServerNode.GetIdentity().ID
 
-	err := controller.StopRemoteMiner(serverID, "non-existent-miner")
+	err := resultErr(controller.StopRemoteMiner(serverID, "non-existent-miner"))
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -1042,10 +1042,10 @@ func TestController_StopRemoteMiner_NotFound(t *testing.T) {
 
 func TestController_StopRemoteMiner_NoIdentity(t *testing.T) {
 	tp := setupTestTransportPair(t)
-	nmNoID, err := NewNodeManagerWithPaths(
+	nmNoID, err := resultValue[*NodeManager](NewNodeManagerWithPaths(
 		core.PathJoin(t.TempDir(), "priv.key"),
 		core.PathJoin(t.TempDir(), "node.json"),
-	)
+	))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1065,7 +1065,7 @@ func TestController_GetRemoteLogs(t *testing.T) {
 	controller, _, tp := setupControllerPairWithMiner(t)
 	serverID := tp.ServerNode.GetIdentity().ID
 
-	lines, err := controller.GetRemoteLogs(serverID, "running-miner", 10)
+	lines, err := resultValue[[]string](controller.GetRemoteLogs(serverID, "running-miner", 10))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1084,7 +1084,7 @@ func TestController_GetRemoteLogs_LimitedLines(t *testing.T) {
 	controller, _, tp := setupControllerPairWithMiner(t)
 	serverID := tp.ServerNode.GetIdentity().ID
 
-	lines, err := controller.GetRemoteLogs(serverID, "running-miner", 1)
+	lines, err := resultValue[[]string](controller.GetRemoteLogs(serverID, "running-miner", 1))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1102,7 +1102,7 @@ func TestController_GetRemoteLogsSince(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	lines, err := controller.GetRemoteLogsSince(serverID, "running-miner", 10, since)
+	lines, err := resultValue[[]string](controller.GetRemoteLogsSince(serverID, "running-miner", 10, since))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1119,17 +1119,17 @@ func TestController_GetRemoteLogsSince(t *testing.T) {
 
 func TestController_GetRemoteLogs_NoIdentity(t *testing.T) {
 	tp := setupTestTransportPair(t)
-	nmNoID, err := NewNodeManagerWithPaths(
+	nmNoID, err := resultValue[*NodeManager](NewNodeManagerWithPaths(
 		core.PathJoin(t.TempDir(), "priv.key"),
 		core.PathJoin(t.TempDir(), "node.json"),
-	)
+	))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
 	controller := NewController(nmNoID, tp.ClientReg, tp.Client)
 
-	_, err = controller.GetRemoteLogs("some-peer", "any-miner", 10)
+	_, err = resultValue[[]string](controller.GetRemoteLogs("some-peer", "any-miner", 10))
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -1142,7 +1142,7 @@ func TestController_GetRemoteStats_WithMiners(t *testing.T) {
 	controller, _, tp := setupControllerPairWithMiner(t)
 	serverID := tp.ServerNode.GetIdentity().ID
 
-	stats, err := controller.GetRemoteStats(serverID)
+	stats, err := resultValue[*StatsPayload](controller.GetRemoteStats(serverID))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1166,17 +1166,17 @@ func TestController_GetRemoteStats_WithMiners(t *testing.T) {
 
 func TestController_GetRemoteStats_NoIdentity(t *testing.T) {
 	tp := setupTestTransportPair(t)
-	nmNoID, err := NewNodeManagerWithPaths(
+	nmNoID, err := resultValue[*NodeManager](NewNodeManagerWithPaths(
 		core.PathJoin(t.TempDir(), "priv.key"),
 		core.PathJoin(t.TempDir(), "node.json"),
-	)
+	))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
 	controller := NewController(nmNoID, tp.ClientReg, tp.Client)
 
-	_, err = controller.GetRemoteStats("some-peer")
+	_, err = resultValue[*StatsPayload](controller.GetRemoteStats("some-peer"))
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -1203,7 +1203,7 @@ func TestController_ConnectToPeer_Success(t *testing.T) {
 	}
 	tp.ClientReg.AddPeer(peer)
 
-	err := controller.ConnectToPeer(serverIdentity.ID)
+	err := resultErr(controller.ConnectToPeer(serverIdentity.ID))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1218,7 +1218,7 @@ func TestController_HandleResponse_NonReply(t *testing.T) {
 	controller := NewController(tp.ClientNode, tp.ClientReg, tp.Client)
 
 	// handleResponse should ignore messages without ReplyTo
-	msg, _ := NewMessage(MsgPing, "sender", "target", PingPayload{SentAt: 123})
+	msg, _ := resultValue[*Message](NewMessage(MsgPing, "sender", "target", PingPayload{SentAt: 123}))
 	controller.handleResponse(nil, msg)
 
 	// No pending entries should be affected
@@ -1243,7 +1243,7 @@ func TestController_HandleResponse_FullChannel(t *testing.T) {
 	controller.mu.Unlock()
 
 	// handleResponse with matching reply should not panic on full channel
-	msg, _ := NewMessage(MsgPong, "sender", "target", PongPayload{SentAt: 123})
+	msg, _ := resultValue[*Message](NewMessage(MsgPong, "sender", "target", PongPayload{SentAt: 123}))
 	msg.ReplyTo = "test-id"
 	controller.handleResponse(nil, msg)
 
@@ -1258,13 +1258,13 @@ func TestController_HandleResponse_FullChannel(t *testing.T) {
 
 func TestController_PingPeer_NoIdentity(t *testing.T) {
 	tp := setupTestTransportPair(t)
-	nmNoID, _ := NewNodeManagerWithPaths(
+	nmNoID, _ := resultValue[*NodeManager](NewNodeManagerWithPaths(
 		core.PathJoin(t.TempDir(), "priv.key"),
 		core.PathJoin(t.TempDir(), "node.json"),
-	)
+	))
 	controller := NewController(nmNoID, tp.ClientReg, tp.Client)
 
-	_, err := controller.PingPeer("some-peer")
+	_, err := resultValue[float64](controller.PingPeer("some-peer"))
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}

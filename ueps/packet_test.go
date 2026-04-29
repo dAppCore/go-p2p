@@ -13,6 +13,28 @@ import (
 // testSecret is a deterministic shared secret for reproducible tests.
 var testSecret = []byte("test-shared-secret-32-bytes!!!!!")
 
+func uepsResultErr(r core.Result) error {
+	if r.OK {
+		return nil
+	}
+	if err, ok := r.Value.(error); ok {
+		return err
+	}
+	return core.NewError("operation failed")
+}
+
+func uepsResultValue[T any](r core.Result) (T, error) {
+	var zero T
+	if !r.OK {
+		return zero, uepsResultErr(r)
+	}
+	value, ok := r.Value.(T)
+	if !ok {
+		return zero, core.NewError("unexpected result value")
+	}
+	return value, nil
+}
+
 func repeatBytes(chunk []byte, count int) []byte {
 	out := make([]byte, 0, len(chunk)*count)
 	for range count {
@@ -32,7 +54,7 @@ func indexByte(data []byte, needle byte) int {
 
 func testPacketMACKey(t *testing.T, sharedSecret []byte) []byte {
 	t.Helper()
-	macKey, err := derivePacketMACKey(sharedSecret)
+	macKey, err := uepsResultValue[[]byte](derivePacketMACKey(sharedSecret))
 	if err != nil {
 		t.Fatalf("derive packet MAC key: %v", err)
 	}
@@ -74,12 +96,12 @@ func TestPacketBuilder_RoundTrip(t *testing.T) {
 			builder := NewBuilder(tc.intentID, tc.payload)
 			builder.Header.ThreatScore = tc.threatScore
 
-			frame, err := builder.MarshalAndSign(testSecret)
+			frame, err := uepsResultValue[[]byte](builder.MarshalAndSign(testSecret))
 			if err != nil {
 				t.Fatalf("MarshalAndSign failed: %v", err)
 			}
 
-			parsed, err := ReadAndVerify(bufio.NewReader(core.NewBuffer(frame)), testSecret)
+			parsed, err := uepsResultValue[*ParsedPacket](ReadAndVerify(bufio.NewReader(core.NewBuffer(frame)), testSecret))
 			if err != nil {
 				t.Fatalf("ReadAndVerify failed: %v", err)
 			}
@@ -111,7 +133,7 @@ func TestPacketBuilder_RoundTrip(t *testing.T) {
 
 func TestHMACVerification_TamperedPayload(t *testing.T) {
 	builder := NewBuilder(0x20, []byte("original payload"))
-	frame, err := builder.MarshalAndSign(testSecret)
+	frame, err := uepsResultValue[[]byte](builder.MarshalAndSign(testSecret))
 	if err != nil {
 		t.Fatalf("MarshalAndSign failed: %v", err)
 	}
@@ -121,7 +143,7 @@ func TestHMACVerification_TamperedPayload(t *testing.T) {
 	copy(tampered, frame)
 	tampered[len(tampered)-1] ^= 0xFF
 
-	_, err = ReadAndVerify(bufio.NewReader(core.NewBuffer(tampered)), testSecret)
+	_, err = uepsResultValue[*ParsedPacket](ReadAndVerify(bufio.NewReader(core.NewBuffer(tampered)), testSecret))
 	if err == nil {
 		t.Fatal("Expected HMAC mismatch error for tampered payload")
 	}
@@ -132,7 +154,7 @@ func TestHMACVerification_TamperedPayload(t *testing.T) {
 
 func TestHMACVerification_TamperedHeader(t *testing.T) {
 	builder := NewBuilder(0x20, []byte("test payload"))
-	frame, err := builder.MarshalAndSign(testSecret)
+	frame, err := uepsResultValue[[]byte](builder.MarshalAndSign(testSecret))
 	if err != nil {
 		t.Fatalf("MarshalAndSign failed: %v", err)
 	}
@@ -143,7 +165,7 @@ func TestHMACVerification_TamperedHeader(t *testing.T) {
 	copy(tampered, frame)
 	tampered[3] = 0x01 // Change version from 0x09 to 0x01
 
-	_, err = ReadAndVerify(bufio.NewReader(core.NewBuffer(tampered)), testSecret)
+	_, err = uepsResultValue[*ParsedPacket](ReadAndVerify(bufio.NewReader(core.NewBuffer(tampered)), testSecret))
 	if err == nil {
 		t.Fatal("Expected HMAC mismatch error for tampered header")
 	}
@@ -154,12 +176,12 @@ func TestHMACVerification_TamperedHeader(t *testing.T) {
 
 func TestHMACVerification_WrongSharedSecret(t *testing.T) {
 	builder := NewBuilder(0x20, []byte("secret data"))
-	frame, err := builder.MarshalAndSign([]byte("key-A-used-for-signing!!!!!!!!!!"))
+	frame, err := uepsResultValue[[]byte](builder.MarshalAndSign([]byte("key-A-used-for-signing!!!!!!!!!!")))
 	if err != nil {
 		t.Fatalf("MarshalAndSign failed: %v", err)
 	}
 
-	_, err = ReadAndVerify(bufio.NewReader(core.NewBuffer(frame)), []byte("key-B-used-for-reading!!!!!!!!!!"))
+	_, err = uepsResultValue[*ParsedPacket](ReadAndVerify(bufio.NewReader(core.NewBuffer(frame)), []byte("key-B-used-for-reading!!!!!!!!!!")))
 	if err == nil {
 		t.Fatal("Expected HMAC mismatch error for wrong shared secret")
 	}
@@ -180,12 +202,12 @@ func TestEmptyPayload(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			builder := NewBuilder(0x01, tc.payload)
-			frame, err := builder.MarshalAndSign(testSecret)
+			frame, err := uepsResultValue[[]byte](builder.MarshalAndSign(testSecret))
 			if err != nil {
 				t.Fatalf("MarshalAndSign failed: %v", err)
 			}
 
-			parsed, err := ReadAndVerify(bufio.NewReader(core.NewBuffer(frame)), testSecret)
+			parsed, err := uepsResultValue[*ParsedPacket](ReadAndVerify(bufio.NewReader(core.NewBuffer(frame)), testSecret))
 			if err != nil {
 				t.Fatalf("ReadAndVerify failed: %v", err)
 			}
@@ -204,12 +226,12 @@ func TestMaxThreatScoreBoundary(t *testing.T) {
 	builder := NewBuilder(0x20, []byte("threat boundary"))
 	builder.Header.ThreatScore = 65535 // uint16 max
 
-	frame, err := builder.MarshalAndSign(testSecret)
+	frame, err := uepsResultValue[[]byte](builder.MarshalAndSign(testSecret))
 	if err != nil {
 		t.Fatalf("MarshalAndSign failed: %v", err)
 	}
 
-	parsed, err := ReadAndVerify(bufio.NewReader(core.NewBuffer(frame)), testSecret)
+	parsed, err := uepsResultValue[*ParsedPacket](ReadAndVerify(bufio.NewReader(core.NewBuffer(frame)), testSecret))
 	if err != nil {
 		t.Fatalf("ReadAndVerify failed: %v", err)
 	}
@@ -235,7 +257,7 @@ func TestMissingHMACTag(t *testing.T) {
 	// Skip HMAC TLV entirely — go straight to payload (with length prefix now)
 	writeTLV(buf, TagPayload, []byte("some data"))
 
-	_, err := ReadAndVerify(bufio.NewReader(core.NewBuffer(buf.Bytes())), testSecret)
+	_, err := uepsResultValue[*ParsedPacket](ReadAndVerify(bufio.NewReader(core.NewBuffer(buf.Bytes())), testSecret))
 	if err == nil {
 		t.Fatal("Expected 'missing HMAC' error")
 	}
@@ -247,7 +269,7 @@ func TestMissingHMACTag(t *testing.T) {
 func TestWriteTLV_ValueTooLarge(t *testing.T) {
 	buf := core.NewBuffer()
 	oversized := make([]byte, 65536) // 1 byte over the 65535 limit
-	err := writeTLV(buf, TagVersion, oversized)
+	err := uepsResultErr(writeTLV(buf, TagVersion, oversized))
 	if err == nil {
 		t.Fatal("Expected error for TLV value > 65535 bytes")
 	}
@@ -258,7 +280,7 @@ func TestWriteTLV_ValueTooLarge(t *testing.T) {
 
 func TestTruncatedPacket(t *testing.T) {
 	builder := NewBuilder(0x20, []byte("full payload"))
-	frame, err := builder.MarshalAndSign(testSecret)
+	frame, err := uepsResultValue[[]byte](builder.MarshalAndSign(testSecret))
 	if err != nil {
 		t.Fatalf("MarshalAndSign failed: %v", err)
 	}
@@ -288,7 +310,7 @@ func TestTruncatedPacket(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			truncated := frame[:tc.cutAt]
-			_, err := ReadAndVerify(bufio.NewReader(core.NewBuffer(truncated)), testSecret)
+			_, err := uepsResultValue[*ParsedPacket](ReadAndVerify(bufio.NewReader(core.NewBuffer(truncated)), testSecret))
 			if err == nil {
 				t.Fatal("Expected error for truncated packet")
 			}
@@ -332,7 +354,7 @@ func TestUnknownTLVTag(t *testing.T) {
 	writeTLV(frame, TagHMAC, signature)
 	writeTLV(frame, TagPayload, payload)
 
-	parsed, err := ReadAndVerify(bufio.NewReader(core.NewBuffer(frame.Bytes())), testSecret)
+	parsed, err := uepsResultValue[*ParsedPacket](ReadAndVerify(bufio.NewReader(core.NewBuffer(frame.Bytes())), testSecret))
 	if err != nil {
 		t.Fatalf("ReadAndVerify should accept unknown tag: %v", err)
 	}
@@ -386,12 +408,12 @@ func TestThreatScoreBoundaries(t *testing.T) {
 			builder := NewBuilder(0x20, []byte("score test"))
 			builder.Header.ThreatScore = tc.score
 
-			frame, err := builder.MarshalAndSign(testSecret)
+			frame, err := uepsResultValue[[]byte](builder.MarshalAndSign(testSecret))
 			if err != nil {
 				t.Fatalf("MarshalAndSign failed: %v", err)
 			}
 
-			parsed, err := ReadAndVerify(bufio.NewReader(core.NewBuffer(frame)), testSecret)
+			parsed, err := uepsResultValue[*ParsedPacket](ReadAndVerify(bufio.NewReader(core.NewBuffer(frame)), testSecret))
 			if err != nil {
 				t.Fatalf("ReadAndVerify failed: %v", err)
 			}
@@ -421,7 +443,7 @@ func TestWriteTLV_BoundaryLengths(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			buf := core.NewBuffer()
 			value := make([]byte, tc.length)
-			err := writeTLV(buf, 0x01, value)
+			err := uepsResultErr(writeTLV(buf, 0x01, value))
 			if tc.wantErr && err == nil {
 				t.Error("Expected error for oversized TLV value")
 			}
@@ -434,7 +456,7 @@ func TestWriteTLV_BoundaryLengths(t *testing.T) {
 
 // TestReadAndVerify_EmptyReader verifies behaviour on completely empty input.
 func TestReadAndVerify_EmptyReader(t *testing.T) {
-	_, err := ReadAndVerify(bufio.NewReader(core.NewBuffer(nil)), testSecret)
+	_, err := uepsResultValue[*ParsedPacket](ReadAndVerify(bufio.NewReader(core.NewBuffer(nil)), testSecret))
 	if err == nil {
 		t.Fatal("Expected error for empty reader")
 	}
@@ -474,7 +496,7 @@ func TestPacket_NewBuilder_Ugly(t *testing.T) {
 
 func TestPacket_PacketBuilder_MarshalAndSign_Good(t *testing.T) {
 	builder := NewBuilder(0x20, []byte("payload"))
-	frame, err := builder.MarshalAndSign(testSecret)
+	frame, err := uepsResultValue[[]byte](builder.MarshalAndSign(testSecret))
 	if err != nil {
 		t.Fatalf("MarshalAndSign: %v", err)
 	}
@@ -485,7 +507,7 @@ func TestPacket_PacketBuilder_MarshalAndSign_Good(t *testing.T) {
 
 func TestPacket_PacketBuilder_MarshalAndSign_Bad(t *testing.T) {
 	builder := NewBuilder(0x20, repeatBytes([]byte("x"), 65536))
-	frame, err := builder.MarshalAndSign(testSecret)
+	frame, err := uepsResultValue[[]byte](builder.MarshalAndSign(testSecret))
 	if err == nil {
 		t.Fatal("expected oversized payload error")
 	}
@@ -496,7 +518,7 @@ func TestPacket_PacketBuilder_MarshalAndSign_Bad(t *testing.T) {
 
 func TestPacket_PacketBuilder_MarshalAndSign_Ugly(t *testing.T) {
 	builder := NewBuilder(0x20, nil)
-	frame, err := builder.MarshalAndSign(testSecret)
+	frame, err := uepsResultValue[[]byte](builder.MarshalAndSign(testSecret))
 	if err != nil {
 		t.Fatalf("MarshalAndSign nil payload: %v", err)
 	}

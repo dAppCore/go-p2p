@@ -29,7 +29,7 @@ const (
 
 // IntentHandler processes a UEPS packet that has been routed by intent.
 // Implementations receive the fully parsed and HMAC-verified packet.
-type IntentHandler func(pkt *ueps.ParsedPacket) error
+type IntentHandler func(pkt *ueps.ParsedPacket) core.Result
 
 // Dispatcher routes verified UEPS packets to registered intent handlers.
 // It enforces a threat circuit breaker before routing: any packet whose
@@ -98,9 +98,9 @@ func (d *Dispatcher) Handlers() iter.Seq2[byte, IntentHandler] {
 //   - Returns nil on successful delivery to a handler, or any error the
 //     handler itself returns.
 //   - A nil packet returns ErrNilPacket immediately.
-func (d *Dispatcher) Dispatch(pkt *ueps.ParsedPacket) error {
+func (d *Dispatcher) Dispatch(pkt *ueps.ParsedPacket) core.Result {
 	if pkt == nil {
-		return ErrNilPacket
+		return core.Fail(ErrNilPacket)
 	}
 
 	// 1. Threat circuit breaker (L5 guard)
@@ -111,7 +111,7 @@ func (d *Dispatcher) Dispatch(pkt *ueps.ParsedPacket) error {
 			"intent_id":    core.Sprintf("0x%02X", pkt.Header.IntentID),
 			"version":      pkt.Header.Version,
 		})
-		return ErrThreatScoreExceeded
+		return core.Fail(ErrThreatScoreExceeded)
 	}
 
 	// 2. Intent routing (L9 semantic)
@@ -124,7 +124,7 @@ func (d *Dispatcher) Dispatch(pkt *ueps.ParsedPacket) error {
 			"intent_id": core.Sprintf("0x%02X", pkt.Header.IntentID),
 			"version":   pkt.Header.Version,
 		})
-		return ErrUnknownIntent
+		return core.Fail(ErrUnknownIntent)
 	}
 
 	return handler(pkt)

@@ -113,7 +113,7 @@ func TestAnnouncePeer_Bad(t *testing.T) {
 
 func TestHealth_Good(t *testing.T) {
 	registry := newProviderTestRegistry(t)
-	if err := registry.AddPeer(&p2pnode.Peer{ID: "peer-1", Name: "Agency One"}); err != nil {
+	if err := apiResultErr(registry.AddPeer(&p2pnode.Peer{ID: "peer-1", Name: "Agency One"})); err != nil {
 		t.Fatalf("add peer: %v", err)
 	}
 	registry.SetConnected("peer-1", true)
@@ -158,10 +158,10 @@ func TestHealth_Bad(t *testing.T) {
 
 func TestListPeers_Good(t *testing.T) {
 	registry := newProviderTestRegistry(t)
-	if err := registry.AddPeer(&p2pnode.Peer{ID: "peer-1", Name: "Agency One"}); err != nil {
+	if err := apiResultErr(registry.AddPeer(&p2pnode.Peer{ID: "peer-1", Name: "Agency One"})); err != nil {
 		t.Fatalf("add peer one: %v", err)
 	}
-	if err := registry.AddPeer(&p2pnode.Peer{ID: "peer-2", Name: "Agency Two"}); err != nil {
+	if err := apiResultErr(registry.AddPeer(&p2pnode.Peer{ID: "peer-2", Name: "Agency Two"})); err != nil {
 		t.Fatalf("add peer two: %v", err)
 	}
 	router := newProviderTestRouter(NewProvider(registry, nil))

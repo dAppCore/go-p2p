@@ -41,71 +41,78 @@ type BundleManifest struct {
 	CreatedAt  string     `json:"createdAt"`
 }
 
+type extractedMinerBundleResult struct {
+	Path    string
+	Profile []byte
+}
+
 // CreateProfileBundle creates an encrypted bundle containing a mining profile.
-func CreateProfileBundle(profileJSON []byte, name string, password string) (*Bundle, error) {
+func CreateProfileBundle(profileJSON []byte, name string, password string) core.Result {
 	// Create a TIM with just the profile config
 	t, err := tim.New()
 	if err != nil {
-		return nil, coreerr.E("CreateProfileBundle", "failed to create TIM", err)
+		return core.Fail(coreerr.E("CreateProfileBundle", "failed to create TIM", err))
 	}
 	t.Config = profileJSON
 
 	// Encrypt to STIM format
 	stimData, err := t.ToSigil(password)
 	if err != nil {
-		return nil, coreerr.E("CreateProfileBundle", "failed to encrypt bundle", err)
+		return core.Fail(coreerr.E("CreateProfileBundle", "failed to encrypt bundle", err))
 	}
 
 	// Calculate checksum
 	checksum := calculateChecksum(stimData)
 
-	return &Bundle{
+	return core.Ok(&Bundle{
 		Type:     BundleProfile,
 		Name:     name,
 		Data:     stimData,
 		Checksum: checksum,
-	}, nil
+	})
 }
 
 // CreateProfileBundleUnencrypted creates a plain JSON bundle (for testing or trusted networks).
-func CreateProfileBundleUnencrypted(profileJSON []byte, name string) (*Bundle, error) {
+func CreateProfileBundleUnencrypted(profileJSON []byte, name string) core.Result {
 	checksum := calculateChecksum(profileJSON)
 
-	return &Bundle{
+	return core.Ok(&Bundle{
 		Type:     BundleProfile,
 		Name:     name,
 		Data:     profileJSON,
 		Checksum: checksum,
-	}, nil
+	})
 }
 
 // CreateMinerBundle creates an encrypted bundle containing a miner binary and optional profile.
-func CreateMinerBundle(minerPath string, profileJSON []byte, name string, password string) (*Bundle, error) {
+func CreateMinerBundle(minerPath string, profileJSON []byte, name string, password string) core.Result {
 	// Read miner binary
 	minerContent, err := coreio.Local.Read(minerPath)
 	if err != nil {
-		return nil, coreerr.E("CreateMinerBundle", "failed to read miner binary", err)
+		return core.Fail(coreerr.E("CreateMinerBundle", "failed to read miner binary", err))
 	}
 	minerData := []byte(minerContent)
 
 	// Create a tarball with the miner binary
-	tarData, err := createTarball(map[string][]byte{
+	tarResult := createTarball(map[string][]byte{
 		core.PathBase(minerPath): minerData,
 	})
-	if err != nil {
-		return nil, coreerr.E("CreateMinerBundle", "failed to create tarball", err)
+	if !tarResult.OK {
+		err, _ := tarResult.Value.(error)
+		return core.Fail(coreerr.E("CreateMinerBundle", "failed to create tarball", err))
 	}
+	tarData := tarResult.Value.([]byte)
 
 	// Create DataNode from tarball
 	dn, err := datanode.FromTar(tarData)
 	if err != nil {
-		return nil, coreerr.E("CreateMinerBundle", "failed to create datanode", err)
+		return core.Fail(coreerr.E("CreateMinerBundle", "failed to create datanode", err))
 	}
 
 	// Create TIM from DataNode
 	t, err := tim.FromDataNode(dn)
 	if err != nil {
-		return nil, coreerr.E("CreateMinerBundle", "failed to create TIM", err)
+		return core.Fail(coreerr.E("CreateMinerBundle", "failed to create TIM", err))
 	}
 
 	// Set profile as config if provided
@@ -116,66 +123,67 @@ func CreateMinerBundle(minerPath string, profileJSON []byte, name string, passwo
 	// Encrypt to STIM format
 	stimData, err := t.ToSigil(password)
 	if err != nil {
-		return nil, coreerr.E("CreateMinerBundle", "failed to encrypt bundle", err)
+		return core.Fail(coreerr.E("CreateMinerBundle", "failed to encrypt bundle", err))
 	}
 
 	checksum := calculateChecksum(stimData)
 
-	return &Bundle{
+	return core.Ok(&Bundle{
 		Type:     BundleMiner,
 		Name:     name,
 		Data:     stimData,
 		Checksum: checksum,
-	}, nil
+	})
 }
 
 // ExtractProfileBundle decrypts and extracts a profile bundle.
-func ExtractProfileBundle(bundle *Bundle, password string) ([]byte, error) {
+func ExtractProfileBundle(bundle *Bundle, password string) core.Result {
 	// Verify checksum first
 	if calculateChecksum(bundle.Data) != bundle.Checksum {
-		return nil, coreerr.E("ExtractProfileBundle", "checksum mismatch - bundle may be corrupted", nil)
+		return core.Fail(coreerr.E("ExtractProfileBundle", "checksum mismatch - bundle may be corrupted", nil))
 	}
 
 	// If it's unencrypted JSON, just return it
 	if isJSON(bundle.Data) {
-		return bundle.Data, nil
+		return core.Ok(bundle.Data)
 	}
 
 	// Decrypt STIM format
 	t, err := tim.FromSigil(bundle.Data, password)
 	if err != nil {
-		return nil, coreerr.E("ExtractProfileBundle", "failed to decrypt bundle", err)
+		return core.Fail(coreerr.E("ExtractProfileBundle", "failed to decrypt bundle", err))
 	}
 
-	return t.Config, nil
+	return core.Ok(t.Config)
 }
 
 // ExtractMinerBundle decrypts and extracts a miner bundle, returning the miner path and profile.
-func ExtractMinerBundle(bundle *Bundle, password string, destDir string) (string, []byte, error) {
+func ExtractMinerBundle(bundle *Bundle, password string, destDir string) core.Result {
 	// Verify checksum
 	if calculateChecksum(bundle.Data) != bundle.Checksum {
-		return "", nil, coreerr.E("ExtractMinerBundle", "checksum mismatch - bundle may be corrupted", nil)
+		return core.Fail(coreerr.E("ExtractMinerBundle", "checksum mismatch - bundle may be corrupted", nil))
 	}
 
 	// Decrypt STIM format
 	t, err := tim.FromSigil(bundle.Data, password)
 	if err != nil {
-		return "", nil, coreerr.E("ExtractMinerBundle", "failed to decrypt bundle", err)
+		return core.Fail(coreerr.E("ExtractMinerBundle", "failed to decrypt bundle", err))
 	}
 
 	// Convert rootfs to tarball and extract
 	tarData, err := t.RootFS.ToTar()
 	if err != nil {
-		return "", nil, coreerr.E("ExtractMinerBundle", "failed to convert rootfs to tar", err)
+		return core.Fail(coreerr.E("ExtractMinerBundle", "failed to convert rootfs to tar", err))
 	}
 
 	// Extract tarball to destination
-	minerPath, err := extractTarball(tarData, destDir)
-	if err != nil {
-		return "", nil, coreerr.E("ExtractMinerBundle", "failed to extract tarball", err)
+	minerPathResult := extractTarball(tarData, destDir)
+	if !minerPathResult.OK {
+		err, _ := minerPathResult.Value.(error)
+		return core.Fail(coreerr.E("ExtractMinerBundle", "failed to extract tarball", err))
 	}
 
-	return minerPath, t.Config, nil
+	return core.Ok(extractedMinerBundleResult{Path: minerPathResult.Value.(string), Profile: t.Config})
 }
 
 // VerifyBundle checks if a bundle's checksum is valid.
@@ -200,7 +208,7 @@ func isJSON(data []byte) bool {
 }
 
 // createTarball creates a tar archive from a map of filename -> content.
-func createTarball(files map[string][]byte) ([]byte, error) {
+func createTarball(files map[string][]byte) core.Result {
 	buf := core.NewBuffer()
 	tw := tar.NewWriter(buf)
 
@@ -217,7 +225,7 @@ func createTarball(files map[string][]byte) ([]byte, error) {
 				Typeflag: tar.TypeDir,
 			}
 			if err := tw.WriteHeader(hdr); err != nil {
-				return nil, err
+				return core.Fail(err)
 			}
 			dirs[dir] = true
 		}
@@ -234,36 +242,36 @@ func createTarball(files map[string][]byte) ([]byte, error) {
 			Size: int64(len(content)),
 		}
 		if err := tw.WriteHeader(hdr); err != nil {
-			return nil, err
+			return core.Fail(err)
 		}
 		if _, err := tw.Write(content); err != nil {
-			return nil, err
+			return core.Fail(err)
 		}
 	}
 
 	if err := tw.Close(); err != nil {
-		return nil, err
+		return core.Fail(err)
 	}
 
 	out := make([]byte, len(buf.Bytes()))
 	copy(out, buf.Bytes())
-	return out, nil
+	return core.Ok(out)
 }
 
 // extractTarball extracts a tar archive to a directory, returns first executable found.
-func extractTarball(tarData []byte, destDir string) (string, error) {
+func extractTarball(tarData []byte, destDir string) core.Result {
 	// Ensure destDir is an absolute, clean path for security checks
 	absResult := core.PathAbs(destDir)
 	if !absResult.OK {
 		if err, ok := absResult.Value.(error); ok {
-			return "", coreerr.E("extractTarball", "failed to resolve destination directory", err)
+			return core.Fail(coreerr.E("extractTarball", "failed to resolve destination directory", err))
 		}
-		return "", coreerr.E("extractTarball", "failed to resolve destination directory", nil)
+		return core.Fail(coreerr.E("extractTarball", "failed to resolve destination directory", nil))
 	}
 	absDestDir := core.CleanPath(absResult.Value.(string), string(core.PathSeparator))
 
 	if err := coreio.Local.EnsureDir(absDestDir); err != nil {
-		return "", err
+		return core.Fail(err)
 	}
 
 	tr := tar.NewReader(core.NewBuffer(tarData))
@@ -275,7 +283,7 @@ func extractTarball(tarData []byte, destDir string) (string, error) {
 			break
 		}
 		if err != nil {
-			return "", err
+			return core.Fail(err)
 		}
 
 		// Security: Sanitize the tar entry name to prevent path traversal (Zip Slip)
@@ -283,12 +291,12 @@ func extractTarball(tarData []byte, destDir string) (string, error) {
 
 		// Reject absolute paths
 		if core.PathIsAbs(cleanName) {
-			return "", coreerr.E("extractTarball", "invalid tar entry: absolute path not allowed: "+hdr.Name, nil)
+			return core.Fail(coreerr.E("extractTarball", "invalid tar entry: absolute path not allowed: "+hdr.Name, nil))
 		}
 
 		// Reject paths that escape the destination directory
 		if core.HasPrefix(cleanName, ".."+string(core.PathSeparator)) || cleanName == ".." {
-			return "", coreerr.E("extractTarball", "invalid tar entry: path traversal attempt: "+hdr.Name, nil)
+			return core.Fail(coreerr.E("extractTarball", "invalid tar entry: path traversal attempt: "+hdr.Name, nil))
 		}
 
 		// Build the full path and verify it's within destDir
@@ -297,18 +305,18 @@ func extractTarball(tarData []byte, destDir string) (string, error) {
 
 		// Final security check: ensure the path is still within destDir
 		if !core.HasPrefix(fullPath, absDestDir+string(core.PathSeparator)) && fullPath != absDestDir {
-			return "", coreerr.E("extractTarball", "invalid tar entry: path escape attempt: "+hdr.Name, nil)
+			return core.Fail(coreerr.E("extractTarball", "invalid tar entry: path escape attempt: "+hdr.Name, nil))
 		}
 
 		switch hdr.Typeflag {
 		case tar.TypeDir:
 			if err := coreio.Local.EnsureDir(fullPath); err != nil {
-				return "", err
+				return core.Fail(err)
 			}
 		case tar.TypeReg:
 			// Ensure parent directory exists
 			if err := coreio.Local.EnsureDir(core.PathDir(fullPath)); err != nil {
-				return "", err
+				return core.Fail(err)
 			}
 
 			// core.OpenFile is used deliberately here instead of coreio.Local.Create/Write
@@ -317,7 +325,7 @@ func extractTarball(tarData []byte, destDir string) (string, error) {
 			openResult := core.OpenFile(fullPath, core.O_CREATE|core.O_WRONLY|core.O_TRUNC, core.FileMode(hdr.Mode))
 			if !openResult.OK {
 				err, _ := openResult.Value.(error)
-				return "", coreerr.E("extractTarball", "failed to create file "+hdr.Name, err)
+				return core.Fail(coreerr.E("extractTarball", "failed to create file "+hdr.Name, err))
 			}
 			f := openResult.Value.(*core.OSFile)
 
@@ -327,11 +335,11 @@ func extractTarball(tarData []byte, destDir string) (string, error) {
 			written, err := io.Copy(f, limitedReader)
 			f.Close()
 			if err != nil {
-				return "", coreerr.E("extractTarball", "failed to write file "+hdr.Name, err)
+				return core.Fail(coreerr.E("extractTarball", "failed to write file "+hdr.Name, err))
 			}
 			if written > maxFileSize {
 				coreio.Local.Delete(fullPath)
-				return "", coreerr.E("extractTarball", "file "+hdr.Name+" exceeds maximum size", nil)
+				return core.Fail(coreerr.E("extractTarball", "file "+hdr.Name+" exceeds maximum size", nil))
 			}
 
 			// Track first executable
@@ -345,36 +353,37 @@ func extractTarball(tarData []byte, destDir string) (string, error) {
 		}
 	}
 
-	return firstExecutable, nil
+	return core.Ok(firstExecutable)
 }
 
 // StreamBundle writes a bundle to a writer (for large transfers).
-func StreamBundle(bundle *Bundle, w io.Writer) error {
-	data, err := MarshalJSON(bundle)
-	if err != nil {
-		return err
+func StreamBundle(bundle *Bundle, w io.Writer) core.Result {
+	dataResult := MarshalJSON(bundle)
+	if !dataResult.OK {
+		return dataResult
 	}
+	data := dataResult.Value.([]byte)
 	if _, err := w.Write(data); err != nil {
-		return err
+		return core.Fail(err)
 	}
-	_, err = w.Write([]byte("\n"))
-	return err
+	_, err := w.Write([]byte("\n"))
+	return core.ResultOf(nil, err)
 }
 
 // ReadBundle reads a bundle from a reader.
-func ReadBundle(r io.Reader) (*Bundle, error) {
+func ReadBundle(r io.Reader) core.Result {
 	raw, err := io.ReadAll(r)
 	if err != nil {
-		return nil, err
+		return core.Fail(err)
 	}
 
 	var bundle Bundle
 	result := core.JSONUnmarshal(raw, &bundle)
 	if !result.OK {
 		if err, ok := result.Value.(error); ok {
-			return nil, err
+			return core.Fail(err)
 		}
-		return nil, core.NewError("bundle unmarshal failed")
+		return core.Fail(core.NewError("bundle unmarshal failed"))
 	}
-	return &bundle, nil
+	return core.Ok(&bundle)
 }

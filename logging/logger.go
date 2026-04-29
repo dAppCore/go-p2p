@@ -269,17 +269,17 @@ func Errorf(format string, args ...any) {
 }
 
 // ParseLevel parses a string into a log level.
-func ParseLevel(s string) (Level, error) {
+func ParseLevel(s string) core.Result {
 	switch core.Upper(s) {
 	case "DEBUG":
-		return LevelDebug, nil
+		return core.Ok(LevelDebug)
 	case "INFO":
-		return LevelInfo, nil
+		return core.Ok(LevelInfo)
 	case "WARN", "WARNING":
-		return LevelWarn, nil
+		return core.Ok(LevelWarn)
 	case "ERROR":
-		return LevelError, nil
+		return core.Ok(LevelError)
 	default:
-		return LevelInfo, coreerr.E("logging.ParseLevel", "unknown log level: "+s, nil)
+		return core.Fail(coreerr.E("logging.ParseLevel", "unknown log level: "+s, nil))
 	}
 }

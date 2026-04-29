@@ -15,14 +15,14 @@ func BenchmarkIdentityGenerate(b *testing.B) {
 	b.ReportAllocs()
 	for b.Loop() {
 		dir := b.TempDir()
-		nm, err := NewNodeManagerWithPaths(
+		nm, err := resultValue[*NodeManager](NewNodeManagerWithPaths(
 			core.PathJoin(dir, "private.key"),
 			core.PathJoin(dir, "node.json"),
-		)
+		))
 		if err != nil {
 			b.Fatalf("create node manager: %v", err)
 		}
-		if err := nm.GenerateIdentity("bench-node", RoleDual); err != nil {
+		if err := resultErr(nm.GenerateIdentity("bench-node", RoleDual)); err != nil {
 			b.Fatalf("generate identity: %v", err)
 		}
 	}
@@ -33,10 +33,10 @@ func BenchmarkDeriveSharedSecret(b *testing.B) {
 	dir1 := b.TempDir()
 	dir2 := b.TempDir()
 
-	nm1, _ := NewNodeManagerWithPaths(core.PathJoin(dir1, "k"), core.PathJoin(dir1, "n"))
+	nm1, _ := resultValue[*NodeManager](NewNodeManagerWithPaths(core.PathJoin(dir1, "k"), core.PathJoin(dir1, "n")))
 	nm1.GenerateIdentity("node1", RoleDual)
 
-	nm2, _ := NewNodeManagerWithPaths(core.PathJoin(dir2, "k"), core.PathJoin(dir2, "n"))
+	nm2, _ := resultValue[*NodeManager](NewNodeManagerWithPaths(core.PathJoin(dir2, "k"), core.PathJoin(dir2, "n")))
 	nm2.GenerateIdentity("node2", RoleDual)
 
 	peerPubKey := nm2.GetIdentity().PublicKey
@@ -45,7 +45,7 @@ func BenchmarkDeriveSharedSecret(b *testing.B) {
 	b.ResetTimer()
 
 	for b.Loop() {
-		_, err := nm1.DeriveSharedSecret(peerPubKey)
+		_, err := resultValue[[]byte](nm1.DeriveSharedSecret(peerPubKey))
 		if err != nil {
 			b.Fatalf("derive shared secret: %v", err)
 		}
@@ -76,12 +76,12 @@ func BenchmarkMessageSerialise(b *testing.B) {
 	b.ResetTimer()
 
 	for b.Loop() {
-		msg, err := NewMessage(MsgStats, "sender-id", "receiver-id", payload)
+		msg, err := resultValue[*Message](NewMessage(MsgStats, "sender-id", "receiver-id", payload))
 		if err != nil {
 			b.Fatalf("create message: %v", err)
 		}
 
-		data, err := MarshalJSON(msg)
+		data, err := resultValue[[]byte](MarshalJSON(msg))
 		if err != nil {
 			b.Fatalf("marshal message: %v", err)
 		}
@@ -101,7 +101,7 @@ func BenchmarkMessageCreateOnly(b *testing.B) {
 	b.ResetTimer()
 
 	for b.Loop() {
-		_, err := NewMessage(MsgPing, "sender", "receiver", payload)
+		_, err := resultValue[*Message](NewMessage(MsgPing, "sender", "receiver", payload))
 		if err != nil {
 			b.Fatalf("create message: %v", err)
 		}
@@ -125,7 +125,7 @@ func BenchmarkMarshalJSON(b *testing.B) {
 	b.Run("Pooled", func(b *testing.B) {
 		b.ReportAllocs()
 		for b.Loop() {
-			_, err := MarshalJSON(data)
+			_, err := resultValue[[]byte](MarshalJSON(data))
 			if err != nil {
 				b.Fatal(err)
 			}
@@ -149,13 +149,13 @@ func BenchmarkSMSGEncryptDecrypt(b *testing.B) {
 	dir1 := b.TempDir()
 	dir2 := b.TempDir()
 
-	nm1, _ := NewNodeManagerWithPaths(core.PathJoin(dir1, "k"), core.PathJoin(dir1, "n"))
+	nm1, _ := resultValue[*NodeManager](NewNodeManagerWithPaths(core.PathJoin(dir1, "k"), core.PathJoin(dir1, "n")))
 	nm1.GenerateIdentity("node1", RoleDual)
 
-	nm2, _ := NewNodeManagerWithPaths(core.PathJoin(dir2, "k"), core.PathJoin(dir2, "n"))
+	nm2, _ := resultValue[*NodeManager](NewNodeManagerWithPaths(core.PathJoin(dir2, "k"), core.PathJoin(dir2, "n")))
 	nm2.GenerateIdentity("node2", RoleDual)
 
-	sharedSecret, _ := nm1.DeriveSharedSecret(nm2.GetIdentity().PublicKey)
+	sharedSecret, _ := resultValue[[]byte](nm1.DeriveSharedSecret(nm2.GetIdentity().PublicKey))
 	password := base64.StdEncoding.EncodeToString(sharedSecret)
 
 	// Prepare a message to encrypt
@@ -180,7 +180,7 @@ func BenchmarkSMSGEncryptDecrypt(b *testing.B) {
 
 // BenchmarkChallengeSignVerify measures the HMAC challenge-response cycle.
 func BenchmarkChallengeSignVerify(b *testing.B) {
-	challenge, _ := GenerateChallenge()
+	challenge, _ := resultValue[[]byte](GenerateChallenge())
 	sharedSecret := make([]byte, 32)
 	// Use a deterministic secret for reproducibility
 	for i := range sharedSecret {
@@ -201,7 +201,7 @@ func BenchmarkChallengeSignVerify(b *testing.B) {
 // BenchmarkPeerScoring measures KD-tree rebuild and peer selection.
 func BenchmarkPeerScoring(b *testing.B) {
 	dir := b.TempDir()
-	reg, err := NewPeerRegistryWithPath(core.PathJoin(dir, "peers.json"))
+	reg, err := resultValue[*PeerRegistry](NewPeerRegistryWithPath(core.PathJoin(dir, "peers.json")))
 	if err != nil {
 		b.Fatalf("create registry: %v", err)
 	}
@@ -272,7 +272,7 @@ func BenchmarkBufPool(b *testing.B) {
 func BenchmarkGenerateChallenge(b *testing.B) {
 	b.ReportAllocs()
 	for b.Loop() {
-		_, err := GenerateChallenge()
+		_, err := resultValue[[]byte](GenerateChallenge())
 		if err != nil {
 			b.Fatal(err)
 		}

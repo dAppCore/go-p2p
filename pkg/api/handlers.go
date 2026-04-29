@@ -120,16 +120,16 @@ func (p *P2PProvider) announcePeer(c *gin.Context) {
 		if peer.Score == 0 {
 			peer.Score = existing.Score
 		}
-		if err := p.registry.UpdatePeer(&peer); err != nil {
-			writeError(c, http.StatusBadRequest, codePeerRejected, err.Error())
+		if r := p.registry.UpdatePeer(&peer); !r.OK {
+			writeError(c, http.StatusBadRequest, codePeerRejected, r.Error())
 			return
 		}
 		c.JSON(http.StatusOK, announceResponse{OK: true, Action: action, Peer: &peer})
 		return
 	}
 
-	if err := p.registry.AddPeer(&peer); err != nil {
-		writeError(c, http.StatusBadRequest, codePeerRejected, err.Error())
+	if r := p.registry.AddPeer(&peer); !r.OK {
+		writeError(c, http.StatusBadRequest, codePeerRejected, r.Error())
 		return
 	}
 	c.JSON(http.StatusOK, announceResponse{OK: true, Action: action, Peer: &peer})

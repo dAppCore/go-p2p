@@ -19,6 +19,28 @@ var (
 	_ coreapi.DescribableGroup = (*P2PProvider)(nil)
 )
 
+func apiResultErr(r core.Result) error {
+	if r.OK {
+		return nil
+	}
+	if err, ok := r.Value.(error); ok {
+		return err
+	}
+	return core.NewError("operation failed")
+}
+
+func apiResultValue[T any](r core.Result) (T, error) {
+	var zero T
+	if !r.OK {
+		return zero, apiResultErr(r)
+	}
+	value, ok := r.Value.(T)
+	if !ok {
+		return zero, core.NewError("unexpected result value")
+	}
+	return value, nil
+}
+
 func TestNewProvider_Good(t *testing.T) {
 	registry := newProviderTestRegistry(t)
 	provider := NewProvider(registry, nil)
@@ -233,12 +255,12 @@ func TestNewProvider_Ugly(t *testing.T) {
 
 func newProviderTestRegistry(t *testing.T) *p2pnode.PeerRegistry {
 	t.Helper()
-	registry, err := p2pnode.NewPeerRegistryWithPath(core.PathJoin(t.TempDir(), "peers.json"))
+	registry, err := apiResultValue[*p2pnode.PeerRegistry](p2pnode.NewPeerRegistryWithPath(core.PathJoin(t.TempDir(), "peers.json")))
 	if err != nil {
 		t.Fatalf("create peer registry: %v", err)
 	}
 	t.Cleanup(func() {
-		if err := registry.Close(); err != nil {
+		if err := apiResultErr(registry.Close()); err != nil {
 			t.Fatalf("close peer registry: %v", err)
 		}
 	})

@@ -30,7 +30,7 @@ func (f *failWriter) Write(p []byte) (int, error) {
 // when the very first Write (the tag byte) fails.
 func TestWriteTLV_TagWriteFails(t *testing.T) {
 	w := &failWriter{remaining: 0}
-	err := writeTLV(w, TagVersion, []byte{0x09})
+	err := uepsResultErr(writeTLV(w, TagVersion, []byte{0x09}))
 
 	if err == nil {
 		t.Fatal("expected error, got nil")
@@ -44,7 +44,7 @@ func TestWriteTLV_TagWriteFails(t *testing.T) {
 // when the second Write (the length byte) fails.
 func TestWriteTLV_LengthWriteFails(t *testing.T) {
 	w := &failWriter{remaining: 1}
-	err := writeTLV(w, TagVersion, []byte{0x09})
+	err := uepsResultErr(writeTLV(w, TagVersion, []byte{0x09}))
 
 	if err == nil {
 		t.Fatal("expected error, got nil")
@@ -58,7 +58,7 @@ func TestWriteTLV_LengthWriteFails(t *testing.T) {
 // when the third Write (the value bytes) fails.
 func TestWriteTLV_ValueWriteFails(t *testing.T) {
 	w := &failWriter{remaining: 2}
-	err := writeTLV(w, TagVersion, []byte{0x09})
+	err := uepsResultErr(writeTLV(w, TagVersion, []byte{0x09}))
 
 	if err == nil {
 		t.Fatal("expected error, got nil")
@@ -95,7 +95,7 @@ func TestReadAndVerify_PayloadReadError(t *testing.T) {
 	// Build a valid packet so we have genuine TLV headers + HMAC.
 	payload := []byte("coverage test")
 	builder := NewBuilder(0x20, payload)
-	frame, err := builder.MarshalAndSign(testSecret)
+	frame, err := uepsResultValue[[]byte](builder.MarshalAndSign(testSecret))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -121,7 +121,7 @@ func TestReadAndVerify_PayloadReadError(t *testing.T) {
 		err:  core.NewError("connection reset"),
 	}
 
-	_, err = ReadAndVerify(bufio.NewReader(r), testSecret)
+	_, err = uepsResultValue[*ParsedPacket](ReadAndVerify(bufio.NewReader(r), testSecret))
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -136,7 +136,7 @@ func TestReadAndVerify_PayloadReadError(t *testing.T) {
 func TestReadAndVerify_PayloadReadError_EOF(t *testing.T) {
 	payload := []byte("eof test")
 	builder := NewBuilder(0x20, payload)
-	frame, err := builder.MarshalAndSign(testSecret)
+	frame, err := uepsResultValue[[]byte](builder.MarshalAndSign(testSecret))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -149,7 +149,7 @@ func TestReadAndVerify_PayloadReadError_EOF(t *testing.T) {
 	}
 
 	truncated := frame[:payloadTagIdx+1] // Only the tag, no length
-	_, err = ReadAndVerify(bufio.NewReader(core.NewBuffer(truncated)), testSecret)
+	_, err = uepsResultValue[*ParsedPacket](ReadAndVerify(bufio.NewReader(core.NewBuffer(truncated)), testSecret))
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -158,7 +158,7 @@ func TestReadAndVerify_PayloadReadError_EOF(t *testing.T) {
 	} // Failed reading length
 
 	truncatedWithLen := frame[:payloadTagIdx+3] // Tag + Length, but no payload
-	_, err = ReadAndVerify(bufio.NewReader(core.NewBuffer(truncatedWithLen)), testSecret)
+	_, err = uepsResultValue[*ParsedPacket](ReadAndVerify(bufio.NewReader(core.NewBuffer(truncatedWithLen)), testSecret))
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -173,7 +173,7 @@ func TestReadAndVerify_PayloadReadError_EOF(t *testing.T) {
 // failWriter with enough remaining writes.
 func TestWriteTLV_AllWritesSucceed(t *testing.T) {
 	buf := core.NewBuffer()
-	err := writeTLV(buf, TagVersion, []byte{0x09})
+	err := uepsResultErr(writeTLV(buf, TagVersion, []byte{0x09}))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -199,7 +199,7 @@ func TestWriteTLV_FailWriterTable(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			w := &failWriter{remaining: tc.remaining}
-			err := writeTLV(w, TagIntent, []byte{0x42})
+			err := uepsResultErr(writeTLV(w, TagIntent, []byte{0x42}))
 			if err == nil {
 				t.Fatal("expected error, got nil")
 			}
@@ -217,21 +217,21 @@ func TestReadAndVerify_ManualPacket_PayloadReadError(t *testing.T) {
 
 	// Build header TLVs
 	hdr := core.NewBuffer()
-	if err := writeTLV(hdr, TagVersion, []byte{0x09}); err != nil {
+	if err := uepsResultErr(writeTLV(hdr, TagVersion, []byte{0x09})); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if err := writeTLV(hdr, TagCurrentLay, []byte{5}); err != nil {
+	if err := uepsResultErr(writeTLV(hdr, TagCurrentLay, []byte{5})); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if err := writeTLV(hdr, TagTargetLay, []byte{5}); err != nil {
+	if err := uepsResultErr(writeTLV(hdr, TagTargetLay, []byte{5})); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if err := writeTLV(hdr, TagIntent, []byte{0x20}); err != nil {
+	if err := uepsResultErr(writeTLV(hdr, TagIntent, []byte{0x20})); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	tsBuf := make([]byte, 2)
 	binary.BigEndian.PutUint16(tsBuf, 0)
-	if err := writeTLV(hdr, TagThreatScore, tsBuf); err != nil {
+	if err := uepsResultErr(writeTLV(hdr, TagThreatScore, tsBuf)); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
@@ -244,7 +244,7 @@ func TestReadAndVerify_ManualPacket_PayloadReadError(t *testing.T) {
 	// Assemble full frame up to (and including) 0xFF tag
 	frame := core.NewBuffer()
 	frame.Write(hdr.Bytes())
-	if err := writeTLV(frame, TagHMAC, sig); err != nil {
+	if err := uepsResultErr(writeTLV(frame, TagHMAC, sig)); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	frame.WriteByte(TagPayload)
@@ -255,7 +255,7 @@ func TestReadAndVerify_ManualPacket_PayloadReadError(t *testing.T) {
 		err:  io.ErrUnexpectedEOF,
 	}
 
-	_, err := ReadAndVerify(bufio.NewReader(r), testSecret)
+	_, err := uepsResultValue[*ParsedPacket](ReadAndVerify(bufio.NewReader(r), testSecret))
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}

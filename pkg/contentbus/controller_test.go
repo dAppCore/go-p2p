@@ -10,40 +10,70 @@ import (
 	p2pnode "dappco.re/go/p2p/node"
 )
 
+func contentbusResultErr(r core.Result) error {
+	if r.OK {
+		return nil
+	}
+	if err, ok := r.Value.(error); ok {
+		return err
+	}
+	return core.NewError("operation failed")
+}
+
+func contentbusResultValue[T any](r core.Result) (T, error) {
+	var zero T
+	if !r.OK {
+		return zero, contentbusResultErr(r)
+	}
+	value, ok := r.Value.(T)
+	if !ok {
+		return zero, core.NewError("unexpected result value")
+	}
+	return value, nil
+}
+
+func testContentbusNodeManagerWithPaths(keyPath string, configPath string) (*p2pnode.NodeManager, error) {
+	return contentbusResultValue[*p2pnode.NodeManager](p2pnode.NewNodeManagerWithPaths(keyPath, configPath))
+}
+
+func testContentbusPeerRegistryWithPath(path string) (*p2pnode.PeerRegistry, error) {
+	return contentbusResultValue[*p2pnode.PeerRegistry](p2pnode.NewPeerRegistryWithPath(path))
+}
+
 func newTestController(t *testing.T) Controller {
 	t.Helper()
 
 	dir := t.TempDir()
-	nm, err := p2pnode.NewNodeManagerWithPaths(
+	nm, err := testContentbusNodeManagerWithPaths(
 		core.PathJoin(dir, "private.key"),
 		core.PathJoin(dir, "node.json"),
 	)
 	if err != nil {
 		t.Fatalf("create node manager: %v", err)
 	}
-	if err := nm.GenerateIdentity("contentbus-test", p2pnode.RoleController); err != nil {
+	if err := contentbusResultErr(nm.GenerateIdentity("contentbus-test", p2pnode.RoleController)); err != nil {
 		t.Fatalf("generate identity: %v", err)
 	}
 
-	registry, err := p2pnode.NewPeerRegistryWithPath(core.PathJoin(dir, "peers.json"))
+	registry, err := testContentbusPeerRegistryWithPath(core.PathJoin(dir, "peers.json"))
 	if err != nil {
 		t.Fatalf("create peer registry: %v", err)
 	}
 	t.Cleanup(func() {
-		if err := registry.Close(); err != nil {
+		if err := contentbusResultErr(registry.Close()); err != nil {
 			t.Fatalf("close peer registry: %v", err)
 		}
 	})
 
-	controller, err := NewController(
+	controller, err := contentbusResultValue[Controller](NewController(
 		WithNodeManager(nm),
 		WithPeerRegistry(registry),
-	)
+	))
 	if err != nil {
 		t.Fatalf("create controller: %v", err)
 	}
 	t.Cleanup(func() {
-		if err := controller.Close(); err != nil {
+		if err := contentbusResultErr(controller.Close()); err != nil {
 			t.Fatalf("close controller: %v", err)
 		}
 	})
@@ -54,17 +84,17 @@ func newTestController(t *testing.T) Controller {
 func newContentbusNodeAndRegistry(t *testing.T) (*p2pnode.NodeManager, *p2pnode.PeerRegistry) {
 	t.Helper()
 	dir := t.TempDir()
-	nm, err := p2pnode.NewNodeManagerWithPaths(
+	nm, err := testContentbusNodeManagerWithPaths(
 		core.PathJoin(dir, "private.key"),
 		core.PathJoin(dir, "node.json"),
 	)
 	if err != nil {
 		t.Fatalf("create node manager: %v", err)
 	}
-	if err := nm.GenerateIdentity("contentbus-triplet", p2pnode.RoleController); err != nil {
+	if err := contentbusResultErr(nm.GenerateIdentity("contentbus-triplet", p2pnode.RoleController)); err != nil {
 		t.Fatalf("generate identity: %v", err)
 	}
-	registry, err := p2pnode.NewPeerRegistryWithPath(core.PathJoin(dir, "peers.json"))
+	registry, err := testContentbusPeerRegistryWithPath(core.PathJoin(dir, "peers.json"))
 	if err != nil {
 		t.Fatalf("create peer registry: %v", err)
 	}
@@ -74,7 +104,7 @@ func newContentbusNodeAndRegistry(t *testing.T) (*p2pnode.NodeManager, *p2pnode.
 
 func TestController_NewController_Good(t *testing.T) {
 	node, registry := newContentbusNodeAndRegistry(t)
-	controller, err := NewController(WithNodeManager(node), WithPeerRegistry(registry))
+	controller, err := contentbusResultValue[Controller](NewController(WithNodeManager(node), WithPeerRegistry(registry)))
 	if err != nil {
 		t.Fatalf("NewController: %v", err)
 	}
@@ -86,7 +116,7 @@ func TestController_NewController_Good(t *testing.T) {
 func TestController_NewController_Bad(t *testing.T) {
 	_, registry := newContentbusNodeAndRegistry(t)
 	transport := p2pnode.NewTransport(nil, registry, p2pnode.DefaultTransportConfig())
-	controller, err := NewController(WithTransport(transport))
+	controller, err := contentbusResultValue[Controller](NewController(WithTransport(transport)))
 	if err == nil {
 		t.Fatal("expected missing node manager error")
 	}
@@ -97,7 +127,7 @@ func TestController_NewController_Bad(t *testing.T) {
 
 func TestController_NewController_Ugly(t *testing.T) {
 	node, registry := newContentbusNodeAndRegistry(t)
-	controller, err := NewController(nil, WithNodeManager(node), WithPeerRegistry(registry), WithChannelBuffer(1))
+	controller, err := contentbusResultValue[Controller](NewController(nil, WithNodeManager(node), WithPeerRegistry(registry), WithChannelBuffer(1)))
 	if err != nil {
 		t.Fatalf("NewController with nil option: %v", err)
 	}
@@ -109,7 +139,7 @@ func TestController_NewController_Ugly(t *testing.T) {
 func TestController_WithNodeManager_Good(t *testing.T) {
 	node, _ := newContentbusNodeAndRegistry(t)
 	var opts options
-	err := WithNodeManager(node)(&opts)
+	err := contentbusResultErr(WithNodeManager(node)(&opts))
 	if err != nil {
 		t.Fatalf("WithNodeManager: %v", err)
 	}
@@ -120,7 +150,7 @@ func TestController_WithNodeManager_Good(t *testing.T) {
 
 func TestController_WithNodeManager_Bad(t *testing.T) {
 	var opts options
-	err := WithNodeManager(nil)(&opts)
+	err := contentbusResultErr(WithNodeManager(nil)(&opts))
 	if err == nil {
 		t.Fatal("expected nil node manager error")
 	}
@@ -132,7 +162,7 @@ func TestController_WithNodeManager_Bad(t *testing.T) {
 func TestController_WithNodeManager_Ugly(t *testing.T) {
 	node, _ := newContentbusNodeAndRegistry(t)
 	opts := options{node: nil}
-	err := WithNodeManager(node)(&opts)
+	err := contentbusResultErr(WithNodeManager(node)(&opts))
 	if err != nil {
 		t.Fatalf("WithNodeManager: %v", err)
 	}
@@ -144,7 +174,7 @@ func TestController_WithNodeManager_Ugly(t *testing.T) {
 func TestController_WithPeerRegistry_Good(t *testing.T) {
 	_, registry := newContentbusNodeAndRegistry(t)
 	var opts options
-	err := WithPeerRegistry(registry)(&opts)
+	err := contentbusResultErr(WithPeerRegistry(registry)(&opts))
 	if err != nil {
 		t.Fatalf("WithPeerRegistry: %v", err)
 	}
@@ -155,7 +185,7 @@ func TestController_WithPeerRegistry_Good(t *testing.T) {
 
 func TestController_WithPeerRegistry_Bad(t *testing.T) {
 	var opts options
-	err := WithPeerRegistry(nil)(&opts)
+	err := contentbusResultErr(WithPeerRegistry(nil)(&opts))
 	if err == nil {
 		t.Fatal("expected nil registry error")
 	}
@@ -167,7 +197,7 @@ func TestController_WithPeerRegistry_Bad(t *testing.T) {
 func TestController_WithPeerRegistry_Ugly(t *testing.T) {
 	_, registry := newContentbusNodeAndRegistry(t)
 	opts := options{registry: nil}
-	err := WithPeerRegistry(registry)(&opts)
+	err := contentbusResultErr(WithPeerRegistry(registry)(&opts))
 	if err != nil {
 		t.Fatalf("WithPeerRegistry: %v", err)
 	}
@@ -180,7 +210,7 @@ func TestController_WithTransport_Good(t *testing.T) {
 	node, registry := newContentbusNodeAndRegistry(t)
 	transport := p2pnode.NewTransport(node, registry, p2pnode.DefaultTransportConfig())
 	var opts options
-	err := WithTransport(transport)(&opts)
+	err := contentbusResultErr(WithTransport(transport)(&opts))
 	if err != nil {
 		t.Fatalf("WithTransport: %v", err)
 	}
@@ -191,7 +221,7 @@ func TestController_WithTransport_Good(t *testing.T) {
 
 func TestController_WithTransport_Bad(t *testing.T) {
 	var opts options
-	err := WithTransport(nil)(&opts)
+	err := contentbusResultErr(WithTransport(nil)(&opts))
 	if err == nil {
 		t.Fatal("expected nil transport error")
 	}
@@ -204,7 +234,7 @@ func TestController_WithTransport_Ugly(t *testing.T) {
 	node, registry := newContentbusNodeAndRegistry(t)
 	transport := p2pnode.NewTransport(node, registry, p2pnode.DefaultTransportConfig())
 	opts := options{transport: nil}
-	err := WithTransport(transport)(&opts)
+	err := contentbusResultErr(WithTransport(transport)(&opts))
 	if err != nil {
 		t.Fatalf("WithTransport: %v", err)
 	}
@@ -217,7 +247,7 @@ func TestController_WithTransportConfig_Good(t *testing.T) {
 	cfg := p2pnode.DefaultTransportConfig()
 	cfg.ListenAddr = "127.0.0.1:0"
 	var opts options
-	err := WithTransportConfig(cfg)(&opts)
+	err := contentbusResultErr(WithTransportConfig(cfg)(&opts))
 	if err != nil {
 		t.Fatalf("WithTransportConfig: %v", err)
 	}
@@ -228,7 +258,7 @@ func TestController_WithTransportConfig_Good(t *testing.T) {
 
 func TestController_WithTransportConfig_Bad(t *testing.T) {
 	var opts options
-	err := WithTransportConfig(p2pnode.TransportConfig{})(&opts)
+	err := contentbusResultErr(WithTransportConfig(p2pnode.TransportConfig{})(&opts))
 	if err != nil {
 		t.Fatalf("WithTransportConfig: %v", err)
 	}
@@ -241,7 +271,7 @@ func TestController_WithTransportConfig_Ugly(t *testing.T) {
 	cfg := p2pnode.DefaultTransportConfig()
 	cfg.MaxConns = 1
 	var opts options
-	err := WithTransportConfig(cfg)(&opts)
+	err := contentbusResultErr(WithTransportConfig(cfg)(&opts))
 	if err != nil {
 		t.Fatalf("WithTransportConfig: %v", err)
 	}
@@ -252,7 +282,7 @@ func TestController_WithTransportConfig_Ugly(t *testing.T) {
 
 func TestController_WithChannelBuffer_Good(t *testing.T) {
 	var opts options
-	err := WithChannelBuffer(8)(&opts)
+	err := contentbusResultErr(WithChannelBuffer(8)(&opts))
 	if err != nil {
 		t.Fatalf("WithChannelBuffer: %v", err)
 	}
@@ -263,7 +293,7 @@ func TestController_WithChannelBuffer_Good(t *testing.T) {
 
 func TestController_WithChannelBuffer_Bad(t *testing.T) {
 	var opts options
-	err := WithChannelBuffer(0)(&opts)
+	err := contentbusResultErr(WithChannelBuffer(0)(&opts))
 	if err == nil {
 		t.Fatal("expected invalid buffer error")
 	}
@@ -274,7 +304,7 @@ func TestController_WithChannelBuffer_Bad(t *testing.T) {
 
 func TestController_WithChannelBuffer_Ugly(t *testing.T) {
 	var opts options
-	err := WithChannelBuffer(1)(&opts)
+	err := contentbusResultErr(WithChannelBuffer(1)(&opts))
 	if err != nil {
 		t.Fatalf("WithChannelBuffer: %v", err)
 	}
@@ -285,7 +315,7 @@ func TestController_WithChannelBuffer_Ugly(t *testing.T) {
 
 func TestController_WithStartTransport_Good(t *testing.T) {
 	var opts options
-	err := WithStartTransport(true)(&opts)
+	err := contentbusResultErr(WithStartTransport(true)(&opts))
 	if err != nil {
 		t.Fatalf("WithStartTransport: %v", err)
 	}
@@ -296,7 +326,7 @@ func TestController_WithStartTransport_Good(t *testing.T) {
 
 func TestController_WithStartTransport_Bad(t *testing.T) {
 	opts := options{startTransport: true}
-	err := WithStartTransport(false)(&opts)
+	err := contentbusResultErr(WithStartTransport(false)(&opts))
 	if err != nil {
 		t.Fatalf("WithStartTransport: %v", err)
 	}
@@ -308,7 +338,7 @@ func TestController_WithStartTransport_Bad(t *testing.T) {
 func TestController_WithStartTransport_Ugly(t *testing.T) {
 	var opts options
 	_ = WithStartTransport(true)(&opts)
-	err := WithStartTransport(false)(&opts)
+	err := contentbusResultErr(WithStartTransport(false)(&opts))
 	if err != nil {
 		t.Fatalf("WithStartTransport: %v", err)
 	}
@@ -336,13 +366,13 @@ func readEvent(t *testing.T, ch <-chan Event) Event {
 func TestControllerSubscribePublishSameTopic(t *testing.T) {
 	controller := newTestController(t)
 
-	ch, err := controller.Subscribe("content.created")
+	ch, err := contentbusResultValue[<-chan Event](controller.Subscribe("content.created"))
 	if err != nil {
 		t.Fatalf("subscribe: %v", err)
 	}
 
 	payload := []byte("hello")
-	if err := controller.Publish("content.created", payload); err != nil {
+	if err := contentbusResultErr(controller.Publish("content.created", payload)); err != nil {
 		t.Fatalf("publish: %v", err)
 	}
 	payload[0] = 'H'
@@ -365,12 +395,12 @@ func TestControllerSubscribePublishSameTopic(t *testing.T) {
 func TestControllerSubscribeTopicAPublishTopicB(t *testing.T) {
 	controller := newTestController(t)
 
-	ch, err := controller.Subscribe("topic.a")
+	ch, err := contentbusResultValue[<-chan Event](controller.Subscribe("topic.a"))
 	if err != nil {
 		t.Fatalf("subscribe: %v", err)
 	}
 
-	if err := controller.Publish("topic.b", []byte("payload")); err != nil {
+	if err := contentbusResultErr(controller.Publish("topic.b", []byte("payload"))); err != nil {
 		t.Fatalf("publish: %v", err)
 	}
 
@@ -384,12 +414,12 @@ func TestControllerSubscribeTopicAPublishTopicB(t *testing.T) {
 func TestControllerCloseWhileSubscribed(t *testing.T) {
 	controller := newTestController(t)
 
-	ch, err := controller.Subscribe("topic.close")
+	ch, err := contentbusResultValue[<-chan Event](controller.Subscribe("topic.close"))
 	if err != nil {
 		t.Fatalf("subscribe: %v", err)
 	}
 
-	if err := controller.Close(); err != nil {
+	if err := contentbusResultErr(controller.Close()); err != nil {
 		t.Fatalf("close: %v", err)
 	}
 
@@ -406,16 +436,16 @@ func TestControllerCloseWhileSubscribed(t *testing.T) {
 func TestControllerTwoConcurrentSubscribersSameTopic(t *testing.T) {
 	controller := newTestController(t)
 
-	ch1, err := controller.Subscribe("topic.shared")
+	ch1, err := contentbusResultValue[<-chan Event](controller.Subscribe("topic.shared"))
 	if err != nil {
 		t.Fatalf("subscribe first: %v", err)
 	}
-	ch2, err := controller.Subscribe("topic.shared")
+	ch2, err := contentbusResultValue[<-chan Event](controller.Subscribe("topic.shared"))
 	if err != nil {
 		t.Fatalf("subscribe second: %v", err)
 	}
 
-	if err := controller.Publish("topic.shared", []byte("payload")); err != nil {
+	if err := contentbusResultErr(controller.Publish("topic.shared", []byte("payload"))); err != nil {
 		t.Fatalf("publish: %v", err)
 	}
 

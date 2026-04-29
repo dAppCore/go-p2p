@@ -73,6 +73,16 @@ type Value struct {
 	objectArray []Section
 }
 
+type decodedSectionResult struct {
+	Section  Section
+	Consumed int
+}
+
+type decodedValueResult struct {
+	Value    Value
+	Consumed int
+}
+
 // ---------------------------------------------------------------------------
 // Scalar constructors
 // ---------------------------------------------------------------------------
@@ -141,136 +151,136 @@ func ObjectArrayVal(vs []Section) Value {
 // Scalar accessors
 // ---------------------------------------------------------------------------
 
-// AsUint64 returns the uint64 value or an error on type mismatch.
-func (v Value) AsUint64() (uint64, error) {
+// AsUint64 returns the uint64 value or a failed Result on type mismatch.
+func (v Value) AsUint64() core.Result {
 	if v.Type != TypeUint64 {
-		return 0, ErrStorageTypeMismatch
+		return core.Fail(ErrStorageTypeMismatch)
 	}
-	return v.uintVal, nil
+	return core.Ok(v.uintVal)
 }
 
-// AsUint32 returns the uint32 value or an error on type mismatch.
-func (v Value) AsUint32() (uint32, error) {
+// AsUint32 returns the uint32 value or a failed Result on type mismatch.
+func (v Value) AsUint32() core.Result {
 	if v.Type != TypeUint32 {
-		return 0, ErrStorageTypeMismatch
+		return core.Fail(ErrStorageTypeMismatch)
 	}
-	return uint32(v.uintVal), nil
+	return core.Ok(uint32(v.uintVal))
 }
 
-// AsUint16 returns the uint16 value or an error on type mismatch.
-func (v Value) AsUint16() (uint16, error) {
+// AsUint16 returns the uint16 value or a failed Result on type mismatch.
+func (v Value) AsUint16() core.Result {
 	if v.Type != TypeUint16 {
-		return 0, ErrStorageTypeMismatch
+		return core.Fail(ErrStorageTypeMismatch)
 	}
-	return uint16(v.uintVal), nil
+	return core.Ok(uint16(v.uintVal))
 }
 
-// AsUint8 returns the uint8 value or an error on type mismatch.
-func (v Value) AsUint8() (uint8, error) {
+// AsUint8 returns the uint8 value or a failed Result on type mismatch.
+func (v Value) AsUint8() core.Result {
 	if v.Type != TypeUint8 {
-		return 0, ErrStorageTypeMismatch
+		return core.Fail(ErrStorageTypeMismatch)
 	}
-	return uint8(v.uintVal), nil
+	return core.Ok(uint8(v.uintVal))
 }
 
-// AsInt64 returns the int64 value or an error on type mismatch.
-func (v Value) AsInt64() (int64, error) {
+// AsInt64 returns the int64 value or a failed Result on type mismatch.
+func (v Value) AsInt64() core.Result {
 	if v.Type != TypeInt64 {
-		return 0, ErrStorageTypeMismatch
+		return core.Fail(ErrStorageTypeMismatch)
 	}
-	return v.intVal, nil
+	return core.Ok(v.intVal)
 }
 
-// AsInt32 returns the int32 value or an error on type mismatch.
-func (v Value) AsInt32() (int32, error) {
+// AsInt32 returns the int32 value or a failed Result on type mismatch.
+func (v Value) AsInt32() core.Result {
 	if v.Type != TypeInt32 {
-		return 0, ErrStorageTypeMismatch
+		return core.Fail(ErrStorageTypeMismatch)
 	}
-	return int32(v.intVal), nil
+	return core.Ok(int32(v.intVal))
 }
 
-// AsInt16 returns the int16 value or an error on type mismatch.
-func (v Value) AsInt16() (int16, error) {
+// AsInt16 returns the int16 value or a failed Result on type mismatch.
+func (v Value) AsInt16() core.Result {
 	if v.Type != TypeInt16 {
-		return 0, ErrStorageTypeMismatch
+		return core.Fail(ErrStorageTypeMismatch)
 	}
-	return int16(v.intVal), nil
+	return core.Ok(int16(v.intVal))
 }
 
-// AsInt8 returns the int8 value or an error on type mismatch.
-func (v Value) AsInt8() (int8, error) {
+// AsInt8 returns the int8 value or a failed Result on type mismatch.
+func (v Value) AsInt8() core.Result {
 	if v.Type != TypeInt8 {
-		return 0, ErrStorageTypeMismatch
+		return core.Fail(ErrStorageTypeMismatch)
 	}
-	return int8(v.intVal), nil
+	return core.Ok(int8(v.intVal))
 }
 
-// AsBool returns the bool value or an error on type mismatch.
-func (v Value) AsBool() (bool, error) {
+// AsBool returns the bool value or a failed Result on type mismatch.
+func (v Value) AsBool() core.Result {
 	if v.Type != TypeBool {
-		return false, ErrStorageTypeMismatch
+		return core.Fail(ErrStorageTypeMismatch)
 	}
-	return v.boolVal, nil
+	return core.Ok(v.boolVal)
 }
 
-// AsDouble returns the float64 value or an error on type mismatch.
-func (v Value) AsDouble() (float64, error) {
+// AsDouble returns the float64 value or a failed Result on type mismatch.
+func (v Value) AsDouble() core.Result {
 	if v.Type != TypeDouble {
-		return 0, ErrStorageTypeMismatch
+		return core.Fail(ErrStorageTypeMismatch)
 	}
-	return v.floatVal, nil
+	return core.Ok(v.floatVal)
 }
 
-// AsString returns the byte-string value or an error on type mismatch.
-func (v Value) AsString() ([]byte, error) {
+// AsString returns the byte-string value or a failed Result on type mismatch.
+func (v Value) AsString() core.Result {
 	if v.Type != TypeString {
-		return nil, ErrStorageTypeMismatch
+		return core.Fail(ErrStorageTypeMismatch)
 	}
-	return v.bytesVal, nil
+	return core.Ok(v.bytesVal)
 }
 
-// AsSection returns the nested Section or an error on type mismatch.
-func (v Value) AsSection() (Section, error) {
+// AsSection returns the nested Section or a failed Result on type mismatch.
+func (v Value) AsSection() core.Result {
 	if v.Type != TypeObject {
-		return nil, ErrStorageTypeMismatch
+		return core.Fail(ErrStorageTypeMismatch)
 	}
-	return v.objectVal, nil
+	return core.Ok(v.objectVal)
 }
 
 // ---------------------------------------------------------------------------
 // Array accessors
 // ---------------------------------------------------------------------------
 
-// AsUint64Array returns the []uint64 array or an error on type mismatch.
-func (v Value) AsUint64Array() ([]uint64, error) {
+// AsUint64Array returns the []uint64 array or a failed Result on type mismatch.
+func (v Value) AsUint64Array() core.Result {
 	if v.Type != (ArrayFlag | TypeUint64) {
-		return nil, ErrStorageTypeMismatch
+		return core.Fail(ErrStorageTypeMismatch)
 	}
-	return v.uint64Array, nil
+	return core.Ok(v.uint64Array)
 }
 
-// AsUint32Array returns the []uint32 array or an error on type mismatch.
-func (v Value) AsUint32Array() ([]uint32, error) {
+// AsUint32Array returns the []uint32 array or a failed Result on type mismatch.
+func (v Value) AsUint32Array() core.Result {
 	if v.Type != (ArrayFlag | TypeUint32) {
-		return nil, ErrStorageTypeMismatch
+		return core.Fail(ErrStorageTypeMismatch)
 	}
-	return v.uint32Array, nil
+	return core.Ok(v.uint32Array)
 }
 
-// AsStringArray returns the [][]byte array or an error on type mismatch.
-func (v Value) AsStringArray() ([][]byte, error) {
+// AsStringArray returns the [][]byte array or a failed Result on type mismatch.
+func (v Value) AsStringArray() core.Result {
 	if v.Type != (ArrayFlag | TypeString) {
-		return nil, ErrStorageTypeMismatch
+		return core.Fail(ErrStorageTypeMismatch)
 	}
-	return v.stringArray, nil
+	return core.Ok(v.stringArray)
 }
 
-// AsSectionArray returns the []Section array or an error on type mismatch.
-func (v Value) AsSectionArray() ([]Section, error) {
+// AsSectionArray returns the []Section array or a failed Result on type mismatch.
+func (v Value) AsSectionArray() core.Result {
 	if v.Type != (ArrayFlag | TypeObject) {
-		return nil, ErrStorageTypeMismatch
+		return core.Fail(ErrStorageTypeMismatch)
 	}
-	return v.objectArray, nil
+	return core.Ok(v.objectArray)
 }
 
 // ---------------------------------------------------------------------------
@@ -280,7 +290,7 @@ func (v Value) AsSectionArray() ([]Section, error) {
 // EncodeStorage serialises a Section to the portable storage binary format,
 // including the 9-byte header. Keys are sorted alphabetically to ensure
 // deterministic output.
-func EncodeStorage(s Section) ([]byte, error) {
+func EncodeStorage(s Section) core.Result {
 	buf := make([]byte, 0, 256)
 
 	// 9-byte storage header.
@@ -291,15 +301,15 @@ func EncodeStorage(s Section) ([]byte, error) {
 	buf = append(buf, hdr[:]...)
 
 	// Encode root section.
-	out, err := encodeSection(buf, s)
-	if err != nil {
-		return nil, err
+	out := encodeSection(buf, s)
+	if !out.OK {
+		return out
 	}
-	return out, nil
+	return out
 }
 
 // encodeSection appends a section (entry count + entries) to buf.
-func encodeSection(buf []byte, s Section) ([]byte, error) {
+func encodeSection(buf []byte, s Section) core.Result {
 	// Sort keys for deterministic output.
 	keys := slices.Sorted(maps.Keys(s))
 
@@ -311,7 +321,7 @@ func encodeSection(buf []byte, s Section) ([]byte, error) {
 
 		// Name: uint8 length + raw bytes.
 		if len(name) > 255 {
-			return nil, ErrStorageNameTooLong
+			return core.Fail(ErrStorageNameTooLong)
 		}
 		buf = append(buf, byte(len(name)))
 		buf = append(buf, name...)
@@ -320,19 +330,19 @@ func encodeSection(buf []byte, s Section) ([]byte, error) {
 		buf = append(buf, v.Type)
 
 		// Value.
-		var err error
-		buf, err = encodeValue(buf, v)
-		if err != nil {
-			return nil, err
+		encoded := encodeValue(buf, v)
+		if !encoded.OK {
+			return encoded
 		}
+		buf = encoded.Value.([]byte)
 	}
 
-	return buf, nil
+	return core.Ok(buf)
 }
 
 // encodeValue appends the encoded representation of a value (without the
 // type tag, which is written by the caller).
-func encodeValue(buf []byte, v Value) ([]byte, error) {
+func encodeValue(buf []byte, v Value) core.Result {
 	// Array types.
 	if v.Type&ArrayFlag != 0 {
 		return encodeArray(buf, v)
@@ -342,64 +352,64 @@ func encodeValue(buf []byte, v Value) ([]byte, error) {
 	case TypeUint64:
 		var tmp [8]byte
 		binary.LittleEndian.PutUint64(tmp[:], v.uintVal)
-		return append(buf, tmp[:]...), nil
+		return core.Ok(append(buf, tmp[:]...))
 
 	case TypeInt64:
 		var tmp [8]byte
 		binary.LittleEndian.PutUint64(tmp[:], uint64(v.intVal))
-		return append(buf, tmp[:]...), nil
+		return core.Ok(append(buf, tmp[:]...))
 
 	case TypeDouble:
 		var tmp [8]byte
 		binary.LittleEndian.PutUint64(tmp[:], math.Float64bits(v.floatVal))
-		return append(buf, tmp[:]...), nil
+		return core.Ok(append(buf, tmp[:]...))
 
 	case TypeUint32:
 		var tmp [4]byte
 		binary.LittleEndian.PutUint32(tmp[:], uint32(v.uintVal))
-		return append(buf, tmp[:]...), nil
+		return core.Ok(append(buf, tmp[:]...))
 
 	case TypeInt32:
 		var tmp [4]byte
 		binary.LittleEndian.PutUint32(tmp[:], uint32(v.intVal))
-		return append(buf, tmp[:]...), nil
+		return core.Ok(append(buf, tmp[:]...))
 
 	case TypeUint16:
 		var tmp [2]byte
 		binary.LittleEndian.PutUint16(tmp[:], uint16(v.uintVal))
-		return append(buf, tmp[:]...), nil
+		return core.Ok(append(buf, tmp[:]...))
 
 	case TypeInt16:
 		var tmp [2]byte
 		binary.LittleEndian.PutUint16(tmp[:], uint16(v.intVal))
-		return append(buf, tmp[:]...), nil
+		return core.Ok(append(buf, tmp[:]...))
 
 	case TypeUint8:
-		return append(buf, byte(v.uintVal)), nil
+		return core.Ok(append(buf, byte(v.uintVal)))
 
 	case TypeInt8:
-		return append(buf, byte(v.intVal)), nil
+		return core.Ok(append(buf, byte(v.intVal)))
 
 	case TypeBool:
 		if v.boolVal {
-			return append(buf, 1), nil
+			return core.Ok(append(buf, 1))
 		}
-		return append(buf, 0), nil
+		return core.Ok(append(buf, 0))
 
 	case TypeString:
 		buf = append(buf, PackVarint(uint64(len(v.bytesVal)))...)
-		return append(buf, v.bytesVal...), nil
+		return core.Ok(append(buf, v.bytesVal...))
 
 	case TypeObject:
 		return encodeSection(buf, v.objectVal)
 
 	default:
-		return nil, coreerr.E("levin.encodeValue", core.Sprintf("unknown type tag: 0x%02x", v.Type), ErrStorageUnknownType)
+		return core.Fail(coreerr.E("levin.encodeValue", core.Sprintf("unknown type tag: 0x%02x", v.Type), ErrStorageUnknownType))
 	}
 }
 
 // encodeArray appends array data: varint(count) + packed elements.
-func encodeArray(buf []byte, v Value) ([]byte, error) {
+func encodeArray(buf []byte, v Value) core.Result {
 	elemType := v.Type & ^ArrayFlag
 
 	switch elemType {
@@ -410,7 +420,7 @@ func encodeArray(buf []byte, v Value) ([]byte, error) {
 			binary.LittleEndian.PutUint64(tmp[:], n)
 			buf = append(buf, tmp[:]...)
 		}
-		return buf, nil
+		return core.Ok(buf)
 
 	case TypeUint32:
 		buf = append(buf, PackVarint(uint64(len(v.uint32Array)))...)
@@ -419,7 +429,7 @@ func encodeArray(buf []byte, v Value) ([]byte, error) {
 			binary.LittleEndian.PutUint32(tmp[:], n)
 			buf = append(buf, tmp[:]...)
 		}
-		return buf, nil
+		return core.Ok(buf)
 
 	case TypeString:
 		buf = append(buf, PackVarint(uint64(len(v.stringArray)))...)
@@ -427,21 +437,21 @@ func encodeArray(buf []byte, v Value) ([]byte, error) {
 			buf = append(buf, PackVarint(uint64(len(s)))...)
 			buf = append(buf, s...)
 		}
-		return buf, nil
+		return core.Ok(buf)
 
 	case TypeObject:
 		buf = append(buf, PackVarint(uint64(len(v.objectArray)))...)
-		var err error
 		for _, sec := range v.objectArray {
-			buf, err = encodeSection(buf, sec)
-			if err != nil {
-				return nil, err
+			encoded := encodeSection(buf, sec)
+			if !encoded.OK {
+				return encoded
 			}
+			buf = encoded.Value.([]byte)
 		}
-		return buf, nil
+		return core.Ok(buf)
 
 	default:
-		return nil, coreerr.E("levin.encodeArray", core.Sprintf("unknown type tag: array of 0x%02x", elemType), ErrStorageUnknownType)
+		return core.Fail(coreerr.E("levin.encodeArray", core.Sprintf("unknown type tag: array of 0x%02x", elemType), ErrStorageUnknownType))
 	}
 }
 
@@ -451,9 +461,9 @@ func encodeArray(buf []byte, v Value) ([]byte, error) {
 
 // DecodeStorage deserialises portable storage binary data (including the
 // 9-byte header) into a Section.
-func DecodeStorage(data []byte) (Section, error) {
+func DecodeStorage(data []byte) core.Result {
 	if len(data) < StorageHeaderSize {
-		return nil, ErrStorageTruncated
+		return core.Fail(ErrStorageTruncated)
 	}
 
 	sigA := binary.LittleEndian.Uint32(data[0:4])
@@ -461,65 +471,73 @@ func DecodeStorage(data []byte) (Section, error) {
 	ver := data[8]
 
 	if sigA != StorageSignatureA || sigB != StorageSignatureB {
-		return nil, ErrStorageBadSignature
+		return core.Fail(ErrStorageBadSignature)
 	}
 	if ver != StorageVersion {
-		return nil, ErrStorageBadVersion
+		return core.Fail(ErrStorageBadVersion)
 	}
 
-	s, _, err := decodeSection(data[StorageHeaderSize:])
-	return s, err
+	decoded := decodeSection(data[StorageHeaderSize:])
+	if !decoded.OK {
+		return decoded
+	}
+	return core.Ok(decoded.Value.(decodedSectionResult).Section)
 }
 
 // decodeSection reads a section from buf and returns the section plus
 // the number of bytes consumed.
-func decodeSection(buf []byte) (Section, int, error) {
-	count, n, err := UnpackVarint(buf)
-	if err != nil {
-		return nil, 0, coreerr.E("levin.decodeSection", "section entry count", err)
+func decodeSection(buf []byte) core.Result {
+	unpacked := UnpackVarint(buf)
+	if !unpacked.OK {
+		err, _ := unpacked.Value.(error)
+		return core.Fail(coreerr.E("levin.decodeSection", "section entry count", err))
 	}
-	off := n
+	count := unpacked.Value.(unpackVarintResult).Value
+	off := unpacked.Value.(unpackVarintResult).BytesConsumed
 
 	s := make(Section, int(count))
 
 	for range count {
 		// Name length (1 byte).
 		if off >= len(buf) {
-			return nil, 0, ErrStorageTruncated
+			return core.Fail(ErrStorageTruncated)
 		}
 		nameLen := int(buf[off])
 		off++
 
 		// Name bytes.
 		if off+nameLen > len(buf) {
-			return nil, 0, ErrStorageTruncated
+			return core.Fail(ErrStorageTruncated)
 		}
 		name := string(buf[off : off+nameLen])
 		off += nameLen
 
 		// Type tag (1 byte).
 		if off >= len(buf) {
-			return nil, 0, ErrStorageTruncated
+			return core.Fail(ErrStorageTruncated)
 		}
 		tag := buf[off]
 		off++
 
 		// Value.
-		val, consumed, err := decodeValue(buf[off:], tag)
-		if err != nil {
-			return nil, 0, coreerr.E("levin.decodeSection", "field "+name, err)
+		decoded := decodeValue(buf[off:], tag)
+		if !decoded.OK {
+			err, _ := decoded.Value.(error)
+			return core.Fail(coreerr.E("levin.decodeSection", "field "+name, err))
 		}
+		val := decoded.Value.(decodedValueResult).Value
+		consumed := decoded.Value.(decodedValueResult).Consumed
 		off += consumed
 
 		s[name] = val
 	}
 
-	return s, off, nil
+	return core.Ok(decodedSectionResult{Section: s, Consumed: off})
 }
 
 // decodeValue reads a value of the given type tag from buf and returns
 // the value plus bytes consumed.
-func decodeValue(buf []byte, tag uint8) (Value, int, error) {
+func decodeValue(buf []byte, tag uint8) core.Result {
 	// Array types.
 	if tag&ArrayFlag != 0 {
 		return decodeArray(buf, tag)
@@ -528,159 +546,168 @@ func decodeValue(buf []byte, tag uint8) (Value, int, error) {
 	switch tag {
 	case TypeUint64:
 		if len(buf) < 8 {
-			return Value{}, 0, ErrStorageTruncated
+			return core.Fail(ErrStorageTruncated)
 		}
 		v := binary.LittleEndian.Uint64(buf[:8])
-		return Value{Type: TypeUint64, uintVal: v}, 8, nil
+		return core.Ok(decodedValueResult{Value: Value{Type: TypeUint64, uintVal: v}, Consumed: 8})
 
 	case TypeInt64:
 		if len(buf) < 8 {
-			return Value{}, 0, ErrStorageTruncated
+			return core.Fail(ErrStorageTruncated)
 		}
 		v := int64(binary.LittleEndian.Uint64(buf[:8]))
-		return Value{Type: TypeInt64, intVal: v}, 8, nil
+		return core.Ok(decodedValueResult{Value: Value{Type: TypeInt64, intVal: v}, Consumed: 8})
 
 	case TypeDouble:
 		if len(buf) < 8 {
-			return Value{}, 0, ErrStorageTruncated
+			return core.Fail(ErrStorageTruncated)
 		}
 		bits := binary.LittleEndian.Uint64(buf[:8])
-		return Value{Type: TypeDouble, floatVal: math.Float64frombits(bits)}, 8, nil
+		return core.Ok(decodedValueResult{Value: Value{Type: TypeDouble, floatVal: math.Float64frombits(bits)}, Consumed: 8})
 
 	case TypeUint32:
 		if len(buf) < 4 {
-			return Value{}, 0, ErrStorageTruncated
+			return core.Fail(ErrStorageTruncated)
 		}
 		v := binary.LittleEndian.Uint32(buf[:4])
-		return Value{Type: TypeUint32, uintVal: uint64(v)}, 4, nil
+		return core.Ok(decodedValueResult{Value: Value{Type: TypeUint32, uintVal: uint64(v)}, Consumed: 4})
 
 	case TypeInt32:
 		if len(buf) < 4 {
-			return Value{}, 0, ErrStorageTruncated
+			return core.Fail(ErrStorageTruncated)
 		}
 		v := int32(binary.LittleEndian.Uint32(buf[:4]))
-		return Value{Type: TypeInt32, intVal: int64(v)}, 4, nil
+		return core.Ok(decodedValueResult{Value: Value{Type: TypeInt32, intVal: int64(v)}, Consumed: 4})
 
 	case TypeUint16:
 		if len(buf) < 2 {
-			return Value{}, 0, ErrStorageTruncated
+			return core.Fail(ErrStorageTruncated)
 		}
 		v := binary.LittleEndian.Uint16(buf[:2])
-		return Value{Type: TypeUint16, uintVal: uint64(v)}, 2, nil
+		return core.Ok(decodedValueResult{Value: Value{Type: TypeUint16, uintVal: uint64(v)}, Consumed: 2})
 
 	case TypeInt16:
 		if len(buf) < 2 {
-			return Value{}, 0, ErrStorageTruncated
+			return core.Fail(ErrStorageTruncated)
 		}
 		v := int16(binary.LittleEndian.Uint16(buf[:2]))
-		return Value{Type: TypeInt16, intVal: int64(v)}, 2, nil
+		return core.Ok(decodedValueResult{Value: Value{Type: TypeInt16, intVal: int64(v)}, Consumed: 2})
 
 	case TypeUint8:
 		if len(buf) < 1 {
-			return Value{}, 0, ErrStorageTruncated
+			return core.Fail(ErrStorageTruncated)
 		}
-		return Value{Type: TypeUint8, uintVal: uint64(buf[0])}, 1, nil
+		return core.Ok(decodedValueResult{Value: Value{Type: TypeUint8, uintVal: uint64(buf[0])}, Consumed: 1})
 
 	case TypeInt8:
 		if len(buf) < 1 {
-			return Value{}, 0, ErrStorageTruncated
+			return core.Fail(ErrStorageTruncated)
 		}
-		return Value{Type: TypeInt8, intVal: int64(int8(buf[0]))}, 1, nil
+		return core.Ok(decodedValueResult{Value: Value{Type: TypeInt8, intVal: int64(int8(buf[0]))}, Consumed: 1})
 
 	case TypeBool:
 		if len(buf) < 1 {
-			return Value{}, 0, ErrStorageTruncated
+			return core.Fail(ErrStorageTruncated)
 		}
-		return Value{Type: TypeBool, boolVal: buf[0] != 0}, 1, nil
+		return core.Ok(decodedValueResult{Value: Value{Type: TypeBool, boolVal: buf[0] != 0}, Consumed: 1})
 
 	case TypeString:
-		strLen, n, err := UnpackVarint(buf)
-		if err != nil {
-			return Value{}, 0, err
+		unpacked := UnpackVarint(buf)
+		if !unpacked.OK {
+			return unpacked
 		}
+		strLen := unpacked.Value.(unpackVarintResult).Value
+		n := unpacked.Value.(unpackVarintResult).BytesConsumed
 		if uint64(len(buf)-n) < strLen {
-			return Value{}, 0, ErrStorageTruncated
+			return core.Fail(ErrStorageTruncated)
 		}
 		data := make([]byte, strLen)
 		copy(data, buf[n:n+int(strLen)])
-		return Value{Type: TypeString, bytesVal: data}, n + int(strLen), nil
+		return core.Ok(decodedValueResult{Value: Value{Type: TypeString, bytesVal: data}, Consumed: n + int(strLen)})
 
 	case TypeObject:
-		sec, consumed, err := decodeSection(buf)
-		if err != nil {
-			return Value{}, 0, err
+		decoded := decodeSection(buf)
+		if !decoded.OK {
+			return decoded
 		}
-		return Value{Type: TypeObject, objectVal: sec}, consumed, nil
+		sec := decoded.Value.(decodedSectionResult).Section
+		consumed := decoded.Value.(decodedSectionResult).Consumed
+		return core.Ok(decodedValueResult{Value: Value{Type: TypeObject, objectVal: sec}, Consumed: consumed})
 
 	default:
-		return Value{}, 0, coreerr.E("levin.decodeValue", core.Sprintf("unknown type tag: 0x%02x", tag), ErrStorageUnknownType)
+		return core.Fail(coreerr.E("levin.decodeValue", core.Sprintf("unknown type tag: 0x%02x", tag), ErrStorageUnknownType))
 	}
 }
 
 // decodeArray reads a typed array from buf (tag has ArrayFlag set).
-func decodeArray(buf []byte, tag uint8) (Value, int, error) {
+func decodeArray(buf []byte, tag uint8) core.Result {
 	elemType := tag & ^ArrayFlag
 
-	count, n, err := UnpackVarint(buf)
-	if err != nil {
-		return Value{}, 0, err
+	unpacked := UnpackVarint(buf)
+	if !unpacked.OK {
+		return unpacked
 	}
-	off := n
+	count := unpacked.Value.(unpackVarintResult).Value
+	off := unpacked.Value.(unpackVarintResult).BytesConsumed
 
 	switch elemType {
 	case TypeUint64:
 		arr := make([]uint64, count)
 		for i := range count {
 			if off+8 > len(buf) {
-				return Value{}, 0, ErrStorageTruncated
+				return core.Fail(ErrStorageTruncated)
 			}
 			arr[i] = binary.LittleEndian.Uint64(buf[off : off+8])
 			off += 8
 		}
-		return Value{Type: tag, uint64Array: arr}, off, nil
+		return core.Ok(decodedValueResult{Value: Value{Type: tag, uint64Array: arr}, Consumed: off})
 
 	case TypeUint32:
 		arr := make([]uint32, count)
 		for i := range count {
 			if off+4 > len(buf) {
-				return Value{}, 0, ErrStorageTruncated
+				return core.Fail(ErrStorageTruncated)
 			}
 			arr[i] = binary.LittleEndian.Uint32(buf[off : off+4])
 			off += 4
 		}
-		return Value{Type: tag, uint32Array: arr}, off, nil
+		return core.Ok(decodedValueResult{Value: Value{Type: tag, uint32Array: arr}, Consumed: off})
 
 	case TypeString:
 		arr := make([][]byte, count)
 		for i := range count {
-			strLen, sn, err := UnpackVarint(buf[off:])
-			if err != nil {
-				return Value{}, 0, err
+			unpacked := UnpackVarint(buf[off:])
+			if !unpacked.OK {
+				return unpacked
 			}
+			strLen := unpacked.Value.(unpackVarintResult).Value
+			sn := unpacked.Value.(unpackVarintResult).BytesConsumed
 			off += sn
 			if uint64(len(buf)-off) < strLen {
-				return Value{}, 0, ErrStorageTruncated
+				return core.Fail(ErrStorageTruncated)
 			}
 			data := make([]byte, strLen)
 			copy(data, buf[off:off+int(strLen)])
 			arr[i] = data
 			off += int(strLen)
 		}
-		return Value{Type: tag, stringArray: arr}, off, nil
+		return core.Ok(decodedValueResult{Value: Value{Type: tag, stringArray: arr}, Consumed: off})
 
 	case TypeObject:
 		arr := make([]Section, count)
 		for i := range count {
-			sec, consumed, err := decodeSection(buf[off:])
-			if err != nil {
-				return Value{}, 0, err
+			decoded := decodeSection(buf[off:])
+			if !decoded.OK {
+				return decoded
 			}
+			sec := decoded.Value.(decodedSectionResult).Section
+			consumed := decoded.Value.(decodedSectionResult).Consumed
 			arr[i] = sec
 			off += consumed
 		}
-		return Value{Type: tag, objectArray: arr}, off, nil
+		return core.Ok(decodedValueResult{Value: Value{Type: tag, objectArray: arr}, Consumed: off})
 
 	default:
-		return Value{}, 0, coreerr.E("levin.decodeArray", core.Sprintf("unknown type tag: array of 0x%02x", elemType), ErrStorageUnknownType)
+		return core.Fail(coreerr.E("levin.decodeArray", core.Sprintf("unknown type tag: array of 0x%02x", elemType), ErrStorageUnknownType))
 	}
 }

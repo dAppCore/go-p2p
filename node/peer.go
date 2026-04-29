@@ -75,17 +75,17 @@ func safeKeyPrefix(key string) string {
 // Empty names are permitted. Non-empty names must be 1-64 characters,
 // start and end with alphanumeric, and contain only alphanumeric,
 // hyphens, underscores, and spaces.
-func validatePeerName(name string) error {
+func validatePeerName(name string) core.Result {
 	if name == "" {
-		return nil
+		return core.Ok(nil)
 	}
 	if len(name) > PeerNameMaxLength {
-		return coreerr.E("validatePeerName", "peer name too long", nil)
+		return core.Fail(coreerr.E("validatePeerName", "peer name too long", nil))
 	}
 	if !peerNameRegex.MatchString(name) {
-		return coreerr.E("validatePeerName", "peer name contains invalid characters (use alphanumeric, hyphens, underscores, spaces)", nil)
+		return core.Fail(coreerr.E("validatePeerName", "peer name contains invalid characters (use alphanumeric, hyphens, underscores, spaces)", nil))
 	}
-	return nil
+	return core.Ok(nil)
 }
 
 // PeerRegistry manages known peers with KD-tree based selection.
@@ -119,14 +119,14 @@ var (
 )
 
 // NewPeerRegistry creates a new PeerRegistry, loading existing peers if available.
-func NewPeerRegistry(paths ...string) (*PeerRegistry, error) {
+func NewPeerRegistry(paths ...string) core.Result {
 	if len(paths) > 0 && paths[0] != "" {
 		return NewPeerRegistryWithPath(paths[0])
 	}
 
 	peersPath, err := xdg.ConfigFile("lethean-desktop/peers.json")
 	if err != nil {
-		return nil, coreerr.E("PeerRegistry.New", "failed to get peers path", err)
+		return core.Fail(coreerr.E("PeerRegistry.New", "failed to get peers path", err))
 	}
 
 	return NewPeerRegistryWithPath(peersPath)
@@ -134,7 +134,7 @@ func NewPeerRegistry(paths ...string) (*PeerRegistry, error) {
 
 // NewPeerRegistryWithPath creates a new PeerRegistry with a custom path.
 // This is primarily useful for testing to avoid xdg path caching issues.
-func NewPeerRegistryWithPath(peersPath string) (*PeerRegistry, error) {
+func NewPeerRegistryWithPath(peersPath string) core.Result {
 	pr := &PeerRegistry{
 		peers:             make(map[string]*Peer),
 		path:              peersPath,
@@ -145,19 +145,19 @@ func NewPeerRegistryWithPath(peersPath string) (*PeerRegistry, error) {
 	}
 
 	// Try to load existing peers
-	if err := pr.load(); err != nil {
+	if r := pr.load(); !r.OK {
 		// No existing peers, that's ok
 		pr.rebuildKDTree()
 	}
 
 	// Load any persisted allowlist entries. This is best effort so that a
 	// missing or corrupt sidecar does not block peer registry startup.
-	if err := pr.loadAllowedPublicKeys(); err != nil {
-		logging.Warn("failed to load peer allowlist", logging.Fields{"error": err})
+	if r := pr.loadAllowedPublicKeys(); !r.OK {
+		logging.Warn("failed to load peer allowlist", logging.Fields{"error": r.Error()})
 	}
 
 	pr.rebuildKDTree()
-	return pr, nil
+	return core.Ok(pr)
 }
 
 // SetAuthMode sets the authentication mode for peer connections.
@@ -182,8 +182,8 @@ func (r *PeerRegistry) AllowPublicKey(publicKey string) {
 	r.allowedPublicKeyMu.Unlock()
 	logging.Debug("public key added to allowlist", logging.Fields{"key": safeKeyPrefix(publicKey)})
 
-	if err := r.saveAllowedPublicKeys(); err != nil {
-		logging.Warn("failed to persist peer allowlist", logging.Fields{"error": err})
+	if result := r.saveAllowedPublicKeys(); !result.OK {
+		logging.Warn("failed to persist peer allowlist", logging.Fields{"error": result.Error()})
 	}
 }
 
@@ -194,8 +194,8 @@ func (r *PeerRegistry) RevokePublicKey(publicKey string) {
 	r.allowedPublicKeyMu.Unlock()
 	logging.Debug("public key removed from allowlist", logging.Fields{"key": safeKeyPrefix(publicKey)})
 
-	if err := r.saveAllowedPublicKeys(); err != nil {
-		logging.Warn("failed to persist peer allowlist", logging.Fields{"error": err})
+	if result := r.saveAllowedPublicKeys(); !result.OK {
+		logging.Warn("failed to persist peer allowlist", logging.Fields{"error": result.Error()})
 	}
 }
 
@@ -256,23 +256,23 @@ func (r *PeerRegistry) AllowedPublicKeys() iter.Seq[string] {
 // AddPeer adds a new peer to the registry.
 // Note: Persistence is debounced (writes batched every 5s). Call Close() to ensure
 // all changes are flushed to disk before shutdown.
-func (r *PeerRegistry) AddPeer(peer *Peer) error {
+func (r *PeerRegistry) AddPeer(peer *Peer) core.Result {
 	r.mu.Lock()
 
 	if peer.ID == "" {
 		r.mu.Unlock()
-		return coreerr.E("PeerRegistry.AddPeer", "peer ID is required", nil)
+		return core.Fail(coreerr.E("PeerRegistry.AddPeer", "peer ID is required", nil))
 	}
 
 	// Validate peer name (P2P-LOW-3)
-	if err := validatePeerName(peer.Name); err != nil {
+	if result := validatePeerName(peer.Name); !result.OK {
 		r.mu.Unlock()
-		return err
+		return result
 	}
 
 	if _, exists := r.peers[peer.ID]; exists {
 		r.mu.Unlock()
-		return coreerr.E("PeerRegistry.AddPeer", "peer "+peer.ID+" already exists", nil)
+		return core.Fail(coreerr.E("PeerRegistry.AddPeer", "peer "+peer.ID+" already exists", nil))
 	}
 
 	// Set defaults
@@ -292,12 +292,12 @@ func (r *PeerRegistry) AddPeer(peer *Peer) error {
 
 // UpdatePeer updates an existing peer's information.
 // Note: Persistence is debounced. Call Close() to flush before shutdown.
-func (r *PeerRegistry) UpdatePeer(peer *Peer) error {
+func (r *PeerRegistry) UpdatePeer(peer *Peer) core.Result {
 	r.mu.Lock()
 
 	if _, exists := r.peers[peer.ID]; !exists {
 		r.mu.Unlock()
-		return coreerr.E("PeerRegistry.UpdatePeer", "peer "+peer.ID+" not found", nil)
+		return core.Fail(coreerr.E("PeerRegistry.UpdatePeer", "peer "+peer.ID+" not found", nil))
 	}
 
 	r.peers[peer.ID] = peer
@@ -309,12 +309,12 @@ func (r *PeerRegistry) UpdatePeer(peer *Peer) error {
 
 // RemovePeer removes a peer from the registry.
 // Note: Persistence is debounced. Call Close() to flush before shutdown.
-func (r *PeerRegistry) RemovePeer(id string) error {
+func (r *PeerRegistry) RemovePeer(id string) core.Result {
 	r.mu.Lock()
 
 	if _, exists := r.peers[id]; !exists {
 		r.mu.Unlock()
-		return coreerr.E("PeerRegistry.RemovePeer", "peer "+id+" not found", nil)
+		return core.Fail(coreerr.E("PeerRegistry.RemovePeer", "peer "+id+" not found", nil))
 	}
 
 	delete(r.peers, id)
@@ -362,13 +362,13 @@ func (r *PeerRegistry) Peers() iter.Seq[*Peer] {
 
 // UpdateMetrics updates a peer's performance metrics.
 // Note: Persistence is debounced. Call Close() to flush before shutdown.
-func (r *PeerRegistry) UpdateMetrics(id string, pingMS, geoKM float64, hops int) error {
+func (r *PeerRegistry) UpdateMetrics(id string, pingMS, geoKM float64, hops int) core.Result {
 	r.mu.Lock()
 
 	peer, exists := r.peers[id]
 	if !exists {
 		r.mu.Unlock()
-		return coreerr.E("PeerRegistry.UpdateMetrics", "peer "+id+" not found", nil)
+		return core.Fail(coreerr.E("PeerRegistry.UpdateMetrics", "peer "+id+" not found", nil))
 	}
 
 	peer.PingMS = pingMS
@@ -384,13 +384,13 @@ func (r *PeerRegistry) UpdateMetrics(id string, pingMS, geoKM float64, hops int)
 
 // UpdateScore updates a peer's reliability score.
 // Note: Persistence is debounced. Call Close() to flush before shutdown.
-func (r *PeerRegistry) UpdateScore(id string, score float64) error {
+func (r *PeerRegistry) UpdateScore(id string, score float64) core.Result {
 	r.mu.Lock()
 
 	peer, exists := r.peers[id]
 	if !exists {
 		r.mu.Unlock()
-		return coreerr.E("PeerRegistry.UpdateScore", "peer "+id+" not found", nil)
+		return core.Fail(coreerr.E("PeerRegistry.UpdateScore", "peer "+id+" not found", nil))
 	}
 
 	// Clamp score to 0-100
@@ -419,7 +419,9 @@ func (r *PeerRegistry) SetConnected(id string, connected bool) {
 	r.mu.Unlock()
 
 	if connected {
-		r.save()
+		if result := r.save(); !result.OK {
+			logging.Warn("failed to save peer connection state", logging.Fields{"error": result.Error()})
+		}
 	}
 }
 
@@ -435,7 +437,9 @@ func (r *PeerRegistry) MarkSeen(id string) {
 	peer.LastSeen = time.Now()
 	r.mu.Unlock()
 
-	r.save()
+	if result := r.save(); !result.OK {
+		logging.Warn("failed to save peer last-seen state", logging.Fields{"error": result.Error()})
+	}
 }
 
 // Score adjustment constants
@@ -462,7 +466,9 @@ func (r *PeerRegistry) RecordSuccess(id string) {
 	r.rebuildKDTree()
 	r.mu.Unlock()
 
-	r.save()
+	if result := r.save(); !result.OK {
+		logging.Warn("failed to save peer success state", logging.Fields{"error": result.Error()})
+	}
 }
 
 // RecordFailure records a failed interaction with a peer, reducing their score.
@@ -480,7 +486,9 @@ func (r *PeerRegistry) RecordFailure(id string) {
 	r.rebuildKDTree()
 	r.mu.Unlock()
 
-	r.save()
+	if result := r.save(); !result.OK {
+		logging.Warn("failed to save peer failure state", logging.Fields{"error": result.Error()})
+	}
 
 	logging.Debug("peer score decreased", logging.Fields{
 		"peer_id":   id,
@@ -504,7 +512,9 @@ func (r *PeerRegistry) RecordTimeout(id string) {
 	r.rebuildKDTree()
 	r.mu.Unlock()
 
-	r.save()
+	if result := r.save(); !result.OK {
+		logging.Warn("failed to save peer timeout state", logging.Fields{"error": result.Error()})
+	}
 
 	logging.Debug("peer score decreased", logging.Fields{
 		"peer_id":   id,
@@ -606,12 +616,12 @@ func (r *PeerRegistry) SelectNearestPeers(n int) []*Peer {
 // FindNearby returns peers closest to the supplied coordinates and hop count.
 // It prefers explicit peer coordinates when available, but falls back to the
 // existing distance metrics so older registry entries still participate.
-func (r *PeerRegistry) FindNearby(latitude, longitude float64, hopCount, maxResults int) ([]*Peer, error) {
+func (r *PeerRegistry) FindNearby(latitude, longitude float64, hopCount, maxResults int) core.Result {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
 	if maxResults <= 0 || len(r.peers) == 0 {
-		return []*Peer{}, nil
+		return core.Ok([]*Peer{})
 	}
 
 	type scoredPeer struct {
@@ -657,7 +667,7 @@ func (r *PeerRegistry) FindNearby(latitude, longitude float64, hopCount, maxResu
 		out = append(out, &peerCopy)
 	}
 
-	return out, nil
+	return core.Ok(out)
 }
 
 // GetConnectedPeers returns all currently connected peers.
@@ -749,11 +759,11 @@ func (r *PeerRegistry) scheduleSave() {
 
 		if shouldSave {
 			r.mu.RLock()
-			err := r.saveNow()
+			result := r.saveNow()
 			r.mu.RUnlock()
-			if err != nil {
+			if !result.OK {
 				// Log error but continue - best effort persistence
-				logging.Warn("failed to save peer registry", logging.Fields{"error": err})
+				logging.Warn("failed to save peer registry", logging.Fields{"error": result.Error()})
 			}
 		}
 	})
@@ -761,11 +771,11 @@ func (r *PeerRegistry) scheduleSave() {
 
 // saveNow persists peers to disk immediately.
 // Must be called with r.mu held (at least RLock).
-func (r *PeerRegistry) saveNow() error {
+func (r *PeerRegistry) saveNow() core.Result {
 	// Ensure directory exists
 	dir := core.PathDir(r.path)
 	if err := coreio.Local.EnsureDir(dir); err != nil {
-		return coreerr.E("PeerRegistry.saveNow", "failed to create peers directory", err)
+		return core.Fail(coreerr.E("PeerRegistry.saveNow", "failed to create peers directory", err))
 	}
 
 	// Convert to slice for JSON
@@ -774,26 +784,26 @@ func (r *PeerRegistry) saveNow() error {
 	dataResult := core.JSONMarshalIndent(peers, "", "  ")
 	if !dataResult.OK {
 		err, _ := dataResult.Value.(error)
-		return coreerr.E("PeerRegistry.saveNow", "failed to marshal peers", err)
+		return core.Fail(coreerr.E("PeerRegistry.saveNow", "failed to marshal peers", err))
 	}
 	data := dataResult.Value.([]byte)
 
 	// Use atomic write pattern: write to temp file, then rename
 	tmpPath := r.path + ".tmp"
 	if err := coreio.Local.Write(tmpPath, string(data)); err != nil {
-		return coreerr.E("PeerRegistry.saveNow", "failed to write peers temp file", err)
+		return core.Fail(coreerr.E("PeerRegistry.saveNow", "failed to write peers temp file", err))
 	}
 
 	if err := coreio.Local.Rename(tmpPath, r.path); err != nil {
 		coreio.Local.Delete(tmpPath) // Clean up temp file
-		return coreerr.E("PeerRegistry.saveNow", "failed to rename peers file", err)
+		return core.Fail(coreerr.E("PeerRegistry.saveNow", "failed to rename peers file", err))
 	}
 
-	return nil
+	return core.Ok(nil)
 }
 
 // Close flushes any pending changes and releases resources.
-func (r *PeerRegistry) Close() error {
+func (r *PeerRegistry) Close() core.Result {
 	r.saveStopOnce.Do(func() {
 		close(r.stopChan)
 	})
@@ -810,18 +820,18 @@ func (r *PeerRegistry) Close() error {
 
 	if shouldSave {
 		r.mu.RLock()
-		err := r.saveNow()
+		result := r.saveNow()
 		r.mu.RUnlock()
-		return err
+		return result
 	}
 
-	return nil
+	return core.Ok(nil)
 }
 
 // saveAllowedPublicKeys persists the allowlist to disk immediately.
 // It keeps the allowlist in a separate sidecar file so peer persistence remains
 // backwards compatible with the existing peers.json array format.
-func (r *PeerRegistry) saveAllowedPublicKeys() error {
+func (r *PeerRegistry) saveAllowedPublicKeys() core.Result {
 	r.allowedPublicKeyMu.RLock()
 	keys := make([]string, 0, len(r.allowedPublicKeys))
 	for key := range r.allowedPublicKeys {
@@ -833,44 +843,44 @@ func (r *PeerRegistry) saveAllowedPublicKeys() error {
 
 	dir := core.PathDir(r.allowlistPath)
 	if err := coreio.Local.EnsureDir(dir); err != nil {
-		return coreerr.E("PeerRegistry.saveAllowedPublicKeys", "failed to create allowlist directory", err)
+		return core.Fail(coreerr.E("PeerRegistry.saveAllowedPublicKeys", "failed to create allowlist directory", err))
 	}
 
 	dataResult := core.JSONMarshalIndent(keys, "", "  ")
 	if !dataResult.OK {
 		err, _ := dataResult.Value.(error)
-		return coreerr.E("PeerRegistry.saveAllowedPublicKeys", "failed to marshal allowlist", err)
+		return core.Fail(coreerr.E("PeerRegistry.saveAllowedPublicKeys", "failed to marshal allowlist", err))
 	}
 	data := dataResult.Value.([]byte)
 
 	tmpPath := r.allowlistPath + ".tmp"
 	if err := coreio.Local.Write(tmpPath, string(data)); err != nil {
-		return coreerr.E("PeerRegistry.saveAllowedPublicKeys", "failed to write allowlist temp file", err)
+		return core.Fail(coreerr.E("PeerRegistry.saveAllowedPublicKeys", "failed to write allowlist temp file", err))
 	}
 
 	if err := coreio.Local.Rename(tmpPath, r.allowlistPath); err != nil {
 		coreio.Local.Delete(tmpPath)
-		return coreerr.E("PeerRegistry.saveAllowedPublicKeys", "failed to rename allowlist file", err)
+		return core.Fail(coreerr.E("PeerRegistry.saveAllowedPublicKeys", "failed to rename allowlist file", err))
 	}
 
-	return nil
+	return core.Ok(nil)
 }
 
 // loadAllowedPublicKeys loads the allowlist from disk.
-func (r *PeerRegistry) loadAllowedPublicKeys() error {
+func (r *PeerRegistry) loadAllowedPublicKeys() core.Result {
 	if !coreio.Local.Exists(r.allowlistPath) {
-		return nil
+		return core.Ok(nil)
 	}
 
 	content, err := coreio.Local.Read(r.allowlistPath)
 	if err != nil {
-		return coreerr.E("PeerRegistry.loadAllowedPublicKeys", "failed to read allowlist", err)
+		return core.Fail(coreerr.E("PeerRegistry.loadAllowedPublicKeys", "failed to read allowlist", err))
 	}
 
 	var keys []string
 	if r := core.JSONUnmarshal([]byte(content), &keys); !r.OK {
 		err, _ := r.Value.(error)
-		return coreerr.E("PeerRegistry.loadAllowedPublicKeys", "failed to unmarshal allowlist", err)
+		return core.Fail(coreerr.E("PeerRegistry.loadAllowedPublicKeys", "failed to unmarshal allowlist", err))
 	}
 
 	r.allowedPublicKeyMu.Lock()
@@ -884,28 +894,28 @@ func (r *PeerRegistry) loadAllowedPublicKeys() error {
 		r.allowedPublicKeys[key] = true
 	}
 
-	return nil
+	return core.Ok(nil)
 }
 
 // save is a helper that schedules a debounced save.
 // Kept for backward compatibility but now debounces writes.
 // Must NOT be called with r.mu held.
-func (r *PeerRegistry) save() error {
+func (r *PeerRegistry) save() core.Result {
 	r.scheduleSave()
-	return nil // Errors will be logged asynchronously
+	return core.Ok(nil) // Errors will be logged asynchronously
 }
 
 // load reads peers from disk.
-func (r *PeerRegistry) load() error {
+func (r *PeerRegistry) load() core.Result {
 	content, err := coreio.Local.Read(r.path)
 	if err != nil {
-		return coreerr.E("PeerRegistry.load", "failed to read peers", err)
+		return core.Fail(coreerr.E("PeerRegistry.load", "failed to read peers", err))
 	}
 
 	var peers []*Peer
 	if r := core.JSONUnmarshal([]byte(content), &peers); !r.OK {
 		err, _ := r.Value.(error)
-		return coreerr.E("PeerRegistry.load", "failed to unmarshal peers", err)
+		return core.Fail(coreerr.E("PeerRegistry.load", "failed to unmarshal peers", err))
 	}
 
 	r.peers = make(map[string]*Peer)
@@ -913,7 +923,7 @@ func (r *PeerRegistry) load() error {
 		r.peers[peer.ID] = peer
 	}
 
-	return nil
+	return core.Ok(nil)
 }
 
 // Example usage inside a connection handler

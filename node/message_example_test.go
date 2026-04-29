@@ -2,23 +2,23 @@ package node
 
 import core "dappco.re/go"
 
-func ExampleRawMessage_MarshalJSON() {
+func ExampleRawMessage_MarshalRawJSON() {
 
-	_ = RawMessage.MarshalJSON
+	_ = RawMessage.MarshalRawJSON
 
-	core.Println("RawMessage.MarshalJSON")
+	core.Println("RawMessage.MarshalRawJSON")
 
-	// Output: RawMessage.MarshalJSON
+	// Output: RawMessage.MarshalRawJSON
 
 }
 
-func ExampleRawMessage_UnmarshalJSON() {
+func ExampleRawMessage_UnmarshalRawJSON() {
 
-	_ = (*RawMessage).UnmarshalJSON
+	_ = (*RawMessage).UnmarshalRawJSON
 
-	core.Println("RawMessage.UnmarshalJSON")
+	core.Println("RawMessage.UnmarshalRawJSON")
 
-	// Output: RawMessage.UnmarshalJSON
+	// Output: RawMessage.UnmarshalRawJSON
 
 }
 

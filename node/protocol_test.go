@@ -9,15 +9,15 @@ func TestResponseHandler_ValidateResponse(t *testing.T) {
 	handler := &ResponseHandler{}
 
 	t.Run("NilResponse", func(t *testing.T) {
-		err := handler.ValidateResponse(nil, MsgStats)
+		err := resultErr(handler.ValidateResponse(nil, MsgStats))
 		if err == nil {
 			t.Error("Expected error for nil response")
 		}
 	})
 
 	t.Run("ErrorResponse", func(t *testing.T) {
-		errMsg, _ := NewErrorMessage("sender", "receiver", ErrCodeOperationFailed, "operation failed", "")
-		err := handler.ValidateResponse(errMsg, MsgStats)
+		errMsg, _ := resultValue[*Message](NewErrorMessage("sender", "receiver", ErrCodeOperationFailed, "operation failed", ""))
+		err := resultErr(handler.ValidateResponse(errMsg, MsgStats))
 		if err == nil {
 			t.Fatal("Expected error for error response")
 		}
@@ -32,8 +32,8 @@ func TestResponseHandler_ValidateResponse(t *testing.T) {
 	})
 
 	t.Run("WrongType", func(t *testing.T) {
-		msg, _ := NewMessage(MsgPong, "sender", "receiver", nil)
-		err := handler.ValidateResponse(msg, MsgStats)
+		msg, _ := resultValue[*Message](NewMessage(MsgPong, "sender", "receiver", nil))
+		err := resultErr(handler.ValidateResponse(msg, MsgStats))
 		if err == nil {
 			t.Error("Expected error for wrong type")
 		}
@@ -43,8 +43,8 @@ func TestResponseHandler_ValidateResponse(t *testing.T) {
 	})
 
 	t.Run("ValidResponse", func(t *testing.T) {
-		msg, _ := NewMessage(MsgStats, "sender", "receiver", StatsPayload{NodeID: "test"})
-		err := handler.ValidateResponse(msg, MsgStats)
+		msg, _ := resultValue[*Message](NewMessage(MsgStats, "sender", "receiver", StatsPayload{NodeID: "test"}))
+		err := resultErr(handler.ValidateResponse(msg, MsgStats))
 		if err != nil {
 			t.Errorf("Unexpected error: %v", err)
 		}
@@ -83,18 +83,18 @@ func TestProtocol_ProtocolError_Error_Ugly(t *testing.T) {
 
 func TestProtocol_ResponseHandler_ValidateResponse_Good(t *testing.T) {
 	handler := &ResponseHandler{}
-	msg, err := NewMessage(MsgStats, "from", "to", StatsPayload{})
+	msg, err := resultValue[*Message](NewMessage(MsgStats, "from", "to", StatsPayload{}))
 	if err != nil {
 		t.Fatalf("NewMessage: %v", err)
 	}
-	if err := handler.ValidateResponse(msg, MsgStats); err != nil {
+	if err := resultErr(handler.ValidateResponse(msg, MsgStats)); err != nil {
 		t.Fatalf("ValidateResponse: %v", err)
 	}
 }
 
 func TestProtocol_ResponseHandler_ValidateResponse_Bad(t *testing.T) {
 	handler := &ResponseHandler{}
-	err := handler.ValidateResponse(nil, MsgStats)
+	err := resultErr(handler.ValidateResponse(nil, MsgStats))
 	if err == nil {
 		t.Fatal("expected nil response error")
 	}
@@ -105,8 +105,8 @@ func TestProtocol_ResponseHandler_ValidateResponse_Bad(t *testing.T) {
 
 func TestProtocol_ResponseHandler_ValidateResponse_Ugly(t *testing.T) {
 	handler := &ResponseHandler{}
-	msg, _ := NewErrorMessage("from", "to", ErrCodeAuthFailed, "denied", "")
-	err := handler.ValidateResponse(msg, MsgStats)
+	msg, _ := resultValue[*Message](NewErrorMessage("from", "to", ErrCodeAuthFailed, "denied", ""))
+	err := resultErr(handler.ValidateResponse(msg, MsgStats))
 	if !IsProtocolError(err) {
 		t.Fatalf("expected protocol error, got %T", err)
 	}
@@ -117,9 +117,9 @@ func TestProtocol_ResponseHandler_ValidateResponse_Ugly(t *testing.T) {
 
 func TestProtocol_ResponseHandler_ParseResponse_Good(t *testing.T) {
 	handler := &ResponseHandler{}
-	msg, _ := NewMessage(MsgStats, "from", "to", StatsPayload{NodeID: "node"})
+	msg, _ := resultValue[*Message](NewMessage(MsgStats, "from", "to", StatsPayload{NodeID: "node"}))
 	var payload StatsPayload
-	err := handler.ParseResponse(msg, MsgStats, &payload)
+	err := resultErr(handler.ParseResponse(msg, MsgStats, &payload))
 	if err != nil || payload.NodeID != "node" {
 		t.Fatalf("payload: %#v err=%v", payload, err)
 	}
@@ -127,8 +127,8 @@ func TestProtocol_ResponseHandler_ParseResponse_Good(t *testing.T) {
 
 func TestProtocol_ResponseHandler_ParseResponse_Bad(t *testing.T) {
 	handler := &ResponseHandler{}
-	msg, _ := NewMessage(MsgPong, "from", "to", nil)
-	err := handler.ParseResponse(msg, MsgStats, &StatsPayload{})
+	msg, _ := resultValue[*Message](NewMessage(MsgPong, "from", "to", nil))
+	err := resultErr(handler.ParseResponse(msg, MsgStats, &StatsPayload{}))
 	if err == nil {
 		t.Fatal("expected wrong type error")
 	}
@@ -139,25 +139,25 @@ func TestProtocol_ResponseHandler_ParseResponse_Bad(t *testing.T) {
 
 func TestProtocol_ResponseHandler_ParseResponse_Ugly(t *testing.T) {
 	handler := &ResponseHandler{}
-	msg, _ := NewMessage(MsgStats, "from", "to", StatsPayload{NodeID: "node"})
-	err := handler.ParseResponse(msg, MsgStats, nil)
+	msg, _ := resultValue[*Message](NewMessage(MsgStats, "from", "to", StatsPayload{NodeID: "node"}))
+	err := resultErr(handler.ParseResponse(msg, MsgStats, nil))
 	if err != nil {
 		t.Fatalf("ParseResponse nil target: %v", err)
 	}
 }
 
 func TestProtocol_ValidateResponse_Good(t *testing.T) {
-	msg, err := NewMessage(MsgPong, "from", "to", PongPayload{})
+	msg, err := resultValue[*Message](NewMessage(MsgPong, "from", "to", PongPayload{}))
 	if err != nil {
 		t.Fatalf("NewMessage: %v", err)
 	}
-	if err := ValidateResponse(msg, MsgPong); err != nil {
+	if err := resultErr(ValidateResponse(msg, MsgPong)); err != nil {
 		t.Fatalf("ValidateResponse: %v", err)
 	}
 }
 
 func TestProtocol_ValidateResponse_Bad(t *testing.T) {
-	err := ValidateResponse(nil, MsgPong)
+	err := resultErr(ValidateResponse(nil, MsgPong))
 	if err == nil {
 		t.Fatal("expected nil response error")
 	}
@@ -167,8 +167,8 @@ func TestProtocol_ValidateResponse_Bad(t *testing.T) {
 }
 
 func TestProtocol_ValidateResponse_Ugly(t *testing.T) {
-	msg, _ := NewErrorMessage("from", "to", ErrCodeTimeout, "timeout", "")
-	err := ValidateResponse(msg, MsgPong)
+	msg, _ := resultValue[*Message](NewErrorMessage("from", "to", ErrCodeTimeout, "timeout", ""))
+	err := resultErr(ValidateResponse(msg, MsgPong))
 	if !IsProtocolError(err) {
 		t.Fatalf("expected protocol error, got %T", err)
 	}
@@ -178,17 +178,17 @@ func TestProtocol_ValidateResponse_Ugly(t *testing.T) {
 }
 
 func TestProtocol_ParseResponse_Good(t *testing.T) {
-	msg, _ := NewMessage(MsgPong, "from", "to", PongPayload{SentAt: 5})
+	msg, _ := resultValue[*Message](NewMessage(MsgPong, "from", "to", PongPayload{SentAt: 5}))
 	var payload PongPayload
-	err := ParseResponse(msg, MsgPong, &payload)
+	err := resultErr(ParseResponse(msg, MsgPong, &payload))
 	if err != nil || payload.SentAt != 5 {
 		t.Fatalf("payload: %#v err=%v", payload, err)
 	}
 }
 
 func TestProtocol_ParseResponse_Bad(t *testing.T) {
-	msg, _ := NewMessage(MsgPing, "from", "to", nil)
-	err := ParseResponse(msg, MsgPong, &PongPayload{})
+	msg, _ := resultValue[*Message](NewMessage(MsgPing, "from", "to", nil))
+	err := resultErr(ParseResponse(msg, MsgPong, &PongPayload{}))
 	if err == nil {
 		t.Fatal("expected wrong type error")
 	}
@@ -198,8 +198,8 @@ func TestProtocol_ParseResponse_Bad(t *testing.T) {
 }
 
 func TestProtocol_ParseResponse_Ugly(t *testing.T) {
-	msg, _ := NewMessage(MsgPong, "from", "to", nil)
-	err := ParseResponse(msg, MsgPong, nil)
+	msg, _ := resultValue[*Message](NewMessage(MsgPong, "from", "to", nil))
+	err := resultErr(ParseResponse(msg, MsgPong, nil))
 	if err != nil {
 		t.Fatalf("ParseResponse nil target: %v", err)
 	}
@@ -273,10 +273,10 @@ func TestResponseHandler_ParseResponse(t *testing.T) {
 			NodeName: "Test Node",
 			Uptime:   3600,
 		}
-		msg, _ := NewMessage(MsgStats, "sender", "receiver", payload)
+		msg, _ := resultValue[*Message](NewMessage(MsgStats, "sender", "receiver", payload))
 
 		var parsed StatsPayload
-		err := handler.ParseResponse(msg, MsgStats, &parsed)
+		err := resultErr(handler.ParseResponse(msg, MsgStats, &parsed))
 		if err != nil {
 			t.Fatalf("Unexpected error: %v", err)
 		}
@@ -294,10 +294,10 @@ func TestResponseHandler_ParseResponse(t *testing.T) {
 			Success:   true,
 			MinerName: "xmrig-1",
 		}
-		msg, _ := NewMessage(MsgMinerAck, "sender", "receiver", payload)
+		msg, _ := resultValue[*Message](NewMessage(MsgMinerAck, "sender", "receiver", payload))
 
 		var parsed MinerAckPayload
-		err := handler.ParseResponse(msg, MsgMinerAck, &parsed)
+		err := resultErr(handler.ParseResponse(msg, MsgMinerAck, &parsed))
 		if err != nil {
 			t.Fatalf("Unexpected error: %v", err)
 		}
@@ -311,10 +311,10 @@ func TestResponseHandler_ParseResponse(t *testing.T) {
 	})
 
 	t.Run("ErrorResponse", func(t *testing.T) {
-		errMsg, _ := NewErrorMessage("sender", "receiver", ErrCodeNotFound, "not found", "")
+		errMsg, _ := resultValue[*Message](NewErrorMessage("sender", "receiver", ErrCodeNotFound, "not found", ""))
 
 		var parsed StatsPayload
-		err := handler.ParseResponse(errMsg, MsgStats, &parsed)
+		err := resultErr(handler.ParseResponse(errMsg, MsgStats, &parsed))
 		if err == nil {
 			t.Error("Expected error for error response")
 		}
@@ -324,8 +324,8 @@ func TestResponseHandler_ParseResponse(t *testing.T) {
 	})
 
 	t.Run("NilTarget", func(t *testing.T) {
-		msg, _ := NewMessage(MsgPong, "sender", "receiver", nil)
-		err := handler.ParseResponse(msg, MsgPong, nil)
+		msg, _ := resultValue[*Message](NewMessage(MsgPong, "sender", "receiver", nil))
+		err := resultErr(handler.ParseResponse(msg, MsgPong, nil))
 		if err != nil {
 			t.Errorf("Unexpected error with nil target: %v", err)
 		}
@@ -349,16 +349,16 @@ func TestProtocolError(t *testing.T) {
 }
 
 func TestConvenienceFunctions(t *testing.T) {
-	msg, _ := NewMessage(MsgStats, "sender", "receiver", StatsPayload{NodeID: "test"})
+	msg, _ := resultValue[*Message](NewMessage(MsgStats, "sender", "receiver", StatsPayload{NodeID: "test"}))
 
 	// Test ValidateResponse
-	if err := ValidateResponse(msg, MsgStats); err != nil {
+	if err := resultErr(ValidateResponse(msg, MsgStats)); err != nil {
 		t.Errorf("ValidateResponse failed: %v", err)
 	}
 
 	// Test ParseResponse
 	var parsed StatsPayload
-	if err := ParseResponse(msg, MsgStats, &parsed); err != nil {
+	if err := resultErr(ParseResponse(msg, MsgStats, &parsed)); err != nil {
 		t.Errorf("ParseResponse failed: %v", err)
 	}
 	if parsed.NodeID != "test" {

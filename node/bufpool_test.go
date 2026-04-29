@@ -35,7 +35,7 @@ func TestGetBuffer_ReturnsResetBuffer(t *testing.T) {
 }
 
 func TestBufpool_MarshalJSON_Good(t *testing.T) {
-	data, err := MarshalJSON(map[string]string{"name": "node"})
+	data, err := resultValue[[]byte](MarshalJSON(map[string]string{"name": "node"}))
 	if err != nil {
 		t.Fatalf("MarshalJSON: %v", err)
 	}
@@ -45,7 +45,7 @@ func TestBufpool_MarshalJSON_Good(t *testing.T) {
 }
 
 func TestBufpool_MarshalJSON_Bad(t *testing.T) {
-	data, err := MarshalJSON(func() {})
+	data, err := resultValue[[]byte](MarshalJSON(func() {}))
 	if err == nil {
 		t.Fatal("expected marshal error")
 	}
@@ -55,7 +55,7 @@ func TestBufpool_MarshalJSON_Bad(t *testing.T) {
 }
 
 func TestBufpool_MarshalJSON_Ugly(t *testing.T) {
-	data, err := MarshalJSON(map[string]string{"html": "<tag>"})
+	data, err := resultValue[[]byte](MarshalJSON(map[string]string{"html": "<tag>"}))
 	if err != nil {
 		t.Fatalf("MarshalJSON: %v", err)
 	}
@@ -162,7 +162,7 @@ func TestMarshalJSON_BasicTypes(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := MarshalJSON(tt.input)
+			got, err := resultValue[[]byte](MarshalJSON(tt.input))
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
@@ -187,7 +187,7 @@ func TestMarshalJSON_BasicTypes(t *testing.T) {
 }
 
 func TestMarshalJSON_NoTrailingNewline(t *testing.T) {
-	data, err := MarshalJSON(map[string]string{"key": "value"})
+	data, err := resultValue[[]byte](MarshalJSON(map[string]string{"key": "value"}))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -199,7 +199,7 @@ func TestMarshalJSON_NoTrailingNewline(t *testing.T) {
 
 func TestMarshalJSON_HTMLEscaping(t *testing.T) {
 	input := map[string]string{"html": "<script>alert('xss')</script>"}
-	data, err := MarshalJSON(input)
+	data, err := resultValue[[]byte](MarshalJSON(input))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -210,7 +210,7 @@ func TestMarshalJSON_HTMLEscaping(t *testing.T) {
 }
 
 func TestMarshalJSON_ReturnsCopy(t *testing.T) {
-	data1, err := MarshalJSON("first")
+	data1, err := resultValue[[]byte](MarshalJSON("first"))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -218,7 +218,7 @@ func TestMarshalJSON_ReturnsCopy(t *testing.T) {
 	snapshot := make([]byte, len(data1))
 	copy(snapshot, data1)
 
-	data2, err := MarshalJSON("second")
+	data2, err := resultValue[[]byte](MarshalJSON("second"))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -230,12 +230,12 @@ func TestMarshalJSON_ReturnsCopy(t *testing.T) {
 }
 
 func TestMarshalJSON_ReturnsIndependentCopy(t *testing.T) {
-	data1, err := MarshalJSON(map[string]string{"first": "call"})
+	data1, err := resultValue[[]byte](MarshalJSON(map[string]string{"first": "call"}))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	data2, err := MarshalJSON(map[string]string{"second": "call"})
+	data2, err := resultValue[[]byte](MarshalJSON(map[string]string{"second": "call"}))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -250,7 +250,7 @@ func TestMarshalJSON_ReturnsIndependentCopy(t *testing.T) {
 
 func TestMarshalJSON_InvalidValue(t *testing.T) {
 	ch := make(chan int)
-	_, err := MarshalJSON(ch)
+	_, err := resultValue[[]byte](MarshalJSON(ch))
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -294,7 +294,7 @@ func TestMarshalJSON_ConcurrentSafety(t *testing.T) {
 		go func(idx int) {
 			defer wg.Done()
 			payload := PingPayload{SentAt: int64(idx)}
-			data, err := MarshalJSON(payload)
+			data, err := resultValue[[]byte](MarshalJSON(payload))
 			errs[idx] = err
 
 			if err == nil {

@@ -97,8 +97,8 @@ func TestIntegration_FullNodeLifecycle(t *testing.T) {
 	mux.HandleFunc(workerCfg.WSPath, workerTransport.handleWSUpgrade)
 	ts := httptest.NewServer(mux)
 	t.Cleanup(func() {
-		controllerTransport.Stop()
-		workerTransport.Stop()
+		_ = resultErr(controllerTransport.Stop())
+		_ = resultErr(workerTransport.Stop())
 		ts.Close()
 	})
 
@@ -112,7 +112,7 @@ func TestIntegration_FullNodeLifecycle(t *testing.T) {
 		Address: workerAddr,
 		Role:    RoleWorker,
 	}
-	if err := controllerReg.AddPeer(workerPeer); err != nil {
+	if err := resultErr(controllerReg.AddPeer(workerPeer)); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
@@ -122,7 +122,7 @@ func TestIntegration_FullNodeLifecycle(t *testing.T) {
 	// ----------------------------------------------------------------
 	// Step 3: WebSocket handshake (challenge-response)
 	// ----------------------------------------------------------------
-	pc, err := controllerTransport.Connect(workerPeer)
+	pc, err := resultValue[*PeerConnection](controllerTransport.Connect(workerPeer))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -156,7 +156,7 @@ func TestIntegration_FullNodeLifecycle(t *testing.T) {
 	// ----------------------------------------------------------------
 	// Step 4: Encrypted message exchange — Ping/Pong
 	// ----------------------------------------------------------------
-	rtt, err := controller.PingPeer(serverPeerID)
+	rtt, err := resultValue[float64](controller.PingPeer(serverPeerID))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -179,7 +179,7 @@ func TestIntegration_FullNodeLifecycle(t *testing.T) {
 	// ----------------------------------------------------------------
 	// Step 5: Encrypted message exchange — GetRemoteStats
 	// ----------------------------------------------------------------
-	stats, err := controller.GetRemoteStats(serverPeerID)
+	stats, err := resultValue[*StatsPayload](controller.GetRemoteStats(serverPeerID))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -208,13 +208,13 @@ func TestIntegration_FullNodeLifecycle(t *testing.T) {
 	dispatcher := NewDispatcher()
 
 	var handshakeReceived, computeReceived atomic.Int32
-	dispatcher.RegisterHandler(IntentHandshake, func(pkt *ueps.ParsedPacket) error {
+	dispatcher.RegisterHandler(IntentHandshake, func(pkt *ueps.ParsedPacket) core.Result {
 		handshakeReceived.Add(1)
-		return nil
+		return core.Ok(nil)
 	})
-	dispatcher.RegisterHandler(IntentCompute, func(pkt *ueps.ParsedPacket) error {
+	dispatcher.RegisterHandler(IntentCompute, func(pkt *ueps.ParsedPacket) core.Result {
 		computeReceived.Add(1)
-		return nil
+		return core.Ok(nil)
 	})
 
 	// Build UEPS packets, sign them with the shared secret, parse and dispatch.
@@ -222,16 +222,16 @@ func TestIntegration_FullNodeLifecycle(t *testing.T) {
 
 	// 6a. Handshake intent.
 	pb := ueps.NewBuilder(IntentHandshake, []byte("hello-from-controller"))
-	wireData, err := pb.MarshalAndSign(sharedSecret)
+	wireData, err := resultValue[[]byte](pb.MarshalAndSign(sharedSecret))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	parsed, err := ueps.ReadAndVerify(bufio.NewReader(core.NewBuffer(wireData)), sharedSecret)
+	parsed, err := resultValue[*ueps.ParsedPacket](ueps.ReadAndVerify(bufio.NewReader(core.NewBuffer(wireData)), sharedSecret))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if err := dispatcher.Dispatch(parsed); err != nil {
+	if err := resultErr(dispatcher.Dispatch(parsed)); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if !reflect.DeepEqual(int32(1), handshakeReceived.Load()) {
@@ -240,16 +240,16 @@ func TestIntegration_FullNodeLifecycle(t *testing.T) {
 
 	// 6b. Compute intent.
 	pb2 := ueps.NewBuilder(IntentCompute, []byte(`{"job":"mine-block-42"}`))
-	wireData2, err := pb2.MarshalAndSign(sharedSecret)
+	wireData2, err := resultValue[[]byte](pb2.MarshalAndSign(sharedSecret))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	parsed2, err := ueps.ReadAndVerify(bufio.NewReader(core.NewBuffer(wireData2)), sharedSecret)
+	parsed2, err := resultValue[*ueps.ParsedPacket](ueps.ReadAndVerify(bufio.NewReader(core.NewBuffer(wireData2)), sharedSecret))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if err := dispatcher.Dispatch(parsed2); err != nil {
+	if err := resultErr(dispatcher.Dispatch(parsed2)); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if !reflect.DeepEqual(int32(1), computeReceived.Load()) {
@@ -259,16 +259,16 @@ func TestIntegration_FullNodeLifecycle(t *testing.T) {
 	// 6c. High-threat packet should be rejected by the circuit breaker.
 	pb3 := ueps.NewBuilder(IntentCompute, []byte("hostile"))
 	pb3.Header.ThreatScore = ThreatScoreThreshold + 1
-	wireData3, err := pb3.MarshalAndSign(sharedSecret)
+	wireData3, err := resultValue[[]byte](pb3.MarshalAndSign(sharedSecret))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	parsed3, err := ueps.ReadAndVerify(bufio.NewReader(core.NewBuffer(wireData3)), sharedSecret)
+	parsed3, err := resultValue[*ueps.ParsedPacket](ueps.ReadAndVerify(bufio.NewReader(core.NewBuffer(wireData3)), sharedSecret))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	err = dispatcher.Dispatch(parsed3)
+	err = resultErr(dispatcher.Dispatch(parsed3))
 	if !core.Is(err, ErrThreatScoreExceeded) {
 		t.Fatalf("expected error %v, got %v", ErrThreatScoreExceeded, err)
 	}
@@ -288,7 +288,9 @@ func TestIntegration_FullNodeLifecycle(t *testing.T) {
 	})
 
 	// Gracefully close from the controller side.
-	pc.GracefulClose("integration test complete", DisconnectNormal)
+	if err := resultErr(pc.GracefulClose("integration test complete", DisconnectNormal)); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 
 	select {
 	case msg := <-disconnectReceived:
@@ -296,7 +298,7 @@ func TestIntegration_FullNodeLifecycle(t *testing.T) {
 			t.Fatalf("want %v, got %v", MsgDisconnect, msg.Type)
 		}
 		var payload DisconnectPayload
-		if err := msg.ParsePayload(&payload); err != nil {
+		if err := resultErr(msg.ParsePayload(&payload)); err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
 		if !reflect.DeepEqual("integration test complete", payload.Reason) {
@@ -327,12 +329,12 @@ func TestIntegration_SharedSecretAgreement(t *testing.T) {
 	pubKeyA := nodeA.GetIdentity().PublicKey
 	pubKeyB := nodeB.GetIdentity().PublicKey
 
-	secretFromA, err := nodeA.DeriveSharedSecret(pubKeyB)
+	secretFromA, err := resultValue[[]byte](nodeA.DeriveSharedSecret(pubKeyB))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	secretFromB, err := nodeB.DeriveSharedSecret(pubKeyA)
+	secretFromB, err := resultValue[[]byte](nodeB.DeriveSharedSecret(pubKeyA))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -352,7 +354,7 @@ func TestIntegration_TwoNodeBidirectionalMessages(t *testing.T) {
 	serverID := tp.ServerNode.GetIdentity().ID
 
 	// Controller -> Worker: Ping
-	rtt, err := controller.PingPeer(serverID)
+	rtt, err := resultValue[float64](controller.PingPeer(serverID))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -361,7 +363,7 @@ func TestIntegration_TwoNodeBidirectionalMessages(t *testing.T) {
 	}
 
 	// Controller -> Worker: GetStats
-	stats, err := controller.GetRemoteStats(serverID)
+	stats, err := resultValue[*StatsPayload](controller.GetRemoteStats(serverID))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -374,7 +376,7 @@ func TestIntegration_TwoNodeBidirectionalMessages(t *testing.T) {
 
 	// Verify multiple sequential round-trips work.
 	for range 5 {
-		rtt, err := controller.PingPeer(serverID)
+		rtt, err := resultValue[float64](controller.PingPeer(serverID))
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -390,7 +392,7 @@ func TestIntegration_MultiPeerTopology(t *testing.T) {
 	controllerNM := testNode(t, "multi-controller", RoleController)
 	controllerReg := testRegistry(t)
 	controllerTransport := NewTransport(controllerNM, controllerReg, DefaultTransportConfig())
-	t.Cleanup(func() { controllerTransport.Stop() })
+	t.Cleanup(func() { _ = resultErr(controllerTransport.Stop()) })
 
 	const numWorkers = 3
 	workerIDs := make([]string, numWorkers)
@@ -406,11 +408,11 @@ func TestIntegration_MultiPeerTopology(t *testing.T) {
 			Address: addr,
 			Role:    RoleWorker,
 		}
-		if err := controllerReg.AddPeer(peer); err != nil {
+		if err := resultErr(controllerReg.AddPeer(peer)); err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
 
-		_, err := controllerTransport.Connect(peer)
+		_, err := resultValue[*PeerConnection](controllerTransport.Connect(peer))
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -432,7 +434,7 @@ func TestIntegration_MultiPeerTopology(t *testing.T) {
 		wg.Add(1)
 		go func(idx int, peerID string) {
 			defer wg.Done()
-			results[idx], errs[idx] = controller.PingPeer(peerID)
+			results[idx], errs[idx] = resultValue[float64](controller.PingPeer(peerID))
 		}(i, wID)
 	}
 	wg.Wait()
@@ -461,11 +463,11 @@ func TestIntegration_IdentityPersistenceAndReload(t *testing.T) {
 	configPath := core.PathJoin(dir, "node.json")
 
 	// Create and persist identity.
-	nm1, err := NewNodeManagerWithPaths(keyPath, configPath)
+	nm1, err := resultValue[*NodeManager](NewNodeManagerWithPaths(keyPath, configPath))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if err := nm1.GenerateIdentity("persistent-node", RoleDual); err != nil {
+	if err := resultErr(nm1.GenerateIdentity("persistent-node", RoleDual)); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
@@ -475,7 +477,7 @@ func TestIntegration_IdentityPersistenceAndReload(t *testing.T) {
 	}
 
 	// Reload from disk.
-	nm2, err := NewNodeManagerWithPaths(keyPath, configPath)
+	nm2, err := resultValue[*NodeManager](NewNodeManagerWithPaths(keyPath, configPath))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -507,12 +509,12 @@ func TestIntegration_IdentityPersistenceAndReload(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	secret1, err := nm1.DeriveSharedSecret(kp)
+	secret1, err := resultValue[[]byte](nm1.DeriveSharedSecret(kp))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	secret2, err := nm2.DeriveSharedSecret(kp)
+	secret2, err := resultValue[[]byte](nm2.DeriveSharedSecret(kp))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -525,14 +527,14 @@ func TestIntegration_IdentityPersistenceAndReload(t *testing.T) {
 // stmfGenerateKeyPair is a helper that generates a keypair and returns
 // the public key as base64 (for use in DeriveSharedSecret tests).
 func stmfGenerateKeyPair(dir string) (string, error) {
-	nm, err := NewNodeManagerWithPaths(
+	nm, err := resultValue[*NodeManager](NewNodeManagerWithPaths(
 		core.PathJoin(dir, "private.key"),
 		core.PathJoin(dir, "node.json"),
-	)
+	))
 	if err != nil {
 		return "", err
 	}
-	if err := nm.GenerateIdentity("temp-peer", RoleWorker); err != nil {
+	if err := resultErr(nm.GenerateIdentity("temp-peer", RoleWorker)); err != nil {
 		return "", err
 	}
 	return nm.GetIdentity().PublicKey, nil
@@ -545,7 +547,7 @@ func TestIntegration_UEPSFullRoundTrip(t *testing.T) {
 	nodeB := testNode(t, "ueps-node-b", RoleWorker)
 
 	bPubKey := nodeB.GetIdentity().PublicKey
-	sharedSecret, err := nodeA.DeriveSharedSecret(bPubKey)
+	sharedSecret, err := resultValue[[]byte](nodeA.DeriveSharedSecret(bPubKey))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -558,7 +560,7 @@ func TestIntegration_UEPSFullRoundTrip(t *testing.T) {
 	pb := ueps.NewBuilder(IntentCompute, payload)
 	pb.Header.ThreatScore = 100
 
-	wireData, err := pb.MarshalAndSign(sharedSecret)
+	wireData, err := resultValue[[]byte](pb.MarshalAndSign(sharedSecret))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -568,7 +570,7 @@ func TestIntegration_UEPSFullRoundTrip(t *testing.T) {
 
 	// Node B derives the same shared secret from A's public key.
 	aPubKey := nodeA.GetIdentity().PublicKey
-	sharedSecretB, err := nodeB.DeriveSharedSecret(aPubKey)
+	sharedSecretB, err := resultValue[[]byte](nodeB.DeriveSharedSecret(aPubKey))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -576,10 +578,10 @@ func TestIntegration_UEPSFullRoundTrip(t *testing.T) {
 		t.Fatalf("want %v, got %v", sharedSecret, sharedSecretB)
 	}
 
-	parsed, err := ueps.ReadAndVerify(
+	parsed, err := resultValue[*ueps.ParsedPacket](ueps.ReadAndVerify(
 		bufio.NewReader(core.NewBuffer(wireData)),
 		sharedSecretB,
-	)
+	))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -600,15 +602,15 @@ func TestIntegration_UEPSFullRoundTrip(t *testing.T) {
 	// Dispatch through the dispatcher.
 	dispatcher := NewDispatcher()
 	var dispatched bool
-	dispatcher.RegisterHandler(IntentCompute, func(pkt *ueps.ParsedPacket) error {
+	dispatcher.RegisterHandler(IntentCompute, func(pkt *ueps.ParsedPacket) core.Result {
 		dispatched = true
 		if !reflect.DeepEqual(payload, pkt.Payload) {
 			t.Fatalf("want %v, got %v", payload, pkt.Payload)
 		}
-		return nil
+		return core.Ok(nil)
 	})
 
-	if err := dispatcher.Dispatch(parsed); err != nil {
+	if err := resultErr(dispatcher.Dispatch(parsed)); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if !(dispatched) {
@@ -623,13 +625,13 @@ func TestIntegration_UEPSIntegrityFailure(t *testing.T) {
 	nodeB := testNode(t, "integrity-b", RoleWorker)
 
 	bPubKey := nodeB.GetIdentity().PublicKey
-	sharedSecret, err := nodeA.DeriveSharedSecret(bPubKey)
+	sharedSecret, err := resultValue[[]byte](nodeA.DeriveSharedSecret(bPubKey))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
 	pb := ueps.NewBuilder(IntentHandshake, []byte("legitimate data"))
-	wireData, err := pb.MarshalAndSign(sharedSecret)
+	wireData, err := resultValue[[]byte](pb.MarshalAndSign(sharedSecret))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -640,15 +642,15 @@ func TestIntegration_UEPSIntegrityFailure(t *testing.T) {
 	tampered[len(tampered)-1] ^= 0xFF
 
 	aPubKey := nodeA.GetIdentity().PublicKey
-	sharedSecretB, err := nodeB.DeriveSharedSecret(aPubKey)
+	sharedSecretB, err := resultValue[[]byte](nodeB.DeriveSharedSecret(aPubKey))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	_, err = ueps.ReadAndVerify(
+	_, err = resultValue[*ueps.ParsedPacket](ueps.ReadAndVerify(
 		bufio.NewReader(core.NewBuffer(tampered)),
 		sharedSecretB,
-	)
+	))
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -670,7 +672,7 @@ func TestIntegration_AllowlistHandshakeRejection(t *testing.T) {
 	mux.HandleFunc("/ws", workerTransport.handleWSUpgrade)
 	ts := httptest.NewServer(mux)
 	t.Cleanup(func() {
-		workerTransport.Stop()
+		_ = resultErr(workerTransport.Stop())
 		ts.Close()
 	})
 
@@ -679,7 +681,7 @@ func TestIntegration_AllowlistHandshakeRejection(t *testing.T) {
 	controllerNM := testNode(t, "rejected-controller", RoleController)
 	controllerReg := testRegistry(t)
 	controllerTransport := NewTransport(controllerNM, controllerReg, DefaultTransportConfig())
-	t.Cleanup(func() { controllerTransport.Stop() })
+	t.Cleanup(func() { _ = resultErr(controllerTransport.Stop()) })
 
 	peer := &Peer{
 		ID:      workerNM.GetIdentity().ID,
@@ -687,9 +689,9 @@ func TestIntegration_AllowlistHandshakeRejection(t *testing.T) {
 		Address: u.Host,
 		Role:    RoleWorker,
 	}
-	controllerReg.AddPeer(peer)
+	_ = resultErr(controllerReg.AddPeer(peer))
 
-	_, err := controllerTransport.Connect(peer)
+	_, err := resultValue[*PeerConnection](controllerTransport.Connect(peer))
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -718,14 +720,14 @@ func TestIntegration_AllowlistHandshakeAccepted(t *testing.T) {
 	mux.HandleFunc("/ws", workerTransport.handleWSUpgrade)
 	ts := httptest.NewServer(mux)
 	t.Cleanup(func() {
-		workerTransport.Stop()
+		_ = resultErr(workerTransport.Stop())
 		ts.Close()
 	})
 
 	u, _ := url.Parse(ts.URL)
 
 	controllerTransport := NewTransport(controllerNM, controllerReg, DefaultTransportConfig())
-	t.Cleanup(func() { controllerTransport.Stop() })
+	t.Cleanup(func() { _ = resultErr(controllerTransport.Stop()) })
 
 	peer := &Peer{
 		ID:      workerNM.GetIdentity().ID,
@@ -733,9 +735,9 @@ func TestIntegration_AllowlistHandshakeAccepted(t *testing.T) {
 		Address: u.Host,
 		Role:    RoleWorker,
 	}
-	controllerReg.AddPeer(peer)
+	_ = resultErr(controllerReg.AddPeer(peer))
 
-	pc, err := controllerTransport.Connect(peer)
+	pc, err := resultValue[*PeerConnection](controllerTransport.Connect(peer))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -768,28 +770,28 @@ func TestIntegration_DispatcherWithRealUEPSPackets(t *testing.T) {
 
 	for _, intent := range intents {
 		intentID := intent.id
-		dispatcher.RegisterHandler(intentID, func(pkt *ueps.ParsedPacket) error {
+		dispatcher.RegisterHandler(intentID, func(pkt *ueps.ParsedPacket) core.Result {
 			results.Store(pkt.Header.IntentID, string(pkt.Payload))
-			return nil
+			return core.Ok(nil)
 		})
 	}
 
 	for _, intent := range intents {
 		t.Run(intent.name, func(t *testing.T) {
 			pb := ueps.NewBuilder(intent.id, []byte(intent.payload))
-			wireData, err := pb.MarshalAndSign(sharedSecret)
+			wireData, err := resultValue[[]byte](pb.MarshalAndSign(sharedSecret))
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
 
-			parsed, err := ueps.ReadAndVerify(
+			parsed, err := resultValue[*ueps.ParsedPacket](ueps.ReadAndVerify(
 				bufio.NewReader(core.NewBuffer(wireData)),
 				sharedSecret,
-			)
+			))
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
-			if err := dispatcher.Dispatch(parsed); err != nil {
+			if err := resultErr(dispatcher.Dispatch(parsed)); err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
 
@@ -811,7 +813,7 @@ func TestIntegration_MessageSerialiseDeserialise(t *testing.T) {
 	tp := setupTestTransportPair(t)
 	pc := tp.connectClient(t)
 
-	original, err := NewMessage(MsgStats, tp.ClientNode.GetIdentity().ID, tp.ServerNode.GetIdentity().ID, StatsPayload{
+	original, err := resultValue[*Message](NewMessage(MsgStats, tp.ClientNode.GetIdentity().ID, tp.ServerNode.GetIdentity().ID, StatsPayload{
 		NodeID:   "test-node",
 		NodeName: "test-name",
 		Miners: []MinerStatsItem{
@@ -828,13 +830,13 @@ func TestIntegration_MessageSerialiseDeserialise(t *testing.T) {
 			},
 		},
 		Uptime: 86400,
-	})
+	}))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	original.ReplyTo = "parent-msg-id-12345"
 
-	encrypted, err := tp.Client.encryptMessage(original, pc.SharedSecret)
+	encrypted, err := resultValue[[]byte](tp.Client.encryptMessage(original, pc.SharedSecret))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -842,7 +844,7 @@ func TestIntegration_MessageSerialiseDeserialise(t *testing.T) {
 		t.Fatal("expected non-empty")
 	}
 
-	decrypted, err := tp.Client.decryptMessage(encrypted, pc.SharedSecret)
+	decrypted, err := resultValue[*Message](tp.Client.decryptMessage(encrypted, pc.SharedSecret))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -890,7 +892,7 @@ func TestIntegration_GetRemoteStats_EndToEnd(t *testing.T) {
 
 	serverID := tp.ServerNode.GetIdentity().ID
 
-	stats, err := controller.GetRemoteStats(serverID)
+	stats, err := resultValue[*StatsPayload](controller.GetRemoteStats(serverID))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

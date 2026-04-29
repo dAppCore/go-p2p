@@ -7,7 +7,7 @@ import (
 
 func TestNewMessage(t *testing.T) {
 	t.Run("BasicMessage", func(t *testing.T) {
-		msg, err := NewMessage(MsgPing, "sender-id", "receiver-id", nil)
+		msg, err := resultValue[*Message](NewMessage(MsgPing, "sender-id", "receiver-id", nil))
 		if err != nil {
 			t.Fatalf("failed to create message: %v", err)
 		}
@@ -38,7 +38,7 @@ func TestNewMessage(t *testing.T) {
 			SentAt: time.Now().UnixMilli(),
 		}
 
-		msg, err := NewMessage(MsgPing, "sender", "receiver", payload)
+		msg, err := resultValue[*Message](NewMessage(MsgPing, "sender", "receiver", payload))
 		if err != nil {
 			t.Fatalf("failed to create message: %v", err)
 		}
@@ -48,7 +48,7 @@ func TestNewMessage(t *testing.T) {
 		}
 
 		var parsed PingPayload
-		err = msg.ParsePayload(&parsed)
+		err = resultErr(msg.ParsePayload(&parsed))
 		if err != nil {
 			t.Fatalf("failed to parse payload: %v", err)
 		}
@@ -87,7 +87,7 @@ func TestMessage_IsProtocolVersionSupported_Ugly(t *testing.T) {
 }
 
 func TestMessage_NewMessage_Good(t *testing.T) {
-	msg, err := NewMessage(MsgPing, "from", "to", PingPayload{SentAt: 1})
+	msg, err := resultValue[*Message](NewMessage(MsgPing, "from", "to", PingPayload{SentAt: 1}))
 	if err != nil {
 		t.Fatalf("NewMessage: %v", err)
 	}
@@ -97,7 +97,7 @@ func TestMessage_NewMessage_Good(t *testing.T) {
 }
 
 func TestMessage_NewMessage_Bad(t *testing.T) {
-	msg, err := NewMessage(MsgPing, "from", "to", func() {})
+	msg, err := resultValue[*Message](NewMessage(MsgPing, "from", "to", func() {}))
 	if err == nil {
 		t.Fatal("expected marshal error")
 	}
@@ -107,7 +107,7 @@ func TestMessage_NewMessage_Bad(t *testing.T) {
 }
 
 func TestMessage_NewMessage_Ugly(t *testing.T) {
-	msg, err := NewMessage("", "", "", nil)
+	msg, err := resultValue[*Message](NewMessage("", "", "", nil))
 	if err != nil {
 		t.Fatalf("NewMessage: %v", err)
 	}
@@ -116,60 +116,60 @@ func TestMessage_NewMessage_Ugly(t *testing.T) {
 	}
 }
 
-func TestMessage_RawMessage_MarshalJSON_Good(t *testing.T) {
+func TestMessage_RawMessage_MarshalRawJSON_Good(t *testing.T) {
 	raw := RawMessage(`{"ok":true}`)
-	data, err := raw.MarshalJSON()
+	data, err := resultValue[[]byte](raw.MarshalRawJSON())
 	if err != nil {
-		t.Fatalf("MarshalJSON: %v", err)
+		t.Fatalf("MarshalRawJSON: %v", err)
 	}
 	if string(data) != `{"ok":true}` {
 		t.Fatalf("data: got %s", data)
 	}
 }
 
-func TestMessage_RawMessage_MarshalJSON_Bad(t *testing.T) {
+func TestMessage_RawMessage_MarshalRawJSON_Bad(t *testing.T) {
 	var raw RawMessage
-	data, err := raw.MarshalJSON()
+	data, err := resultValue[[]byte](raw.MarshalRawJSON())
 	if err != nil {
-		t.Fatalf("MarshalJSON nil: %v", err)
+		t.Fatalf("MarshalRawJSON nil: %v", err)
 	}
 	if string(data) != "null" {
 		t.Fatalf("data: got %s", data)
 	}
 }
 
-func TestMessage_RawMessage_MarshalJSON_Ugly(t *testing.T) {
+func TestMessage_RawMessage_MarshalRawJSON_Ugly(t *testing.T) {
 	raw := RawMessage(`[]`)
-	data, err := raw.MarshalJSON()
+	data, err := resultValue[[]byte](raw.MarshalRawJSON())
 	if err != nil {
-		t.Fatalf("MarshalJSON array: %v", err)
+		t.Fatalf("MarshalRawJSON array: %v", err)
 	}
 	if string(data) != `[]` {
 		t.Fatalf("data: got %s", data)
 	}
 }
 
-func TestMessage_RawMessage_UnmarshalJSON_Good(t *testing.T) {
+func TestMessage_RawMessage_UnmarshalRawJSON_Good(t *testing.T) {
 	var raw RawMessage
-	if err := raw.UnmarshalJSON([]byte(`{"ok":true}`)); err != nil {
-		t.Fatalf("UnmarshalJSON: %v", err)
+	if err := resultErr(raw.UnmarshalRawJSON([]byte(`{"ok":true}`))); err != nil {
+		t.Fatalf("UnmarshalRawJSON: %v", err)
 	}
 	if string(raw) != `{"ok":true}` {
 		t.Fatalf("raw: got %s", raw)
 	}
 }
 
-func TestMessage_RawMessage_UnmarshalJSON_Bad(t *testing.T) {
+func TestMessage_RawMessage_UnmarshalRawJSON_Bad(t *testing.T) {
 	var raw *RawMessage
-	if err := raw.UnmarshalJSON([]byte(`{"ok":true}`)); err == nil {
-		t.Fatal("expected UnmarshalJSON nil pointer error")
+	if err := resultErr(raw.UnmarshalRawJSON([]byte(`{"ok":true}`))); err == nil {
+		t.Fatal("expected UnmarshalRawJSON nil pointer error")
 	}
 }
 
-func TestMessage_RawMessage_UnmarshalJSON_Ugly(t *testing.T) {
+func TestMessage_RawMessage_UnmarshalRawJSON_Ugly(t *testing.T) {
 	raw := RawMessage(`{"old":true}`)
-	if err := raw.UnmarshalJSON([]byte(`null`)); err != nil {
-		t.Fatalf("UnmarshalJSON null: %v", err)
+	if err := resultErr(raw.UnmarshalRawJSON([]byte(`null`))); err != nil {
+		t.Fatalf("UnmarshalRawJSON null: %v", err)
 	}
 	if string(raw) != `null` {
 		t.Fatalf("raw: got %s", raw)
@@ -177,22 +177,22 @@ func TestMessage_RawMessage_UnmarshalJSON_Ugly(t *testing.T) {
 }
 
 func TestMessage_Message_Reply_Good(t *testing.T) {
-	msg, err := NewMessage(MsgPing, "from", "to", nil)
+	msg, err := resultValue[*Message](NewMessage(MsgPing, "from", "to", nil))
 	if err != nil {
 		t.Fatalf("NewMessage: %v", err)
 	}
-	reply, err := msg.Reply(MsgPong, PongPayload{SentAt: 1})
+	reply, err := resultValue[*Message](msg.Reply(MsgPong, PongPayload{SentAt: 1}))
 	if err != nil || reply.ReplyTo != msg.ID {
 		t.Fatalf("reply: %#v err=%v", reply, err)
 	}
 }
 
 func TestMessage_Message_Reply_Bad(t *testing.T) {
-	msg, err := NewMessage(MsgPing, "from", "to", nil)
+	msg, err := resultValue[*Message](NewMessage(MsgPing, "from", "to", nil))
 	if err != nil {
 		t.Fatalf("NewMessage: %v", err)
 	}
-	reply, err := msg.Reply(MsgPong, func() {})
+	reply, err := resultValue[*Message](msg.Reply(MsgPong, func() {}))
 	if err == nil || reply != nil {
 		t.Fatalf("reply: %#v err=%v", reply, err)
 	}
@@ -200,7 +200,7 @@ func TestMessage_Message_Reply_Bad(t *testing.T) {
 
 func TestMessage_Message_Reply_Ugly(t *testing.T) {
 	msg := &Message{ID: "id-1"}
-	reply, err := msg.Reply("", nil)
+	reply, err := resultValue[*Message](msg.Reply("", nil))
 	if err != nil {
 		t.Fatalf("Reply: %v", err)
 	}
@@ -210,12 +210,12 @@ func TestMessage_Message_Reply_Ugly(t *testing.T) {
 }
 
 func TestMessage_Message_ParsePayload_Good(t *testing.T) {
-	msg, err := NewMessage(MsgPing, "from", "to", PingPayload{SentAt: 123})
+	msg, err := resultValue[*Message](NewMessage(MsgPing, "from", "to", PingPayload{SentAt: 123}))
 	if err != nil {
 		t.Fatalf("NewMessage: %v", err)
 	}
 	var payload PingPayload
-	if err := msg.ParsePayload(&payload); err != nil || payload.SentAt != 123 {
+	if err := resultErr(msg.ParsePayload(&payload)); err != nil || payload.SentAt != 123 {
 		t.Fatalf("payload: %#v err=%v", payload, err)
 	}
 }
@@ -223,7 +223,7 @@ func TestMessage_Message_ParsePayload_Good(t *testing.T) {
 func TestMessage_Message_ParsePayload_Bad(t *testing.T) {
 	msg := &Message{Payload: RawMessage(`{`)}
 	var payload PingPayload
-	err := msg.ParsePayload(&payload)
+	err := resultErr(msg.ParsePayload(&payload))
 	if err == nil {
 		t.Fatal("expected parse error")
 	}
@@ -235,7 +235,7 @@ func TestMessage_Message_ParsePayload_Bad(t *testing.T) {
 func TestMessage_Message_ParsePayload_Ugly(t *testing.T) {
 	msg := &Message{}
 	var payload PingPayload
-	err := msg.ParsePayload(&payload)
+	err := resultErr(msg.ParsePayload(&payload))
 	if err != nil {
 		t.Fatalf("ParsePayload nil: %v", err)
 	}
@@ -245,7 +245,7 @@ func TestMessage_Message_ParsePayload_Ugly(t *testing.T) {
 }
 
 func TestMessage_NewErrorMessage_Good(t *testing.T) {
-	msg, err := NewErrorMessage("from", "to", ErrCodeOperationFailed, "failed", "reply")
+	msg, err := resultValue[*Message](NewErrorMessage("from", "to", ErrCodeOperationFailed, "failed", "reply"))
 	if err != nil {
 		t.Fatalf("NewErrorMessage: %v", err)
 	}
@@ -255,7 +255,7 @@ func TestMessage_NewErrorMessage_Good(t *testing.T) {
 }
 
 func TestMessage_NewErrorMessage_Bad(t *testing.T) {
-	msg, err := NewErrorMessage("", "", ErrCodeUnknown, "", "")
+	msg, err := resultValue[*Message](NewErrorMessage("", "", ErrCodeUnknown, "", ""))
 	if err != nil {
 		t.Fatalf("NewErrorMessage: %v", err)
 	}
@@ -265,23 +265,23 @@ func TestMessage_NewErrorMessage_Bad(t *testing.T) {
 }
 
 func TestMessage_NewErrorMessage_Ugly(t *testing.T) {
-	msg, err := NewErrorMessage("from", "to", -1, "custom", "id")
+	msg, err := resultValue[*Message](NewErrorMessage("from", "to", -1, "custom", "id"))
 	if err != nil {
 		t.Fatalf("NewErrorMessage: %v", err)
 	}
 	var payload ErrorPayload
-	if err := msg.ParsePayload(&payload); err != nil || payload.Code != -1 {
+	if err := resultErr(msg.ParsePayload(&payload)); err != nil || payload.Code != -1 {
 		t.Fatalf("payload: %#v err=%v", payload, err)
 	}
 }
 
 func TestMessageReply(t *testing.T) {
-	original, _ := NewMessage(MsgPing, "sender", "receiver", PingPayload{SentAt: 12345})
+	original, _ := resultValue[*Message](NewMessage(MsgPing, "sender", "receiver", PingPayload{SentAt: 12345}))
 
-	reply, err := original.Reply(MsgPong, PongPayload{
+	reply, err := resultValue[*Message](original.Reply(MsgPong, PongPayload{
 		SentAt:     12345,
 		ReceivedAt: 12350,
-	})
+	}))
 
 	if err != nil {
 		t.Fatalf("failed to create reply: %v", err)
@@ -311,10 +311,10 @@ func TestParsePayload(t *testing.T) {
 			ProfileID: "test-profile",
 		}
 
-		msg, _ := NewMessage(MsgStartMiner, "ctrl", "worker", payload)
+		msg, _ := resultValue[*Message](NewMessage(MsgStartMiner, "ctrl", "worker", payload))
 
 		var parsed StartMinerPayload
-		err := msg.ParsePayload(&parsed)
+		err := resultErr(msg.ParsePayload(&parsed))
 		if err != nil {
 			t.Fatalf("failed to parse payload: %v", err)
 		}
@@ -325,10 +325,10 @@ func TestParsePayload(t *testing.T) {
 	})
 
 	t.Run("NilPayload", func(t *testing.T) {
-		msg, _ := NewMessage(MsgGetStats, "ctrl", "worker", nil)
+		msg, _ := resultValue[*Message](NewMessage(MsgGetStats, "ctrl", "worker", nil))
 
 		var parsed StatsPayload
-		err := msg.ParsePayload(&parsed)
+		err := resultErr(msg.ParsePayload(&parsed))
 		if err != nil {
 			t.Errorf("parsing nil payload should not error: %v", err)
 		}
@@ -353,10 +353,10 @@ func TestParsePayload(t *testing.T) {
 			Uptime: 86400,
 		}
 
-		msg, _ := NewMessage(MsgStats, "worker", "ctrl", stats)
+		msg, _ := resultValue[*Message](NewMessage(MsgStats, "worker", "ctrl", stats))
 
 		var parsed StatsPayload
-		err := msg.ParsePayload(&parsed)
+		err := resultErr(msg.ParsePayload(&parsed))
 		if err != nil {
 			t.Fatalf("failed to parse stats payload: %v", err)
 		}
@@ -376,7 +376,7 @@ func TestParsePayload(t *testing.T) {
 }
 
 func TestNewErrorMessage(t *testing.T) {
-	errMsg, err := NewErrorMessage("sender", "receiver", ErrCodeOperationFailed, "something went wrong", "original-msg-id")
+	errMsg, err := resultValue[*Message](NewErrorMessage("sender", "receiver", ErrCodeOperationFailed, "something went wrong", "original-msg-id"))
 	if err != nil {
 		t.Fatalf("failed to create error message: %v", err)
 	}
@@ -390,7 +390,7 @@ func TestNewErrorMessage(t *testing.T) {
 	}
 
 	var errPayload ErrorPayload
-	err = errMsg.ParsePayload(&errPayload)
+	err = resultErr(errMsg.ParsePayload(&errPayload))
 	if err != nil {
 		t.Fatalf("failed to parse error payload: %v", err)
 	}
@@ -405,10 +405,10 @@ func TestNewErrorMessage(t *testing.T) {
 }
 
 func TestMessageSerialization(t *testing.T) {
-	original, _ := NewMessage(MsgStartMiner, "ctrl", "worker", StartMinerPayload{
+	original, _ := resultValue[*Message](NewMessage(MsgStartMiner, "ctrl", "worker", StartMinerPayload{
 		MinerType: "xmrig",
 		ProfileID: "my-profile",
-	})
+	}))
 
 	// Serialize
 	data, err := testJSONMarshal(original)
@@ -436,7 +436,7 @@ func TestMessageSerialization(t *testing.T) {
 	}
 
 	var payload StartMinerPayload
-	err = restored.ParsePayload(&payload)
+	err = resultErr(restored.ParsePayload(&payload))
 	if err != nil {
 		t.Fatalf("failed to parse restored payload: %v", err)
 	}
@@ -467,7 +467,7 @@ func TestMessageTypes(t *testing.T) {
 
 	for _, msgType := range types {
 		t.Run(string(msgType), func(t *testing.T) {
-			msg, err := NewMessage(msgType, "from", "to", nil)
+			msg, err := resultValue[*Message](NewMessage(msgType, "from", "to", nil))
 			if err != nil {
 				t.Fatalf("failed to create message of type %s: %v", msgType, err)
 			}
@@ -500,7 +500,7 @@ func TestErrorCodes(t *testing.T) {
 }
 
 func TestNewMessage_NilPayload(t *testing.T) {
-	msg, err := NewMessage(MsgPing, "from", "to", nil)
+	msg, err := resultValue[*Message](NewMessage(MsgPing, "from", "to", nil))
 	if err != nil {
 		t.Fatalf("NewMessage with nil payload should succeed: %v", err)
 	}
@@ -512,14 +512,14 @@ func TestNewMessage_NilPayload(t *testing.T) {
 func TestMessage_ParsePayload_Nil(t *testing.T) {
 	msg := &Message{Payload: nil}
 	var target PingPayload
-	err := msg.ParsePayload(&target)
+	err := resultErr(msg.ParsePayload(&target))
 	if err != nil {
 		t.Errorf("ParsePayload with nil payload should succeed: %v", err)
 	}
 }
 
 func TestNewErrorMessage_Success(t *testing.T) {
-	msg, err := NewErrorMessage("from", "to", ErrCodeOperationFailed, "something went wrong", "reply-123")
+	msg, err := resultValue[*Message](NewErrorMessage("from", "to", ErrCodeOperationFailed, "something went wrong", "reply-123"))
 	if err != nil {
 		t.Fatalf("NewErrorMessage failed: %v", err)
 	}
@@ -531,7 +531,7 @@ func TestNewErrorMessage_Success(t *testing.T) {
 	}
 
 	var payload ErrorPayload
-	msg.ParsePayload(&payload)
+	_ = resultErr(msg.ParsePayload(&payload))
 	if payload.Code != ErrCodeOperationFailed {
 		t.Errorf("expected code %d, got %d", ErrCodeOperationFailed, payload.Code)
 	}
