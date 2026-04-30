@@ -8,6 +8,8 @@ import (
 	"net"
 	"sync"
 	"time"
+
+	core "dappco.re/go"
 )
 
 // Levin protocol flags.
@@ -43,6 +45,11 @@ type Connection struct {
 	writeMu sync.Mutex
 }
 
+type readPacketResult struct {
+	Header  Header
+	Payload []byte
+}
+
 // NewConnection creates a Connection that wraps conn with sensible defaults.
 func NewConnection(conn net.Conn) *Connection {
 	return &Connection{
@@ -55,7 +62,7 @@ func NewConnection(conn net.Conn) *Connection {
 
 // WritePacket sends a Levin request or notification. It builds a 33-byte
 // header, then writes header + payload atomically under the write mutex.
-func (c *Connection) WritePacket(cmd uint32, payload []byte, expectResponse bool) error {
+func (c *Connection) WritePacket(cmd uint32, payload []byte, expectResponse bool) core.Result {
 	h := Header{
 		Signature:       Signature,
 		PayloadSize:     uint64(len(payload)),
@@ -69,7 +76,7 @@ func (c *Connection) WritePacket(cmd uint32, payload []byte, expectResponse bool
 }
 
 // WriteResponse sends a Levin response packet with the given return code.
-func (c *Connection) WriteResponse(cmd uint32, payload []byte, returnCode int32) error {
+func (c *Connection) WriteResponse(cmd uint32, payload []byte, returnCode int32) core.Result {
 	h := Header{
 		Signature:       Signature,
 		PayloadSize:     uint64(len(payload)),
@@ -83,69 +90,70 @@ func (c *Connection) WriteResponse(cmd uint32, payload []byte, returnCode int32)
 }
 
 // writeFrame serialises header + payload and writes them atomically.
-func (c *Connection) writeFrame(h *Header, payload []byte) error {
+func (c *Connection) writeFrame(h *Header, payload []byte) core.Result {
 	buf := EncodeHeader(h)
 
 	c.writeMu.Lock()
 	defer c.writeMu.Unlock()
 
 	if err := c.conn.SetWriteDeadline(time.Now().Add(c.WriteTimeout)); err != nil {
-		return err
+		return core.Fail(err)
 	}
 
 	if _, err := c.conn.Write(buf[:]); err != nil {
-		return err
+		return core.Fail(err)
 	}
 
 	if len(payload) > 0 {
 		if _, err := c.conn.Write(payload); err != nil {
-			return err
+			return core.Fail(err)
 		}
 	}
 
-	return nil
+	return core.Ok(nil)
 }
 
 // ReadPacket reads exactly 33 header bytes, validates the signature,
 // checks the payload size against MaxPayloadSize, then reads exactly
 // PayloadSize bytes of payload data.
-func (c *Connection) ReadPacket() (Header, []byte, error) {
+func (c *Connection) ReadPacket() core.Result {
 	if err := c.conn.SetReadDeadline(time.Now().Add(c.ReadTimeout)); err != nil {
-		return Header{}, nil, err
+		return core.Fail(err)
 	}
 
 	// Read header.
 	var hdrBuf [HeaderSize]byte
 	if _, err := io.ReadFull(c.conn, hdrBuf[:]); err != nil {
-		return Header{}, nil, err
+		return core.Fail(err)
 	}
 
-	h, err := DecodeHeader(hdrBuf)
-	if err != nil {
-		return Header{}, nil, err
+	header := DecodeHeader(hdrBuf)
+	if !header.OK {
+		return header
 	}
+	h := header.Value.(Header)
 
 	// Check against the connection-specific payload limit.
 	if h.PayloadSize > c.MaxPayloadSize {
-		return Header{}, nil, ErrPayloadTooBig
+		return core.Fail(ErrPayloadTooBig)
 	}
 
 	// Empty payload is valid — return nil data without allocation.
 	if h.PayloadSize == 0 {
-		return h, nil, nil
+		return core.Ok(readPacketResult{Header: h})
 	}
 
 	payload := make([]byte, h.PayloadSize)
 	if _, err := io.ReadFull(c.conn, payload); err != nil {
-		return Header{}, nil, err
+		return core.Fail(err)
 	}
 
-	return h, payload, nil
+	return core.Ok(readPacketResult{Header: h, Payload: payload})
 }
 
 // Close closes the underlying network connection.
-func (c *Connection) Close() error {
-	return c.conn.Close()
+func (c *Connection) Close() core.Result {
+	return core.ResultOf(nil, c.conn.Close())
 }
 
 // RemoteAddr returns the remote address of the underlying connection as a string.

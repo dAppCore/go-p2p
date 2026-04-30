@@ -1,18 +1,14 @@
 package node
 
 import (
-	"bytes"
 	"crypto/ed25519"
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
-	"encoding/json"
+	core "dappco.re/go"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"os"
-	"path/filepath"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -28,14 +24,14 @@ import (
 func testNode(t *testing.T, name string, role NodeRole) *NodeManager {
 	t.Helper()
 	dir := t.TempDir()
-	nm, err := NewNodeManagerWithPaths(
-		filepath.Join(dir, "private.key"),
-		filepath.Join(dir, "node.json"),
-	)
+	nm, err := resultValue[*NodeManager](NewNodeManagerWithPaths(
+		core.PathJoin(dir, "private.key"),
+		core.PathJoin(dir, "node.json"),
+	))
 	if err != nil {
 		t.Fatalf("create node manager %q: %v", name, err)
 	}
-	if err := nm.GenerateIdentity(name, role); err != nil {
+	if err := resultErr(nm.GenerateIdentity(name, role)); err != nil {
 		t.Fatalf("generate identity %q: %v", name, err)
 	}
 	return nm
@@ -45,11 +41,11 @@ func testNode(t *testing.T, name string, role NodeRole) *NodeManager {
 func testRegistry(t *testing.T) *PeerRegistry {
 	t.Helper()
 	dir := t.TempDir()
-	reg, err := NewPeerRegistryWithPath(filepath.Join(dir, "peers.json"))
+	reg, err := resultValue[*PeerRegistry](NewPeerRegistryWithPath(core.PathJoin(dir, "peers.json")))
 	if err != nil {
 		t.Fatalf("create registry: %v", err)
 	}
-	t.Cleanup(func() { reg.Close() })
+	t.Cleanup(func() { _ = resultErr(reg.Close()) })
 	return reg
 }
 
@@ -102,8 +98,8 @@ func setupTestTransportPairWithConfig(t *testing.T, serverCfg, clientCfg Transpo
 	}
 
 	t.Cleanup(func() {
-		clientTransport.Stop()
-		serverTransport.Stop()
+		_ = resultErr(clientTransport.Stop())
+		_ = resultErr(serverTransport.Stop())
 		ts.Close()
 	})
 
@@ -120,9 +116,9 @@ func (tp *testTransportPair) connectClient(t *testing.T) *PeerConnection {
 		Address: tp.ServerAddr,
 		Role:    RoleWorker,
 	}
-	tp.ClientReg.AddPeer(peer)
+	_ = resultErr(tp.ClientReg.AddPeer(peer))
 
-	pc, err := tp.Client.Connect(peer)
+	pc, err := resultValue[*PeerConnection](tp.Client.Connect(peer))
 	if err != nil {
 		t.Fatalf("client connect failed: %v", err)
 	}
@@ -153,7 +149,7 @@ func waitForPeerConnection(t *testing.T, transport *Transport, peerID string) *P
 
 type lockedLogBuffer struct {
 	mu  sync.Mutex
-	buf bytes.Buffer
+	buf pooledBuffer
 }
 
 func (b *lockedLogBuffer) Write(p []byte) (int, error) {
@@ -170,7 +166,7 @@ func (b *lockedLogBuffer) String() string {
 
 func captureTransportLogs(t *testing.T) *lockedLogBuffer {
 	t.Helper()
-	buf := &lockedLogBuffer{}
+	buf := &lockedLogBuffer{buf: core.NewBuffer()}
 	previous := logging.GetGlobal()
 	logging.SetGlobal(logging.New(logging.Config{
 		Output: buf,
@@ -184,7 +180,7 @@ func captureTransportLogs(t *testing.T) *lockedLogBuffer {
 
 func envelopeBody(t *testing.T, msg *Message) []byte {
 	t.Helper()
-	body, err := MarshalJSON(msg)
+	body, err := resultValue[[]byte](MarshalJSON(msg))
 	if err != nil {
 		t.Fatalf("marshal message body: %v", err)
 	}
@@ -193,11 +189,11 @@ func envelopeBody(t *testing.T, msg *Message) []byte {
 
 func writeEnvelopeFrame(t *testing.T, pc *PeerConnection, env Envelope) {
 	t.Helper()
-	payload, err := MarshalJSON(env)
+	payload, err := resultValue[[]byte](MarshalJSON(env))
 	if err != nil {
 		t.Fatalf("marshal envelope: %v", err)
 	}
-	encrypted, err := encryptTransportPayload(payload, pc.SharedSecret)
+	encrypted, err := resultValue[[]byte](encryptTransportPayload(payload, pc.SharedSecret))
 	if err != nil {
 		t.Fatalf("encrypt envelope: %v", err)
 	}
@@ -277,6 +273,622 @@ func TestMessageDeduplicator(t *testing.T) {
 	})
 }
 
+func TestTransport_DefaultTransportConfig_Good(t *testing.T) {
+	cfg := DefaultTransportConfig()
+	if cfg.ListenAddr != ":9091" {
+		t.Fatalf("listen addr: got %q", cfg.ListenAddr)
+	}
+	if cfg.MaxMessageSize != DefaultMaxMessageSize {
+		t.Fatalf("max size: got %d", cfg.MaxMessageSize)
+	}
+}
+
+func TestTransport_DefaultTransportConfig_Bad(t *testing.T) {
+	cfg := DefaultTransportConfig()
+	if cfg.WSPath == "" {
+		t.Fatal("expected websocket path")
+	}
+	if cfg.MaxConns <= 0 {
+		t.Fatalf("max conns: got %d", cfg.MaxConns)
+	}
+}
+
+func TestTransport_DefaultTransportConfig_Ugly(t *testing.T) {
+	cfg := DefaultTransportConfig()
+	cfg.ListenAddr = "127.0.0.1:0"
+	if cfg.ListenAddr != "127.0.0.1:0" {
+		t.Fatal("config should be a mutable value copy")
+	}
+	if DefaultTransportConfig().ListenAddr == "127.0.0.1:0" {
+		t.Fatal("default config should not be mutated")
+	}
+}
+
+func TestTransport_NewMessageDeduplicator_Good(t *testing.T) {
+	d := NewMessageDeduplicator(time.Minute)
+	if d == nil {
+		t.Fatal("expected deduplicator")
+	}
+	if d.ttl != time.Minute {
+		t.Fatalf("ttl: got %v", d.ttl)
+	}
+}
+
+func TestTransport_NewMessageDeduplicator_Bad(t *testing.T) {
+	d := NewMessageDeduplicator(0)
+	d.Mark("id")
+	if !d.IsDuplicate("id") {
+		t.Fatal("zero ttl should keep immediate duplicate")
+	}
+}
+
+func TestTransport_NewMessageDeduplicator_Ugly(t *testing.T) {
+	d := NewMessageDeduplicator(-time.Second)
+	d.Mark("id")
+	if !d.IsDuplicate("id") {
+		t.Fatal("negative ttl keeps immediate duplicate")
+	}
+}
+
+func TestTransport_MessageDeduplicator_IsDuplicate_Good(t *testing.T) {
+	d := NewMessageDeduplicator(time.Minute)
+	d.Mark("id")
+	if !d.IsDuplicate("id") {
+		t.Fatal("expected duplicate")
+	}
+}
+
+func TestTransport_MessageDeduplicator_IsDuplicate_Bad(t *testing.T) {
+	d := NewMessageDeduplicator(time.Minute)
+	if d.IsDuplicate("missing") {
+		t.Fatal("missing id should not be duplicate")
+	}
+	if len(d.seen) != 0 {
+		t.Fatal("missing lookup should not mark id")
+	}
+}
+
+func TestTransport_MessageDeduplicator_IsDuplicate_Ugly(t *testing.T) {
+	d := NewMessageDeduplicator(time.Nanosecond)
+	d.Mark("expired")
+	time.Sleep(time.Millisecond)
+	if d.IsDuplicate("expired") {
+		t.Fatal("expired id should not be duplicate")
+	}
+}
+
+func TestTransport_MessageDeduplicator_Mark_Good(t *testing.T) {
+	d := NewMessageDeduplicator(time.Minute)
+	d.Mark("id")
+	if _, ok := d.seen["id"]; !ok {
+		t.Fatal("id not marked")
+	}
+}
+
+func TestTransport_MessageDeduplicator_Mark_Bad(t *testing.T) {
+	d := NewMessageDeduplicator(time.Minute)
+	d.Mark("")
+	if _, ok := d.seen[""]; !ok {
+		t.Fatal("empty id should be recorded")
+	}
+}
+
+func TestTransport_MessageDeduplicator_Mark_Ugly(t *testing.T) {
+	d := NewMessageDeduplicator(time.Minute)
+	d.Mark("id")
+	first := d.seen["id"]
+	d.Mark("id")
+	if d.seen["id"].Before(first) {
+		t.Fatal("mark should refresh timestamp")
+	}
+}
+
+func TestTransport_MessageDeduplicator_Cleanup_Good(t *testing.T) {
+	d := NewMessageDeduplicator(time.Nanosecond)
+	d.Mark("id")
+	time.Sleep(time.Millisecond)
+	d.Cleanup()
+	if len(d.seen) != 0 {
+		t.Fatalf("seen: got %d", len(d.seen))
+	}
+}
+
+func TestTransport_MessageDeduplicator_Cleanup_Bad(t *testing.T) {
+	d := NewMessageDeduplicator(time.Minute)
+	d.Mark("id")
+	d.Cleanup()
+	if len(d.seen) != 1 {
+		t.Fatalf("seen: got %d", len(d.seen))
+	}
+}
+
+func TestTransport_MessageDeduplicator_Cleanup_Ugly(t *testing.T) {
+	d := NewMessageDeduplicator(0)
+	d.Cleanup()
+	if len(d.seen) != 0 {
+		t.Fatalf("seen: got %d", len(d.seen))
+	}
+}
+
+func TestTransport_NewPeerRateLimiter_Good(t *testing.T) {
+	limiter := NewPeerRateLimiter(2, 1)
+	if limiter == nil {
+		t.Fatal("expected limiter")
+	}
+	if !limiter.Allow() {
+		t.Fatal("first token should be allowed")
+	}
+}
+
+func TestTransport_NewPeerRateLimiter_Bad(t *testing.T) {
+	limiter := NewPeerRateLimiter(0, 0)
+	if limiter.Allow() {
+		t.Fatal("zero-token limiter should reject")
+	}
+	if limiter.maxTokens != 0 {
+		t.Fatalf("max tokens: got %d", limiter.maxTokens)
+	}
+}
+
+func TestTransport_NewPeerRateLimiter_Ugly(t *testing.T) {
+	limiter := NewPeerRateLimiter(1, 1000)
+	if !limiter.Allow() {
+		t.Fatal("initial token should be allowed")
+	}
+	if limiter.Allow() {
+		t.Fatal("single token should be consumed")
+	}
+}
+
+func TestTransport_PeerRateLimiter_Allow_Good(t *testing.T) {
+	limiter := NewPeerRateLimiter(1, 1)
+	if !limiter.Allow() {
+		t.Fatal("expected allow")
+	}
+	if limiter.tokens != 0 {
+		t.Fatalf("tokens: got %d", limiter.tokens)
+	}
+}
+
+func TestTransport_PeerRateLimiter_Allow_Bad(t *testing.T) {
+	limiter := NewPeerRateLimiter(0, 1)
+	if limiter.Allow() {
+		t.Fatal("expected reject")
+	}
+	if limiter.tokens != 0 {
+		t.Fatalf("tokens: got %d", limiter.tokens)
+	}
+}
+
+func TestTransport_PeerRateLimiter_Allow_Ugly(t *testing.T) {
+	limiter := NewPeerRateLimiter(1, 10)
+	limiter.Allow()
+	limiter.lastRefill = time.Now().Add(-time.Second)
+	if !limiter.Allow() {
+		t.Fatal("expected refill allow")
+	}
+}
+
+func TestTransport_NewTransport_Good(t *testing.T) {
+	node := testNode(t, "node", RoleDual)
+	registry := testRegistry(t)
+	transport := NewTransport(node, registry, DefaultTransportConfig())
+	if transport == nil {
+		t.Fatal("expected transport")
+	}
+	if transport.node != node || transport.registry != registry {
+		t.Fatal("transport dependencies not retained")
+	}
+}
+
+func TestTransport_NewTransport_Bad(t *testing.T) {
+	transport := NewTransport(nil, nil, TransportConfig{})
+	if transport == nil {
+		t.Fatal("expected transport")
+	}
+	if transport.config.MaxMessageSize != 0 {
+		t.Fatalf("max size: got %d", transport.config.MaxMessageSize)
+	}
+}
+
+func TestTransport_NewTransport_Ugly(t *testing.T) {
+	transport := NewTransport(nil, nil, TransportConfig{WSPath: ""})
+	if transport.dedup == nil {
+		t.Fatal("expected deduplicator")
+	}
+	if transport.ctx == nil || transport.cancel == nil {
+		t.Fatal("expected context")
+	}
+}
+
+func TestTransport_Transport_Start_Good(t *testing.T) {
+	node := testNode(t, "node", RoleDual)
+	registry := testRegistry(t)
+	cfg := DefaultTransportConfig()
+	cfg.ListenAddr = "127.0.0.1:0"
+	transport := NewTransport(node, registry, cfg)
+	if err := resultErr(transport.Start()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	if err := resultErr(transport.Stop()); err != nil {
+		t.Fatalf("Stop: %v", err)
+	}
+}
+
+func TestTransport_Transport_Start_Bad(t *testing.T) {
+	transport := NewTransport(nil, nil, TransportConfig{ListenAddr: "127.0.0.1:0", WSPath: "/ws"})
+	err := resultErr(transport.Start())
+	if err != nil {
+		t.Fatalf("Start with nil deps: %v", err)
+	}
+	if transport.server == nil {
+		t.Fatal("server should be created")
+	}
+	_ = resultErr(transport.Stop())
+}
+
+func TestTransport_Transport_Start_Ugly(t *testing.T) {
+	node := testNode(t, "node", RoleDual)
+	registry := testRegistry(t)
+	cfg := DefaultTransportConfig()
+	cfg.ListenAddr = "127.0.0.1:0"
+	cfg.WSPath = "/"
+	transport := NewTransport(node, registry, cfg)
+	if err := resultErr(transport.Start()); err != nil {
+		t.Fatalf("Start root path: %v", err)
+	}
+	_ = resultErr(transport.Stop())
+}
+
+func TestTransport_Transport_Stop_Good(t *testing.T) {
+	node := testNode(t, "node", RoleDual)
+	registry := testRegistry(t)
+	transport := NewTransport(node, registry, DefaultTransportConfig())
+	if err := resultErr(transport.Stop()); err != nil {
+		t.Fatalf("Stop unstarted: %v", err)
+	}
+}
+
+func TestTransport_Transport_Stop_Bad(t *testing.T) {
+	transport := NewTransport(nil, nil, TransportConfig{})
+	if err := resultErr(transport.Stop()); err != nil {
+		t.Fatalf("Stop nil deps: %v", err)
+	}
+	if transport.ctx.Err() == nil {
+		t.Fatal("context should be canceled")
+	}
+}
+
+func TestTransport_Transport_Stop_Ugly(t *testing.T) {
+	node := testNode(t, "node", RoleDual)
+	registry := testRegistry(t)
+	transport := NewTransport(node, registry, DefaultTransportConfig())
+	_ = resultErr(transport.Stop())
+	if err := resultErr(transport.Stop()); err != nil {
+		t.Fatalf("second Stop: %v", err)
+	}
+}
+
+func TestTransport_Transport_OnMessage_Good(t *testing.T) {
+	transport := NewTransport(nil, nil, TransportConfig{})
+	handler := func(*PeerConnection, *Message) {}
+	transport.OnMessage(handler)
+	if transport.handler == nil {
+		t.Fatal("handler not set")
+	}
+}
+
+func TestTransport_Transport_OnMessage_Bad(t *testing.T) {
+	transport := NewTransport(nil, nil, TransportConfig{})
+	transport.OnMessage(nil)
+	if transport.handler != nil {
+		t.Fatal("handler should be nil")
+	}
+}
+
+func TestTransport_Transport_OnMessage_Ugly(t *testing.T) {
+	transport := NewTransport(nil, nil, TransportConfig{})
+	first := func(*PeerConnection, *Message) {}
+	second := func(*PeerConnection, *Message) {}
+	transport.OnMessage(first)
+	transport.OnMessage(second)
+	if transport.handler == nil {
+		t.Fatal("handler should be set")
+	}
+}
+
+func TestTransport_Transport_Connect_Good(t *testing.T) {
+	tp := setupTestTransportPair(t)
+	peer := &Peer{ID: tp.ServerNode.GetIdentity().ID, Name: "server", Address: tp.ServerAddr, Role: RoleWorker}
+	_ = resultErr(tp.ClientReg.AddPeer(peer))
+	conn, err := resultValue[*PeerConnection](tp.Client.Connect(peer))
+	if err != nil {
+		t.Fatalf("Connect: %v", err)
+	}
+	if conn.SharedSecret == nil {
+		t.Fatal("shared secret not set")
+	}
+}
+
+func TestTransport_Transport_Connect_Bad(t *testing.T) {
+	tp := setupTestTransportPair(t)
+	peer := &Peer{ID: "missing", Address: "127.0.0.1:1"}
+	conn, err := resultValue[*PeerConnection](tp.Client.Connect(peer))
+	if err == nil {
+		t.Fatal("expected connect error")
+	}
+	if conn != nil {
+		t.Fatalf("connection: got %#v, want nil", conn)
+	}
+}
+
+func TestTransport_Transport_Connect_Ugly(t *testing.T) {
+	tp := setupTestTransportPair(t)
+	peer := &Peer{ID: tp.ServerNode.GetIdentity().ID, Name: "server", Address: tp.ServerAddr, Role: RoleWorker}
+	conn, err := resultValue[*PeerConnection](tp.Client.Connect(peer))
+	if err != nil {
+		t.Fatalf("Connect: %v", err)
+	}
+	if conn.Peer.ID != tp.ServerNode.GetIdentity().ID {
+		t.Fatalf("peer ID: got %s", conn.Peer.ID)
+	}
+}
+
+func TestTransport_Transport_Send_Good(t *testing.T) {
+	tp := setupTestTransportPair(t)
+	received := make(chan *Message, 1)
+	tp.Server.OnMessage(func(_ *PeerConnection, msg *Message) { received <- msg })
+	tp.connectClient(t)
+	msg, _ := resultValue[*Message](NewMessage(MsgPing, tp.ClientNode.GetIdentity().ID, tp.ServerNode.GetIdentity().ID, PingPayload{SentAt: 1}))
+	if err := resultErr(tp.Client.Send(tp.ServerNode.GetIdentity().ID, msg)); err != nil {
+		t.Fatalf("Send: %v", err)
+	}
+	select {
+	case got := <-received:
+		if got.Type != MsgPing {
+			t.Fatalf("message: %#v", got)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timeout waiting for message")
+	}
+}
+
+func TestTransport_Transport_Send_Bad(t *testing.T) {
+	transport := NewTransport(nil, nil, TransportConfig{})
+	msg, _ := resultValue[*Message](NewMessage(MsgPing, "from", "to", nil))
+	err := resultErr(transport.Send("missing", msg))
+	if err == nil {
+		t.Fatal("expected missing peer error")
+	}
+}
+
+func TestTransport_Transport_Send_Ugly(t *testing.T) {
+	transport := NewTransport(nil, nil, TransportConfig{})
+	err := resultErr(transport.Send("", nil))
+	if err == nil {
+		t.Fatal("expected missing peer error")
+	}
+}
+
+func TestTransport_Transport_Connections_Good(t *testing.T) {
+	tp := setupTestTransportPair(t)
+	tp.connectClient(t)
+	count := 0
+	for range tp.Client.Connections() {
+		count++
+	}
+	if count != 1 {
+		t.Fatalf("connection count: got %d", count)
+	}
+}
+
+func TestTransport_Transport_Connections_Bad(t *testing.T) {
+	transport := NewTransport(nil, nil, TransportConfig{})
+	count := 0
+	for range transport.Connections() {
+		count++
+	}
+	if count != 0 {
+		t.Fatalf("connection count: got %d", count)
+	}
+}
+
+func TestTransport_Transport_Connections_Ugly(t *testing.T) {
+	tp := setupTestTransportPair(t)
+	tp.connectClient(t)
+	count := 0
+	for range tp.Client.Connections() {
+		count++
+		break
+	}
+	if count != 1 {
+		t.Fatalf("connection count: got %d", count)
+	}
+}
+
+func TestTransport_Transport_Broadcast_Good(t *testing.T) {
+	tp := setupTestTransportPair(t)
+	received := make(chan *Message, 1)
+	tp.Server.OnMessage(func(_ *PeerConnection, msg *Message) { received <- msg })
+	tp.connectClient(t)
+	msg, _ := resultValue[*Message](NewMessage(MsgPing, tp.ClientNode.GetIdentity().ID, "", PingPayload{SentAt: 1}))
+	if err := resultErr(tp.Client.Broadcast(msg)); err != nil {
+		t.Fatalf("Broadcast: %v", err)
+	}
+	select {
+	case got := <-received:
+		if got.Type != MsgPing {
+			t.Fatalf("message: %#v", got)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timeout waiting for broadcast")
+	}
+}
+
+func TestTransport_Transport_Broadcast_Bad(t *testing.T) {
+	transport := NewTransport(nil, nil, TransportConfig{})
+	msg, _ := resultValue[*Message](NewMessage(MsgPing, "from", "", nil))
+	if err := resultErr(transport.Broadcast(msg)); err != nil {
+		t.Fatalf("Broadcast empty: %v", err)
+	}
+}
+
+func TestTransport_Transport_Broadcast_Ugly(t *testing.T) {
+	tp := setupTestTransportPair(t)
+	tp.connectClient(t)
+	msg, _ := resultValue[*Message](NewMessage(MsgPing, tp.ServerNode.GetIdentity().ID, "", nil))
+	if err := resultErr(tp.Client.Broadcast(msg)); err != nil {
+		t.Fatalf("Broadcast skip sender: %v", err)
+	}
+}
+
+func TestTransport_Transport_GetConnection_Good(t *testing.T) {
+	tp := setupTestTransportPair(t)
+	tp.connectClient(t)
+	conn := tp.Client.GetConnection(tp.ServerNode.GetIdentity().ID)
+	if conn == nil {
+		t.Fatal("expected connection")
+	}
+}
+
+func TestTransport_Transport_GetConnection_Bad(t *testing.T) {
+	transport := NewTransport(nil, nil, TransportConfig{})
+	conn := transport.GetConnection("missing")
+	if conn != nil {
+		t.Fatalf("connection: got %#v, want nil", conn)
+	}
+}
+
+func TestTransport_Transport_GetConnection_Ugly(t *testing.T) {
+	tp := setupTestTransportPair(t)
+	conn := tp.connectClient(t)
+	_ = resultErr(conn.Close())
+	if got := tp.Client.GetConnection(tp.ServerNode.GetIdentity().ID); got != nil {
+		t.Fatalf("connection: got %#v, want nil", got)
+	}
+}
+
+func TestTransport_Transport_ConnectedPeers_Good(t *testing.T) {
+	tp := setupTestTransportPair(t)
+	tp.connectClient(t)
+	if tp.Client.ConnectedPeers() != 1 {
+		t.Fatalf("connected peers: got %d", tp.Client.ConnectedPeers())
+	}
+}
+
+func TestTransport_Transport_ConnectedPeers_Bad(t *testing.T) {
+	transport := NewTransport(nil, nil, TransportConfig{})
+	if transport.ConnectedPeers() != 0 {
+		t.Fatalf("connected peers: got %d", transport.ConnectedPeers())
+	}
+}
+
+func TestTransport_Transport_ConnectedPeers_Ugly(t *testing.T) {
+	tp := setupTestTransportPair(t)
+	conn := tp.connectClient(t)
+	_ = resultErr(conn.Close())
+	if tp.Client.ConnectedPeers() != 0 {
+		t.Fatalf("connected peers: got %d", tp.Client.ConnectedPeers())
+	}
+}
+
+func TestTransport_PeerConnection_Send_Good(t *testing.T) {
+	tp := setupTestTransportPair(t)
+	received := make(chan *Message, 1)
+	tp.Server.OnMessage(func(_ *PeerConnection, msg *Message) { received <- msg })
+	conn := tp.connectClient(t)
+	msg, _ := resultValue[*Message](NewMessage(MsgPing, tp.ClientNode.GetIdentity().ID, tp.ServerNode.GetIdentity().ID, nil))
+	if err := resultErr(conn.Send(msg)); err != nil {
+		t.Fatalf("PeerConnection.Send: %v", err)
+	}
+	select {
+	case <-received:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timeout waiting for message")
+	}
+}
+
+func TestTransport_PeerConnection_Send_Bad(t *testing.T) {
+	tp := setupTestTransportPair(t)
+	conn := tp.connectClient(t)
+	conn.SharedSecret = nil
+	msg, _ := resultValue[*Message](NewMessage(MsgPing, "from", "to", nil))
+	err := resultErr(conn.Send(msg))
+	if err == nil {
+		t.Fatal("expected key derivation error")
+	}
+}
+
+func TestTransport_PeerConnection_Send_Ugly(t *testing.T) {
+	tp := setupTestTransportPair(t)
+	conn := tp.connectClient(t)
+	err := resultErr(conn.Send(nil))
+	if err != nil {
+		t.Fatalf("nil message should marshal as JSON null: %v", err)
+	}
+}
+
+func TestTransport_PeerConnection_Close_Good(t *testing.T) {
+	tp := setupTestTransportPair(t)
+	conn := tp.connectClient(t)
+	if err := resultErr(conn.Close()); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	if tp.Client.GetConnection(tp.ServerNode.GetIdentity().ID) != nil {
+		t.Fatal("connection should be removed")
+	}
+}
+
+func TestTransport_PeerConnection_Close_Bad(t *testing.T) {
+	tp := setupTestTransportPair(t)
+	conn := tp.connectClient(t)
+	_ = resultErr(conn.Close())
+	if err := resultErr(conn.Close()); err != nil {
+		t.Fatalf("second Close: %v", err)
+	}
+}
+
+func TestTransport_PeerConnection_Close_Ugly(t *testing.T) {
+	tp := setupTestTransportPair(t)
+	conn := tp.connectClient(t)
+	conn.transport = nil
+	if err := resultErr(conn.Close()); err != nil {
+		t.Fatalf("Close without transport: %v", err)
+	}
+}
+
+func TestTransport_PeerConnection_GracefulClose_Good(t *testing.T) {
+	tp := setupTestTransportPair(t)
+	conn := tp.connectClient(t)
+	if err := resultErr(conn.GracefulClose("bye", DisconnectNormal)); err != nil {
+		t.Fatalf("GracefulClose: %v", err)
+	}
+	if tp.Client.GetConnection(tp.ServerNode.GetIdentity().ID) != nil {
+		t.Fatal("connection should be removed")
+	}
+}
+
+func TestTransport_PeerConnection_GracefulClose_Bad(t *testing.T) {
+	tp := setupTestTransportPair(t)
+	conn := tp.connectClient(t)
+	conn.SharedSecret = nil
+	if err := resultErr(conn.GracefulClose("bye", DisconnectNormal)); err != nil {
+		t.Fatalf("GracefulClose without secret: %v", err)
+	}
+	if tp.Client.GetConnection(tp.ServerNode.GetIdentity().ID) != nil {
+		t.Fatal("connection should be removed")
+	}
+}
+
+func TestTransport_PeerConnection_GracefulClose_Ugly(t *testing.T) {
+	tp := setupTestTransportPair(t)
+	conn := tp.connectClient(t)
+	_ = resultErr(conn.GracefulClose("", 0))
+	if err := resultErr(conn.GracefulClose("", 0)); err != nil {
+		t.Fatalf("second GracefulClose: %v", err)
+	}
+}
+
 func TestPeerRateLimiter(t *testing.T) {
 	t.Run("AllowUpToBurst", func(t *testing.T) {
 		rl := NewPeerRateLimiter(10, 5)
@@ -316,22 +928,22 @@ func TestPeerRateLimiter(t *testing.T) {
 func TestDeriveSubKeysDeterministicAndSeparated(t *testing.T) {
 	sharedSecret := testSharedSecret(0x42)
 
-	keys1, err := deriveSubKeys(sharedSecret)
+	keys1, err := resultValue[transportSubKeys](deriveSubKeys(sharedSecret))
 	if err != nil {
 		t.Fatalf("deriveSubKeys: %v", err)
 	}
-	keys2, err := deriveSubKeys(sharedSecret)
+	keys2, err := resultValue[transportSubKeys](deriveSubKeys(sharedSecret))
 	if err != nil {
 		t.Fatalf("deriveSubKeys second call: %v", err)
 	}
 
-	if !bytes.Equal(keys1.encKey, keys2.encKey) {
+	if !core.DeepEqual(keys1.encKey, keys2.encKey) {
 		t.Fatal("encryption key derivation is not deterministic")
 	}
-	if !bytes.Equal(keys1.macKey, keys2.macKey) {
+	if !core.DeepEqual(keys1.macKey, keys2.macKey) {
 		t.Fatal("MAC key derivation is not deterministic")
 	}
-	if !bytes.Equal(keys1.chlKey, keys2.chlKey) {
+	if !core.DeepEqual(keys1.chlKey, keys2.chlKey) {
 		t.Fatal("challenge key derivation is not deterministic")
 	}
 
@@ -345,34 +957,34 @@ func TestDeriveSubKeysDeterministicAndSeparated(t *testing.T) {
 		}
 	}
 
-	if bytes.Equal(keys1.encKey, keys1.macKey) {
+	if core.DeepEqual(keys1.encKey, keys1.macKey) {
 		t.Fatal("encryption and MAC keys should be domain-separated")
 	}
-	if bytes.Equal(keys1.encKey, keys1.chlKey) {
+	if core.DeepEqual(keys1.encKey, keys1.chlKey) {
 		t.Fatal("encryption and challenge keys should be domain-separated")
 	}
-	if bytes.Equal(keys1.macKey, keys1.chlKey) {
+	if core.DeepEqual(keys1.macKey, keys1.chlKey) {
 		t.Fatal("MAC and challenge keys should be domain-separated")
 	}
 }
 
 func TestDeriveSubKeysDifferentSecrets(t *testing.T) {
-	keys1, err := deriveSubKeys(testSharedSecret(0x10))
+	keys1, err := resultValue[transportSubKeys](deriveSubKeys(testSharedSecret(0x10)))
 	if err != nil {
 		t.Fatalf("deriveSubKeys first secret: %v", err)
 	}
-	keys2, err := deriveSubKeys(testSharedSecret(0x20))
+	keys2, err := resultValue[transportSubKeys](deriveSubKeys(testSharedSecret(0x20)))
 	if err != nil {
 		t.Fatalf("deriveSubKeys second secret: %v", err)
 	}
 
-	if bytes.Equal(keys1.encKey, keys2.encKey) {
+	if core.DeepEqual(keys1.encKey, keys2.encKey) {
 		t.Fatal("different shared secrets produced the same encryption key")
 	}
-	if bytes.Equal(keys1.macKey, keys2.macKey) {
+	if core.DeepEqual(keys1.macKey, keys2.macKey) {
 		t.Fatal("different shared secrets produced the same MAC key")
 	}
-	if bytes.Equal(keys1.chlKey, keys2.chlKey) {
+	if core.DeepEqual(keys1.chlKey, keys2.chlKey) {
 		t.Fatal("different shared secrets produced the same challenge key")
 	}
 }
@@ -381,36 +993,36 @@ func TestTransportPayloadEncryptDecryptRoundTrip(t *testing.T) {
 	sharedSecret := testSharedSecret(0x33)
 	payload := []byte(`{"id":"msg-1","type":"ping","from":"a","to":"b","timestamp":"2026-04-25T00:00:00Z","payload":{}}`)
 
-	encrypted, err := encryptTransportPayload(payload, sharedSecret)
+	encrypted, err := resultValue[[]byte](encryptTransportPayload(payload, sharedSecret))
 	if err != nil {
 		t.Fatalf("encryptTransportPayload: %v", err)
 	}
 	if len(encrypted) == 0 {
 		t.Fatal("expected encrypted payload")
 	}
-	if bytes.Equal(encrypted, payload) {
+	if core.DeepEqual(encrypted, payload) {
 		t.Fatal("ciphertext should not equal plaintext")
 	}
 
-	decrypted, err := decryptTransportPayload(encrypted, sharedSecret)
+	decrypted, err := resultValue[[]byte](decryptTransportPayload(encrypted, sharedSecret))
 	if err != nil {
 		t.Fatalf("decryptTransportPayload: %v", err)
 	}
-	if !bytes.Equal(decrypted, payload) {
+	if !core.DeepEqual(decrypted, payload) {
 		t.Fatalf("decrypted payload mismatch: got %q, want %q", decrypted, payload)
 	}
 
-	if _, err := decryptTransportPayload(encrypted, testSharedSecret(0x34)); err == nil {
+	if _, err := resultValue[[]byte](decryptTransportPayload(encrypted, testSharedSecret(0x34))); err == nil {
 		t.Fatal("decryptTransportPayload should reject a different shared secret")
 	}
 }
 
 func TestDerivedMACKeySignsAndVerifies(t *testing.T) {
-	keys, err := deriveSubKeys(testSharedSecret(0x55))
+	keys, err := resultValue[transportSubKeys](deriveSubKeys(testSharedSecret(0x55)))
 	if err != nil {
 		t.Fatalf("deriveSubKeys: %v", err)
 	}
-	otherKeys, err := deriveSubKeys(testSharedSecret(0x56))
+	otherKeys, err := resultValue[transportSubKeys](deriveSubKeys(testSharedSecret(0x56)))
 	if err != nil {
 		t.Fatalf("deriveSubKeys other secret: %v", err)
 	}
@@ -427,11 +1039,11 @@ func TestDerivedMACKeySignsAndVerifies(t *testing.T) {
 }
 
 func TestTransportHotPathDoesNotCallSMSGEncrypt(t *testing.T) {
-	source, err := os.ReadFile("transport.go")
+	source, err := testReadFile("transport.go")
 	if err != nil {
 		t.Fatalf("read transport.go: %v", err)
 	}
-	if strings.Contains(string(source), "smsg.Encrypt") {
+	if core.Contains(string(source), "smsg.Encrypt") {
 		t.Fatal("transport hot path should not call smsg.Encrypt")
 	}
 }
@@ -502,8 +1114,8 @@ func TestTransport_HandshakeRejectWrongVersion(t *testing.T) {
 		Identity: *clientIdentity,
 		Version:  "99.99", // Unsupported
 	}
-	msg, _ := NewMessage(MsgHandshake, clientIdentity.ID, "", payload)
-	data, _ := MarshalJSON(msg)
+	msg, _ := resultValue[*Message](NewMessage(MsgHandshake, clientIdentity.ID, "", payload))
+	data, _ := resultValue[[]byte](MarshalJSON(msg))
 
 	if err := conn.WriteMessage(websocket.TextMessage, data); err != nil {
 		t.Fatalf("write handshake: %v", err)
@@ -515,17 +1127,17 @@ func TestTransport_HandshakeRejectWrongVersion(t *testing.T) {
 	}
 
 	var resp Message
-	if err := json.Unmarshal(respData, &resp); err != nil {
+	if err := testJSONUnmarshal(respData, &resp); err != nil {
 		t.Fatalf("unmarshal response: %v", err)
 	}
 
 	var ack HandshakeAckPayload
-	resp.ParsePayload(&ack)
+	_ = resultErr(resp.ParsePayload(&ack))
 
 	if ack.Accepted {
 		t.Error("should reject incompatible protocol version")
 	}
-	if !strings.Contains(ack.Reason, "incompatible protocol version") {
+	if !core.Contains(ack.Reason, "incompatible protocol version") {
 		t.Errorf("expected version rejection reason, got: %s", ack.Reason)
 	}
 }
@@ -542,13 +1154,13 @@ func TestTransport_HandshakeRejectAllowlist(t *testing.T) {
 		Address: tp.ServerAddr,
 		Role:    RoleWorker,
 	}
-	tp.ClientReg.AddPeer(peer)
+	_ = resultErr(tp.ClientReg.AddPeer(peer))
 
-	_, err := tp.Client.Connect(peer)
+	_, err := resultValue[*PeerConnection](tp.Client.Connect(peer))
 	if err == nil {
 		t.Fatal("should reject peer not in allowlist")
 	}
-	if !strings.Contains(err.Error(), "rejected") {
+	if !core.Contains(err.Error(), "rejected") {
 		t.Errorf("expected rejection error, got: %v", err)
 	}
 }
@@ -566,11 +1178,11 @@ func TestTransport_EncryptedMessageRoundTrip(t *testing.T) {
 	// Send an encrypted message from client to server
 	clientID := tp.ClientNode.GetIdentity().ID
 	serverID := tp.ServerNode.GetIdentity().ID
-	sentMsg, _ := NewMessage(MsgPing, clientID, serverID, PingPayload{
+	sentMsg, _ := resultValue[*Message](NewMessage(MsgPing, clientID, serverID, PingPayload{
 		SentAt: time.Now().UnixMilli(),
-	})
+	}))
 
-	if err := pc.Send(sentMsg); err != nil {
+	if err := resultErr(pc.Send(sentMsg)); err != nil {
 		t.Fatalf("send: %v", err)
 	}
 
@@ -587,7 +1199,7 @@ func TestTransport_EncryptedMessageRoundTrip(t *testing.T) {
 		}
 
 		var payload PingPayload
-		msg.ParsePayload(&payload)
+		_ = resultErr(msg.ParsePayload(&payload))
 		if payload.SentAt == 0 {
 			t.Error("payload should have SentAt timestamp")
 		}
@@ -608,15 +1220,15 @@ func TestTransport_MessageDedup(t *testing.T) {
 
 	clientID := tp.ClientNode.GetIdentity().ID
 	serverID := tp.ServerNode.GetIdentity().ID
-	msg, _ := NewMessage(MsgPing, clientID, serverID, PingPayload{SentAt: time.Now().UnixMilli()})
+	msg, _ := resultValue[*Message](NewMessage(MsgPing, clientID, serverID, PingPayload{SentAt: time.Now().UnixMilli()}))
 
 	// Send the same message twice
-	if err := pc.Send(msg); err != nil {
+	if err := resultErr(pc.Send(msg)); err != nil {
 		t.Fatalf("first send: %v", err)
 	}
 	time.Sleep(100 * time.Millisecond) // Ensure first is processed and marked
 
-	if err := pc.Send(msg); err != nil {
+	if err := resultErr(pc.Send(msg)); err != nil {
 		t.Fatalf("second send: %v", err)
 	}
 	time.Sleep(100 * time.Millisecond) // Allow time for second to be processed (or dropped)
@@ -641,8 +1253,8 @@ func TestTransport_RateLimiting(t *testing.T) {
 
 	// Send 150 messages rapidly (rate limiter burst = 100)
 	for range 150 {
-		msg, _ := NewMessage(MsgPing, clientID, serverID, PingPayload{SentAt: time.Now().UnixMilli()})
-		pc.Send(msg)
+		msg, _ := resultValue[*Message](NewMessage(MsgPing, clientID, serverID, PingPayload{SentAt: time.Now().UnixMilli()}))
+		_ = resultErr(pc.Send(msg))
 	}
 
 	time.Sleep(1 * time.Second) // Allow processing
@@ -671,7 +1283,7 @@ func TestTransport_MaxConnsEnforcement(t *testing.T) {
 	mux.HandleFunc(serverCfg.WSPath, serverTransport.handleWSUpgrade)
 	ts := httptest.NewServer(mux)
 	t.Cleanup(func() {
-		serverTransport.Stop()
+		_ = resultErr(serverTransport.Stop())
 		ts.Close()
 	})
 
@@ -682,12 +1294,12 @@ func TestTransport_MaxConnsEnforcement(t *testing.T) {
 	client1NM := testNode(t, "client1", RoleController)
 	client1Reg := testRegistry(t)
 	client1Transport := NewTransport(client1NM, client1Reg, DefaultTransportConfig())
-	t.Cleanup(func() { client1Transport.Stop() })
+	t.Cleanup(func() { _ = resultErr(client1Transport.Stop()) })
 
 	peer1 := &Peer{ID: serverNM.GetIdentity().ID, Name: "server", Address: serverAddr, Role: RoleWorker}
-	client1Reg.AddPeer(peer1)
+	_ = resultErr(client1Reg.AddPeer(peer1))
 
-	_, err := client1Transport.Connect(peer1)
+	_, err := resultValue[*PeerConnection](client1Transport.Connect(peer1))
 	if err != nil {
 		t.Fatalf("first connection should succeed: %v", err)
 	}
@@ -699,12 +1311,12 @@ func TestTransport_MaxConnsEnforcement(t *testing.T) {
 	client2NM := testNode(t, "client2", RoleController)
 	client2Reg := testRegistry(t)
 	client2Transport := NewTransport(client2NM, client2Reg, DefaultTransportConfig())
-	t.Cleanup(func() { client2Transport.Stop() })
+	t.Cleanup(func() { _ = resultErr(client2Transport.Stop()) })
 
 	peer2 := &Peer{ID: serverNM.GetIdentity().ID, Name: "server", Address: serverAddr, Role: RoleWorker}
-	client2Reg.AddPeer(peer2)
+	_ = resultErr(client2Reg.AddPeer(peer2))
 
-	_, err = client2Transport.Connect(peer2)
+	_, err = resultValue[*PeerConnection](client2Transport.Connect(peer2))
 	if err == nil {
 		t.Fatal("second connection should be rejected when MaxConns=1")
 	}
@@ -801,16 +1413,16 @@ func TestTransport_IdleTimeoutAllowsActivePeer(t *testing.T) {
 	serverID := tp.ServerNode.GetIdentity().ID
 	deadline := time.Now().Add(700 * time.Millisecond)
 	for time.Now().Before(deadline) {
-		clientMsg, _ := NewMessage(MsgPing, clientID, serverID, PingPayload{SentAt: time.Now().UnixMilli()})
-		if err := clientConn.Send(clientMsg); err != nil {
+		clientMsg, _ := resultValue[*Message](NewMessage(MsgPing, clientID, serverID, PingPayload{SentAt: time.Now().UnixMilli()}))
+		if err := resultErr(clientConn.Send(clientMsg)); err != nil {
 			t.Fatalf("client send: %v", err)
 		}
 
-		serverMsg, _ := NewMessage(MsgPong, serverID, clientID, PongPayload{
+		serverMsg, _ := resultValue[*Message](NewMessage(MsgPong, serverID, clientID, PongPayload{
 			SentAt:     time.Now().UnixMilli(),
 			ReceivedAt: time.Now().UnixMilli(),
-		})
-		if err := serverConn.Send(serverMsg); err != nil {
+		}))
+		if err := resultErr(serverConn.Send(serverMsg)); err != nil {
 			t.Fatalf("server send: %v", err)
 		}
 		time.Sleep(100 * time.Millisecond)
@@ -835,7 +1447,7 @@ func TestTransport_EnvelopeSignedValidAccepted(t *testing.T) {
 	pc := tp.connectClient(t)
 	clientID := tp.ClientNode.GetIdentity().ID
 	serverID := tp.ServerNode.GetIdentity().ID
-	msg, _ := NewMessage(MsgPing, clientID, serverID, PingPayload{SentAt: time.Now().UnixMilli()})
+	msg, _ := resultValue[*Message](NewMessage(MsgPing, clientID, serverID, PingPayload{SentAt: time.Now().UnixMilli()}))
 	body := envelopeBody(t, msg)
 
 	pub, priv, err := ed25519.GenerateKey(rand.Reader)
@@ -847,7 +1459,7 @@ func TestTransport_EnvelopeSignedValidAccepted(t *testing.T) {
 		Body:       body,
 		Signature:  ed25519.Sign(priv, body),
 	}
-	if err := env.VerifySignature(); err != nil {
+	if err := resultErr(env.VerifySignature()); err != nil {
 		t.Fatalf("signed envelope should verify: %v", err)
 	}
 
@@ -875,7 +1487,7 @@ func TestTransport_EnvelopeBadSignatureDroppedAndLogged(t *testing.T) {
 	pc := tp.connectClient(t)
 	clientID := tp.ClientNode.GetIdentity().ID
 	serverID := tp.ServerNode.GetIdentity().ID
-	msg, _ := NewMessage(MsgPing, clientID, serverID, PingPayload{SentAt: time.Now().UnixMilli()})
+	msg, _ := resultValue[*Message](NewMessage(MsgPing, clientID, serverID, PingPayload{SentAt: time.Now().UnixMilli()}))
 	body := envelopeBody(t, msg)
 
 	pub, priv, err := ed25519.GenerateKey(rand.Reader)
@@ -892,7 +1504,7 @@ func TestTransport_EnvelopeBadSignatureDroppedAndLogged(t *testing.T) {
 	})
 
 	waitForTransportCondition(t, time.Second, func() bool {
-		return strings.Contains(logs.String(), "invalid envelope signature")
+		return core.Contains(logs.String(), "invalid envelope signature")
 	}, "invalid envelope signature was not logged")
 
 	if received.Load() != 0 {
@@ -911,7 +1523,7 @@ func TestTransport_EnvelopeUnsignedAccepted(t *testing.T) {
 	pc := tp.connectClient(t)
 	clientID := tp.ClientNode.GetIdentity().ID
 	serverID := tp.ServerNode.GetIdentity().ID
-	msg, _ := NewMessage(MsgPing, clientID, serverID, PingPayload{SentAt: time.Now().UnixMilli()})
+	msg, _ := resultValue[*Message](NewMessage(MsgPing, clientID, serverID, PingPayload{SentAt: time.Now().UnixMilli()}))
 
 	writeEnvelopeFrame(t, pc, Envelope{
 		Body: envelopeBody(t, msg),
@@ -941,7 +1553,7 @@ func TestTransport_GracefulClose(t *testing.T) {
 	time.Sleep(50 * time.Millisecond)
 
 	// Graceful close should send a MsgDisconnect before closing
-	pc.GracefulClose("test shutdown", DisconnectNormal)
+	_ = resultErr(pc.GracefulClose("test shutdown", DisconnectNormal))
 
 	// Check if disconnect message was received
 	select {
@@ -950,7 +1562,7 @@ func TestTransport_GracefulClose(t *testing.T) {
 			t.Errorf("expected disconnect message, got %s", msg.Type)
 		}
 		var payload DisconnectPayload
-		msg.ParsePayload(&payload)
+		_ = resultErr(msg.ParsePayload(&payload))
 		if payload.Reason != "test shutdown" {
 			t.Errorf("disconnect reason: got %q, want %q", payload.Reason, "test shutdown")
 		}
@@ -983,8 +1595,8 @@ func TestTransport_ConcurrentSends(t *testing.T) {
 	for range goroutines {
 		wg.Go(func() {
 			for range msgsPerGoroutine {
-				msg, _ := NewMessage(MsgPing, clientID, serverID, PingPayload{SentAt: time.Now().UnixMilli()})
-				pc.Send(msg)
+				msg, _ := resultValue[*Message](NewMessage(MsgPing, clientID, serverID, PingPayload{SentAt: time.Now().UnixMilli()}))
+				_ = resultErr(pc.Send(msg))
 			}
 		})
 	}
@@ -1007,7 +1619,7 @@ func TestTransport_Broadcast(t *testing.T) {
 	controllerNM := testNode(t, "broadcast-controller", RoleController)
 	controllerReg := testRegistry(t)
 	controllerTransport := NewTransport(controllerNM, controllerReg, DefaultTransportConfig())
-	t.Cleanup(func() { controllerTransport.Stop() })
+	t.Cleanup(func() { _ = resultErr(controllerTransport.Stop()) })
 
 	const numWorkers = 2
 	var receiveCounters [numWorkers]*atomic.Int32
@@ -1028,9 +1640,9 @@ func TestTransport_Broadcast(t *testing.T) {
 			Address: addr,
 			Role:    RoleWorker,
 		}
-		controllerReg.AddPeer(peer)
+		_ = resultErr(controllerReg.AddPeer(peer))
 
-		_, err := controllerTransport.Connect(peer)
+		_, err := resultValue[*PeerConnection](controllerTransport.Connect(peer))
 		if err != nil {
 			t.Fatalf("failed to connect to worker %d: %v", i, err)
 		}
@@ -1040,11 +1652,11 @@ func TestTransport_Broadcast(t *testing.T) {
 
 	// Broadcast a message from the controller
 	controllerID := controllerNM.GetIdentity().ID
-	msg, _ := NewMessage(MsgPing, controllerID, "", PingPayload{
+	msg, _ := resultValue[*Message](NewMessage(MsgPing, controllerID, "", PingPayload{
 		SentAt: time.Now().UnixMilli(),
-	})
+	}))
 
-	err := controllerTransport.Broadcast(msg)
+	err := resultErr(controllerTransport.Broadcast(msg))
 	if err != nil {
 		t.Fatalf("Broadcast failed: %v", err)
 	}
@@ -1076,11 +1688,11 @@ func TestTransport_BroadcastExcludesSender(t *testing.T) {
 	// connection peer ID check, not the server's own ID. Let's verify sender exclusion
 	// by broadcasting from the server with its own ID.
 	serverID := tp.ServerNode.GetIdentity().ID
-	msg, _ := NewMessage(MsgPing, serverID, "", PingPayload{SentAt: time.Now().UnixMilli()})
+	msg, _ := resultValue[*Message](NewMessage(MsgPing, serverID, "", PingPayload{SentAt: time.Now().UnixMilli()}))
 
 	// This broadcasts from server to all connected peers (the client).
 	// The server itself won't receive it back because it's not connected to itself.
-	err := tp.Server.Broadcast(msg)
+	err := resultErr(tp.Server.Broadcast(msg))
 	if err != nil {
 		t.Fatalf("Broadcast failed: %v", err)
 	}
@@ -1126,7 +1738,7 @@ func TestTransport_StartAndStop(t *testing.T) {
 
 	tr := NewTransport(nm, reg, cfg)
 
-	err := tr.Start()
+	err := resultErr(tr.Start())
 	if err != nil {
 		t.Fatalf("Start failed: %v", err)
 	}
@@ -1134,7 +1746,7 @@ func TestTransport_StartAndStop(t *testing.T) {
 	// Small wait for server goroutine to start
 	time.Sleep(100 * time.Millisecond)
 
-	err = tr.Stop()
+	err = resultErr(tr.Stop())
 	if err != nil {
 		t.Fatalf("Stop failed: %v", err)
 	}

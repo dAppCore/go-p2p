@@ -2,14 +2,14 @@ package node
 
 import (
 	"crypto/ed25519"
-	"encoding/json"
-	"errors"
+
+	core "dappco.re/go"
 )
 
 var (
 	// ErrEnvelopeSignatureInvalid means a signed envelope failed verification.
-	ErrEnvelopeSignatureInvalid = errors.New("invalid envelope signature")
-	ErrEnvelopeBodyEmpty        = errors.New("empty envelope body")
+	ErrEnvelopeSignatureInvalid = core.NewError("invalid envelope signature")
+	ErrEnvelopeBodyEmpty        = core.NewError("empty envelope body")
 )
 
 // Envelope wraps a message body with optional sender signature metadata.
@@ -21,65 +21,90 @@ type Envelope struct {
 
 // VerifySignature verifies signed envelopes and accepts unsigned envelopes for
 // backward compatibility during the identity migration.
-func (e Envelope) VerifySignature() error {
+func (e Envelope) VerifySignature() core.Result {
 	if len(e.Signature) == 0 {
-		return nil
+		return core.Ok(nil)
 	}
 	if len(e.PeerPubkey) != ed25519.PublicKeySize || len(e.Signature) != ed25519.SignatureSize {
-		return ErrEnvelopeSignatureInvalid
+		return core.Fail(ErrEnvelopeSignatureInvalid)
 	}
 	if !ed25519.Verify(ed25519.PublicKey(e.PeerPubkey), e.Body, e.Signature) {
-		return ErrEnvelopeSignatureInvalid
+		return core.Fail(ErrEnvelopeSignatureInvalid)
 	}
-	return nil
+	return core.Ok(nil)
 }
 
-func decodeReceivedMessage(data []byte) (*Message, error) {
-	body, err := unwrapEnvelope(data)
-	if err != nil {
-		return nil, err
+func decodeReceivedMessage(data []byte) core.Result {
+	bodyResult := unwrapEnvelope(data)
+	if !bodyResult.OK {
+		return bodyResult
 	}
+	body := bodyResult.Value.([]byte)
 
-	var msg Message
-	if err := json.Unmarshal(body, &msg); err != nil {
-		return nil, err
+	r := decodeMessageJSON(body)
+	if !r.OK {
+		if err, ok := r.Value.(error); ok {
+			return core.Fail(err)
+		}
+		return core.Fail(core.NewError("message unmarshal failed"))
 	}
-	return &msg, nil
+	return r
 }
 
-func unwrapEnvelope(data []byte) ([]byte, error) {
-	env, ok, err := decodeEnvelope(data)
-	if err != nil {
-		return nil, err
+func unwrapEnvelope(data []byte) core.Result {
+	envelope := decodeEnvelope(data)
+	if !envelope.OK {
+		return envelope
 	}
-	if !ok {
-		return data, nil
+	decoded := envelope.Value.(decodeEnvelopeResult)
+	if !decoded.OK {
+		return core.Ok(data)
 	}
-	if len(env.Body) == 0 {
-		return nil, ErrEnvelopeBodyEmpty
+	if len(decoded.Envelope.Body) == 0 {
+		return core.Fail(ErrEnvelopeBodyEmpty)
 	}
-	if err := env.VerifySignature(); err != nil {
-		return nil, err
+	if verified := decoded.Envelope.VerifySignature(); !verified.OK {
+		return verified
 	}
-	return env.Body, nil
+	return core.Ok(decoded.Envelope.Body)
 }
 
-func decodeEnvelope(data []byte) (Envelope, bool, error) {
+type decodeEnvelopeResult struct {
+	Envelope Envelope
+	OK       bool
+}
+
+func decodeEnvelope(data []byte) core.Result {
 	var probe struct {
-		PeerPubkey json.RawMessage `json:"peerPubkey"`
-		Body       json.RawMessage `json:"body"`
-		Signature  json.RawMessage `json:"signature"`
+		PeerPubkey RawMessage `json:"peerPubkey"`
+		Body       RawMessage `json:"body"`
+		Signature  RawMessage `json:"signature"`
 	}
-	if err := json.Unmarshal(data, &probe); err != nil {
-		return Envelope{}, false, err
+	r := core.JSONUnmarshal(data, &probe)
+	if !r.OK {
+		if err, ok := r.Value.(error); ok {
+			return core.Fail(err)
+		}
+		return core.Fail(core.NewError("envelope probe unmarshal failed"))
 	}
 	if len(probe.PeerPubkey) == 0 && len(probe.Body) == 0 && len(probe.Signature) == 0 {
-		return Envelope{}, false, nil
+		return core.Ok(decodeEnvelopeResult{})
 	}
 
-	var env Envelope
-	if err := json.Unmarshal(data, &env); err != nil {
-		return Envelope{}, true, err
+	var wire struct {
+		PeerPubkey []byte `json:"peerPubkey,omitempty"`
+		Body       []byte `json:"body"`
+		Signature  []byte `json:"signature,omitempty"`
 	}
-	return env, true, nil
+	r = core.JSONUnmarshal(data, &wire)
+	if !r.OK {
+		if err, ok := r.Value.(error); ok {
+			return core.Fail(err)
+		}
+		return core.Fail(core.NewError("envelope unmarshal failed"))
+	}
+	return core.Ok(decodeEnvelopeResult{
+		Envelope: Envelope{PeerPubkey: wire.PeerPubkey, Body: wire.Body, Signature: wire.Signature},
+		OK:       true,
+	})
 }

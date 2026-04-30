@@ -4,9 +4,9 @@ package api
 
 import (
 	"net/http"
-	"strings"
 	"time"
 
+	core "dappco.re/go"
 	p2pnode "dappco.re/go/p2p/node"
 	"github.com/gin-gonic/gin"
 )
@@ -55,7 +55,7 @@ func (p *P2PProvider) uploadEncryptedBlob(c *gin.Context) {
 		writeError(c, http.StatusBadRequest, codeInvalidRequest, "upload request body must be valid JSON")
 		return
 	}
-	if strings.TrimSpace(req.EncryptedBlob) == "" {
+	if core.Trim(req.EncryptedBlob) == "" {
 		writeError(c, http.StatusBadRequest, codeInvalidRequest, "encryptedBlob is required")
 		return
 	}
@@ -70,7 +70,7 @@ func (p *P2PProvider) syncTopicEvents(c *gin.Context) {
 		return
 	}
 
-	topic := strings.TrimSpace(c.Param("topic"))
+	topic := core.Trim(c.Param("topic"))
 	if topic == "" {
 		writeError(c, http.StatusBadRequest, codeInvalidTopic, "topic is required")
 		return
@@ -90,7 +90,7 @@ func (p *P2PProvider) announcePeer(c *gin.Context) {
 		return
 	}
 
-	id := strings.TrimSpace(c.Param("id"))
+	id := core.Trim(c.Param("id"))
 	if id == "" {
 		writeError(c, http.StatusBadRequest, codeInvalidRequest, "peer id is required")
 		return
@@ -120,16 +120,16 @@ func (p *P2PProvider) announcePeer(c *gin.Context) {
 		if peer.Score == 0 {
 			peer.Score = existing.Score
 		}
-		if err := p.registry.UpdatePeer(&peer); err != nil {
-			writeError(c, http.StatusBadRequest, codePeerRejected, err.Error())
+		if r := p.registry.UpdatePeer(&peer); !r.OK {
+			writeError(c, http.StatusBadRequest, codePeerRejected, r.Error())
 			return
 		}
 		c.JSON(http.StatusOK, announceResponse{OK: true, Action: action, Peer: &peer})
 		return
 	}
 
-	if err := p.registry.AddPeer(&peer); err != nil {
-		writeError(c, http.StatusBadRequest, codePeerRejected, err.Error())
+	if r := p.registry.AddPeer(&peer); !r.OK {
+		writeError(c, http.StatusBadRequest, codePeerRejected, r.Error())
 		return
 	}
 	c.JSON(http.StatusOK, announceResponse{OK: true, Action: action, Peer: &peer})

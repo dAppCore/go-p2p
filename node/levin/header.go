@@ -8,6 +8,7 @@ package levin
 import (
 	"encoding/binary"
 
+	core "dappco.re/go"
 	coreerr "dappco.re/go/log"
 )
 
@@ -77,20 +78,20 @@ func EncodeHeader(h *Header) [HeaderSize]byte {
 
 // DecodeHeader deserialises a 33-byte array into a Header, validating
 // the magic signature.
-func DecodeHeader(buf [HeaderSize]byte) (Header, error) {
+func DecodeHeader(buf [HeaderSize]byte) core.Result {
 	var h Header
 	h.Signature = binary.LittleEndian.Uint64(buf[0:8])
 	if h.Signature != Signature {
-		return Header{}, ErrBadSignature
+		return core.Fail(ErrBadSignature)
 	}
 	h.PayloadSize = binary.LittleEndian.Uint64(buf[8:16])
 	if h.PayloadSize > MaxPayloadSize {
-		return Header{}, ErrPayloadTooBig
+		return core.Fail(ErrPayloadTooBig)
 	}
 	h.ExpectResponse = buf[16] == 0x01
 	h.Command = binary.LittleEndian.Uint32(buf[17:21])
 	h.ReturnCode = int32(binary.LittleEndian.Uint32(buf[21:25]))
 	h.Flags = binary.LittleEndian.Uint32(buf[25:29])
 	h.ProtocolVersion = binary.LittleEndian.Uint32(buf[29:33])
-	return h, nil
+	return core.Ok(h)
 }

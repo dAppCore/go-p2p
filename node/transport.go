@@ -5,20 +5,17 @@ import (
 	"crypto/cipher"
 	"crypto/rand"
 	"crypto/tls"
-	"encoding/json"
-	"errors"
-	"fmt"
 	"iter"
 	"maps"
 	"net"
 	"net/http"
 	"net/url"
-	"os"
 	"slices"
 	"sync"
 	"sync/atomic"
 	"time"
 
+	core "dappco.re/go"
 	coreerr "dappco.re/go/log"
 	"dappco.re/go/p2p/logging"
 
@@ -232,7 +229,7 @@ func (t *Transport) idleTimeout() time.Duration {
 }
 
 // Start begins listening for incoming connections.
-func (t *Transport) Start() error {
+func (t *Transport) Start() core.Result {
 	mux := http.NewServeMux()
 	mux.HandleFunc(t.config.WSPath, t.handleWSUpgrade)
 
@@ -295,11 +292,11 @@ func (t *Transport) Start() error {
 		}
 	})
 
-	return nil
+	return core.Ok(nil)
 }
 
 // Stop gracefully shuts down the transport.
-func (t *Transport) Stop() error {
+func (t *Transport) Stop() core.Result {
 	t.cancel()
 
 	// Gracefully close all connections with shutdown message
@@ -317,12 +314,12 @@ func (t *Transport) Stop() error {
 		defer cancel()
 
 		if err := t.server.Shutdown(ctx); err != nil {
-			return coreerr.E("Transport.Stop", "server shutdown error", err)
+			return core.Fail(coreerr.E("Transport.Stop", "server shutdown error", err))
 		}
 	}
 
 	t.wg.Wait()
-	return nil
+	return core.Ok(nil)
 }
 
 // OnMessage sets the handler for incoming messages.
@@ -334,7 +331,7 @@ func (t *Transport) OnMessage(handler MessageHandler) {
 }
 
 // Connect establishes a connection to a peer.
-func (t *Transport) Connect(peer *Peer) (*PeerConnection, error) {
+func (t *Transport) Connect(peer *Peer) core.Result {
 	// Build WebSocket URL
 	scheme := "ws"
 	if t.config.TLSCertPath != "" {
@@ -348,7 +345,7 @@ func (t *Transport) Connect(peer *Peer) (*PeerConnection, error) {
 	}
 	conn, _, err := dialer.Dial(u.String(), nil)
 	if err != nil {
-		return nil, coreerr.E("Transport.Connect", "failed to connect to peer", err)
+		return core.Fail(coreerr.E("Transport.Connect", "failed to connect to peer", err))
 	}
 
 	pc := &PeerConnection{
@@ -361,9 +358,10 @@ func (t *Transport) Connect(peer *Peer) (*PeerConnection, error) {
 
 	// Perform handshake with challenge-response authentication
 	// This also derives and stores the shared secret in pc.SharedSecret
-	if err := t.performHandshake(pc); err != nil {
+	if r := t.performHandshake(pc); !r.OK {
 		conn.Close()
-		return nil, coreerr.E("Transport.Connect", "handshake failed", err)
+		err, _ := r.Value.(error)
+		return core.Fail(coreerr.E("Transport.Connect", "handshake failed", err))
 	}
 
 	// Store connection using the real peer ID from handshake
@@ -386,17 +384,17 @@ func (t *Transport) Connect(peer *Peer) (*PeerConnection, error) {
 	t.wg.Add(1)
 	go t.keepalive(pc)
 
-	return pc, nil
+	return core.Ok(pc)
 }
 
 // Send sends a message to a specific peer.
-func (t *Transport) Send(peerID string, msg *Message) error {
+func (t *Transport) Send(peerID string, msg *Message) core.Result {
 	t.mu.RLock()
 	pc, exists := t.conns[peerID]
 	t.mu.RUnlock()
 
 	if !exists {
-		return coreerr.E("Transport.Send", "peer "+peerID+" not connected", nil)
+		return core.Fail(coreerr.E("Transport.Send", "peer "+peerID+" not connected", nil))
 	}
 
 	return pc.Send(msg)
@@ -418,7 +416,7 @@ func (t *Transport) Connections() iter.Seq[*PeerConnection] {
 
 // Broadcast sends a message to all connected peers except the sender.
 // The sender is identified by msg.From and excluded to prevent echo.
-func (t *Transport) Broadcast(msg *Message) error {
+func (t *Transport) Broadcast(msg *Message) core.Result {
 	conns := slices.Collect(t.Connections())
 
 	var lastErr error
@@ -427,11 +425,14 @@ func (t *Transport) Broadcast(msg *Message) error {
 		if pc.Peer != nil && pc.Peer.ID == msg.From {
 			continue
 		}
-		if err := pc.Send(msg); err != nil {
-			lastErr = err
+		if r := pc.Send(msg); !r.OK {
+			lastErr, _ = r.Value.(error)
 		}
 	}
-	return lastErr
+	if lastErr != nil {
+		return core.Fail(lastErr)
+	}
+	return core.Ok(nil)
 }
 
 // GetConnection returns an active connection to a peer.
@@ -483,11 +484,12 @@ func (t *Transport) handleWSUpgrade(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Decode handshake message (not encrypted yet, contains public key)
-	var msg Message
-	if err := json.Unmarshal(data, &msg); err != nil {
+	msgResult := decodeMessageJSON(data)
+	if !msgResult.OK {
 		conn.Close()
 		return
 	}
+	msg := msgResult.Value.(*Message)
 
 	if msg.Type != MsgHandshake {
 		conn.Close()
@@ -495,7 +497,7 @@ func (t *Transport) handleWSUpgrade(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var payload HandshakePayload
-	if err := msg.ParsePayload(&payload); err != nil {
+	if r := msg.ParsePayload(&payload); !r.OK {
 		conn.Close()
 		return
 	}
@@ -512,11 +514,14 @@ func (t *Transport) handleWSUpgrade(w http.ResponseWriter, r *http.Request) {
 			rejectPayload := HandshakeAckPayload{
 				Identity: *identity,
 				Accepted: false,
-				Reason:   fmt.Sprintf("incompatible protocol version %s, supported: %v", payload.Version, SupportedProtocolVersions),
+				Reason:   core.Sprintf("incompatible protocol version %s, supported: %v", payload.Version, SupportedProtocolVersions),
 			}
-			rejectMsg, _ := NewMessage(MsgHandshakeAck, identity.ID, payload.Identity.ID, rejectPayload)
-			if rejectData, err := MarshalJSON(rejectMsg); err == nil {
-				conn.WriteMessage(websocket.TextMessage, rejectData)
+			rejectMsg := NewMessage(MsgHandshakeAck, identity.ID, payload.Identity.ID, rejectPayload)
+			if rejectMsg.OK {
+				rejectData := MarshalJSON(rejectMsg.Value.(*Message))
+				if rejectData.OK {
+					conn.WriteMessage(websocket.TextMessage, rejectData.Value.([]byte))
+				}
 			}
 		}
 		conn.Close()
@@ -524,11 +529,12 @@ func (t *Transport) handleWSUpgrade(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Derive shared secret from peer's public key
-	sharedSecret, err := t.node.DeriveSharedSecret(payload.Identity.PublicKey)
-	if err != nil {
+	sharedSecretResult := t.node.DeriveSharedSecret(payload.Identity.PublicKey)
+	if !sharedSecretResult.OK {
 		conn.Close()
 		return
 	}
+	sharedSecret := sharedSecretResult.Value.([]byte)
 
 	// Check if peer is allowed to connect (allowlist check)
 	if !t.registry.IsPeerAllowed(payload.Identity.ID, payload.Identity.PublicKey) {
@@ -545,9 +551,12 @@ func (t *Transport) handleWSUpgrade(w http.ResponseWriter, r *http.Request) {
 				Accepted: false,
 				Reason:   "peer not authorized",
 			}
-			rejectMsg, _ := NewMessage(MsgHandshakeAck, identity.ID, payload.Identity.ID, rejectPayload)
-			if rejectData, err := MarshalJSON(rejectMsg); err == nil {
-				conn.WriteMessage(websocket.TextMessage, rejectData)
+			rejectMsg := NewMessage(MsgHandshakeAck, identity.ID, payload.Identity.ID, rejectPayload)
+			if rejectMsg.OK {
+				rejectData := MarshalJSON(rejectMsg.Value.(*Message))
+				if rejectData.OK {
+					conn.WriteMessage(websocket.TextMessage, rejectData.Value.([]byte))
+				}
 			}
 		}
 		conn.Close()
@@ -592,11 +601,12 @@ func (t *Transport) handleWSUpgrade(w http.ResponseWriter, r *http.Request) {
 	// Sign the client's challenge to prove we have the matching private key.
 	var challengeResponse []byte
 	if len(payload.Challenge) > 0 {
-		subKeys, err := deriveSubKeys(sharedSecret)
-		if err != nil {
+		subKeysResult := deriveSubKeys(sharedSecret)
+		if !subKeysResult.OK {
 			conn.Close()
 			return
 		}
+		subKeys := subKeysResult.Value.(transportSubKeys)
 		challengeResponse = SignChallenge(payload.Challenge, subKeys.chlKey)
 	}
 
@@ -606,18 +616,20 @@ func (t *Transport) handleWSUpgrade(w http.ResponseWriter, r *http.Request) {
 		Accepted:          true,
 	}
 
-	ackMsg, err := NewMessage(MsgHandshakeAck, identity.ID, peer.ID, ackPayload)
-	if err != nil {
+	ackMsgResult := NewMessage(MsgHandshakeAck, identity.ID, peer.ID, ackPayload)
+	if !ackMsgResult.OK {
 		conn.Close()
 		return
 	}
+	ackMsg := ackMsgResult.Value.(*Message)
 
 	// First ack is unencrypted (peer needs to know our public key)
-	ackData, err := MarshalJSON(ackMsg)
-	if err != nil {
+	ackDataResult := MarshalJSON(ackMsg)
+	if !ackDataResult.OK {
 		conn.Close()
 		return
 	}
+	ackData := ackDataResult.Value.([]byte)
 
 	if err := conn.WriteMessage(websocket.TextMessage, ackData); err != nil {
 		conn.Close()
@@ -642,7 +654,7 @@ func (t *Transport) handleWSUpgrade(w http.ResponseWriter, r *http.Request) {
 }
 
 // performHandshake initiates handshake with a peer.
-func (t *Transport) performHandshake(pc *PeerConnection) error {
+func (t *Transport) performHandshake(pc *PeerConnection) core.Result {
 	// Set handshake timeout
 	handshakeTimeout := 10 * time.Second
 	pc.Conn.SetWriteDeadline(time.Now().Add(handshakeTimeout))
@@ -655,14 +667,16 @@ func (t *Transport) performHandshake(pc *PeerConnection) error {
 
 	identity := t.node.GetIdentity()
 	if identity == nil {
-		return ErrIdentityNotInitialized
+		return core.Fail(ErrIdentityNotInitialized)
 	}
 
 	// Generate challenge for the server to prove it has the matching private key
-	challenge, err := GenerateChallenge()
-	if err != nil {
-		return coreerr.E("Transport.performHandshake", "generate challenge", err)
+	challengeResult := GenerateChallenge()
+	if !challengeResult.OK {
+		err, _ := challengeResult.Value.(error)
+		return core.Fail(coreerr.E("Transport.performHandshake", "generate challenge", err))
 	}
+	challenge := challengeResult.Value.([]byte)
 
 	payload := HandshakePayload{
 		Identity:  *identity,
@@ -670,43 +684,51 @@ func (t *Transport) performHandshake(pc *PeerConnection) error {
 		Version:   ProtocolVersion,
 	}
 
-	msg, err := NewMessage(MsgHandshake, identity.ID, pc.Peer.ID, payload)
-	if err != nil {
-		return coreerr.E("Transport.performHandshake", "create handshake message", err)
+	msgResult := NewMessage(MsgHandshake, identity.ID, pc.Peer.ID, payload)
+	if !msgResult.OK {
+		err, _ := msgResult.Value.(error)
+		return core.Fail(coreerr.E("Transport.performHandshake", "create handshake message", err))
 	}
+	msg := msgResult.Value.(*Message)
 
 	// First message is unencrypted (peer needs our public key)
-	data, err := MarshalJSON(msg)
-	if err != nil {
-		return coreerr.E("Transport.performHandshake", "marshal handshake message", err)
+	dataResult := MarshalJSON(msg)
+	if !dataResult.OK {
+		err, _ := dataResult.Value.(error)
+		return core.Fail(coreerr.E("Transport.performHandshake", "marshal handshake message", err))
 	}
+	data := dataResult.Value.([]byte)
 
 	if err := pc.Conn.WriteMessage(websocket.TextMessage, data); err != nil {
-		return coreerr.E("Transport.performHandshake", "send handshake", err)
+		return core.Fail(coreerr.E("Transport.performHandshake", "send handshake", err))
 	}
 
 	// Wait for ack
 	_, ackData, err := pc.Conn.ReadMessage()
 	if err != nil {
-		return coreerr.E("Transport.performHandshake", "read handshake ack", err)
+		return core.Fail(coreerr.E("Transport.performHandshake", "read handshake ack", err))
 	}
 
-	var ackMsg Message
-	if err := json.Unmarshal(ackData, &ackMsg); err != nil {
-		return coreerr.E("Transport.performHandshake", "unmarshal handshake ack", err)
+	ackMsgResult := decodeMessageJSON(ackData)
+	if !ackMsgResult.OK {
+		r := ackMsgResult
+		err, _ := r.Value.(error)
+		return core.Fail(coreerr.E("Transport.performHandshake", "unmarshal handshake ack", err))
 	}
+	ackMsg := ackMsgResult.Value.(*Message)
 
 	if ackMsg.Type != MsgHandshakeAck {
-		return coreerr.E("Transport.performHandshake", "expected handshake_ack, got "+string(ackMsg.Type), nil)
+		return core.Fail(coreerr.E("Transport.performHandshake", "expected handshake_ack, got "+string(ackMsg.Type), nil))
 	}
 
 	var ackPayload HandshakeAckPayload
-	if err := ackMsg.ParsePayload(&ackPayload); err != nil {
-		return coreerr.E("Transport.performHandshake", "parse handshake ack payload", err)
+	if r := ackMsg.ParsePayload(&ackPayload); !r.OK {
+		err, _ := r.Value.(error)
+		return core.Fail(coreerr.E("Transport.performHandshake", "parse handshake ack payload", err))
 	}
 
 	if !ackPayload.Accepted {
-		return coreerr.E("Transport.performHandshake", "handshake rejected: "+ackPayload.Reason, nil)
+		return core.Fail(coreerr.E("Transport.performHandshake", "handshake rejected: "+ackPayload.Reason, nil))
 	}
 
 	// Update peer with the received identity info
@@ -716,29 +738,33 @@ func (t *Transport) performHandshake(pc *PeerConnection) error {
 	pc.Peer.Role = ackPayload.Identity.Role
 
 	// Verify challenge response - derive shared secret first using the peer's public key
-	sharedSecret, err := t.node.DeriveSharedSecret(pc.Peer.PublicKey)
-	if err != nil {
-		return coreerr.E("Transport.performHandshake", "derive shared secret for challenge verification", err)
+	sharedSecretResult := t.node.DeriveSharedSecret(pc.Peer.PublicKey)
+	if !sharedSecretResult.OK {
+		err, _ := sharedSecretResult.Value.(error)
+		return core.Fail(coreerr.E("Transport.performHandshake", "derive shared secret for challenge verification", err))
 	}
+	sharedSecret := sharedSecretResult.Value.([]byte)
 
-	subKeys, err := deriveSubKeys(sharedSecret)
-	if err != nil {
-		return coreerr.E("Transport.performHandshake", "derive handshake subkeys", err)
+	subKeysResult := deriveSubKeys(sharedSecret)
+	if !subKeysResult.OK {
+		err, _ := subKeysResult.Value.(error)
+		return core.Fail(coreerr.E("Transport.performHandshake", "derive handshake subkeys", err))
 	}
+	subKeys := subKeysResult.Value.(transportSubKeys)
 
 	// Verify the server's response to our challenge.
 	if len(ackPayload.ChallengeResponse) == 0 {
-		return coreerr.E("Transport.performHandshake", "server did not provide challenge response", nil)
+		return core.Fail(coreerr.E("Transport.performHandshake", "server did not provide challenge response", nil))
 	}
 	if !VerifyChallenge(challenge, ackPayload.ChallengeResponse, subKeys.chlKey) {
-		return coreerr.E("Transport.performHandshake", "challenge response verification failed: server may not have matching private key", nil)
+		return core.Fail(coreerr.E("Transport.performHandshake", "challenge response verification failed: server may not have matching private key", nil))
 	}
 
 	// Store the shared secret for later use
 	pc.SharedSecret = sharedSecret
 
 	// Update the peer in registry with the real identity
-	if err := t.registry.UpdatePeer(pc.Peer); err != nil {
+	if r := t.registry.UpdatePeer(pc.Peer); !r.OK {
 		// If update fails (peer not found with old ID), add as new
 		t.registry.AddPeer(pc.Peer)
 	}
@@ -748,7 +774,7 @@ func (t *Transport) performHandshake(pc *PeerConnection) error {
 		"peer_name": pc.Peer.Name,
 	})
 
-	return nil
+	return core.Ok(nil)
 }
 
 // readLoop reads messages from a peer connection.
@@ -795,15 +821,17 @@ func (t *Transport) readLoop(pc *PeerConnection) {
 		}
 
 		// Decrypt message using the transport AEAD encryption subkey.
-		msg, err := t.decryptMessage(data, pc.SharedSecret)
-		if err != nil {
-			if errors.Is(err, ErrEnvelopeSignatureInvalid) {
+		msgResult := t.decryptMessage(data, pc.SharedSecret)
+		if !msgResult.OK {
+			err, _ := msgResult.Value.(error)
+			if core.Is(err, ErrEnvelopeSignatureInvalid) {
 				logging.Warn("dropping message with invalid envelope signature", logging.Fields{"peer_id": pc.Peer.ID, "error": err})
 				continue
 			}
 			logging.Debug("decrypt error from peer", logging.Fields{"peer_id": pc.Peer.ID, "error": err, "data_len": len(data)})
 			continue // Skip invalid messages
 		}
+		msg := msgResult.Value.(*Message)
 
 		// Check for duplicate messages (prevents amplification attacks)
 		if t.dedup.IsDuplicate(msg.ID) {
@@ -847,14 +875,14 @@ func (t *Transport) keepalive(pc *PeerConnection) {
 
 			// Send ping
 			identity := t.node.GetIdentity()
-			pingMsg, err := NewMessage(MsgPing, identity.ID, pc.Peer.ID, PingPayload{
+			pingMsg := NewMessage(MsgPing, identity.ID, pc.Peer.ID, PingPayload{
 				SentAt: time.Now().UnixMilli(),
 			})
-			if err != nil {
+			if !pingMsg.OK {
 				continue
 			}
 
-			if err := pc.Send(pingMsg); err != nil {
+			if r := pc.Send(pingMsg.Value.(*Message)); !r.OK {
 				t.removeConnection(pc)
 				return
 			}
@@ -868,28 +896,29 @@ func (t *Transport) removeConnection(pc *PeerConnection) {
 }
 
 // Send sends an encrypted message over the connection.
-func (pc *PeerConnection) Send(msg *Message) error {
+func (pc *PeerConnection) Send(msg *Message) core.Result {
 	pc.writeMu.Lock()
 	defer pc.writeMu.Unlock()
 
 	// Encrypt message using the transport AEAD encryption subkey.
-	data, err := pc.transport.encryptMessage(msg, pc.SharedSecret)
-	if err != nil {
-		return err
+	dataResult := pc.transport.encryptMessage(msg, pc.SharedSecret)
+	if !dataResult.OK {
+		return dataResult
 	}
+	data := dataResult.Value.([]byte)
 
 	// Set write deadline to prevent blocking forever
 	if err := pc.Conn.SetWriteDeadline(time.Now().Add(10 * time.Second)); err != nil {
-		return coreerr.E("PeerConnection.Send", "failed to set write deadline", err)
+		return core.Fail(coreerr.E("PeerConnection.Send", "failed to set write deadline", err))
 	}
 	defer pc.Conn.SetWriteDeadline(time.Time{}) // Reset deadline after send
 
 	if err := pc.Conn.WriteMessage(websocket.BinaryMessage, data); err != nil {
-		return err
+		return core.Fail(err)
 	}
 
 	pc.markActivity(time.Now())
-	return nil
+	return core.Ok(nil)
 }
 
 func (pc *PeerConnection) markActivity(at time.Time) {
@@ -905,7 +934,7 @@ func (pc *PeerConnection) lastActivity() time.Time {
 }
 
 // Close closes the connection.
-func (pc *PeerConnection) Close() error {
+func (pc *PeerConnection) Close() core.Result {
 	var err error
 	pc.closeOnce.Do(func() {
 		if pc.transport != nil {
@@ -913,7 +942,7 @@ func (pc *PeerConnection) Close() error {
 		}
 		err = pc.Conn.Close()
 	})
-	return err
+	return core.ResultOf(nil, err)
 }
 
 // DisconnectPayload contains reason for disconnect.
@@ -932,7 +961,7 @@ const (
 )
 
 // GracefulClose sends a disconnect message before closing the connection.
-func (pc *PeerConnection) GracefulClose(reason string, code int) error {
+func (pc *PeerConnection) GracefulClose(reason string, code int) core.Result {
 	var err error
 	pc.closeOnce.Do(func() {
 		// Try to send disconnect message (best effort).
@@ -946,9 +975,9 @@ func (pc *PeerConnection) GracefulClose(reason string, code int) error {
 					Reason: reason,
 					Code:   code,
 				}
-				msg, msgErr := NewMessage(MsgDisconnect, identity.ID, pc.Peer.ID, payload)
-				if msgErr == nil {
-					pc.Send(msg)
+				msgResult := NewMessage(MsgDisconnect, identity.ID, pc.Peer.ID, payload)
+				if msgResult.OK {
+					pc.Send(msgResult.Value.(*Message))
 				}
 			}
 		}
@@ -960,75 +989,78 @@ func (pc *PeerConnection) GracefulClose(reason string, code int) error {
 		// Close the underlying connection
 		err = pc.Conn.Close()
 	})
-	return err
+	return core.ResultOf(nil, err)
 }
 
 const transportAEADVersion byte = 1
 
 // encryptMessage encrypts a message using a domain-separated transport AEAD key.
-func (t *Transport) encryptMessage(msg *Message, sharedSecret []byte) ([]byte, error) {
+func (t *Transport) encryptMessage(msg *Message, sharedSecret []byte) core.Result {
 	// Serialize message to JSON (using pooled buffer for efficiency)
-	msgData, err := MarshalJSON(msg)
-	if err != nil {
-		return nil, err
+	msgData := MarshalJSON(msg)
+	if !msgData.OK {
+		return msgData
 	}
 
-	return encryptTransportPayload(msgData, sharedSecret)
+	return encryptTransportPayload(msgData.Value.([]byte), sharedSecret)
 }
 
-func encryptTransportPayload(payload []byte, sharedSecret []byte) ([]byte, error) {
-	aead, err := newTransportAEAD(sharedSecret)
-	if err != nil {
-		return nil, err
+func encryptTransportPayload(payload []byte, sharedSecret []byte) core.Result {
+	aeadResult := newTransportAEAD(sharedSecret)
+	if !aeadResult.OK {
+		return aeadResult
 	}
+	aead := aeadResult.Value.(cipher.AEAD)
 
 	nonce := make([]byte, aead.NonceSize())
 	if _, err := rand.Read(nonce); err != nil {
-		return nil, coreerr.E("encryptTransportPayload", "generate nonce", err)
+		return core.Fail(coreerr.E("encryptTransportPayload", "generate nonce", err))
 	}
 
 	out := make([]byte, 1, 1+len(nonce)+len(payload)+aead.Overhead())
 	out[0] = transportAEADVersion
 	out = append(out, nonce...)
 	out = aead.Seal(out, nonce, payload, transportAEADAdditionalData())
-	return out, nil
+	return core.Ok(out)
 }
 
 // decryptMessage decrypts a message using a domain-separated transport AEAD key.
-func (t *Transport) decryptMessage(data []byte, sharedSecret []byte) (*Message, error) {
-	plaintext, err := decryptTransportPayload(data, sharedSecret)
-	if err != nil {
-		return nil, err
+func (t *Transport) decryptMessage(data []byte, sharedSecret []byte) core.Result {
+	plaintext := decryptTransportPayload(data, sharedSecret)
+	if !plaintext.OK {
+		return plaintext
 	}
 
-	return decodeReceivedMessage(plaintext)
+	return decodeReceivedMessage(plaintext.Value.([]byte))
 }
 
-func decryptTransportPayload(data []byte, sharedSecret []byte) ([]byte, error) {
-	aead, err := newTransportAEAD(sharedSecret)
-	if err != nil {
-		return nil, err
+func decryptTransportPayload(data []byte, sharedSecret []byte) core.Result {
+	aeadResult := newTransportAEAD(sharedSecret)
+	if !aeadResult.OK {
+		return aeadResult
 	}
+	aead := aeadResult.Value.(cipher.AEAD)
 
 	headerSize := 1 + aead.NonceSize()
 	if len(data) < headerSize+aead.Overhead() {
-		return nil, fmt.Errorf("transport payload too short")
+		return core.Fail(core.Errorf("transport payload too short"))
 	}
 	if data[0] != transportAEADVersion {
-		return nil, fmt.Errorf("unsupported transport payload version %d", data[0])
+		return core.Fail(core.Errorf("unsupported transport payload version %d", data[0]))
 	}
 
 	nonce := data[1:headerSize]
 	ciphertext := data[headerSize:]
-	return aead.Open(nil, nonce, ciphertext, transportAEADAdditionalData())
+	return core.ResultOf(aead.Open(nil, nonce, ciphertext, transportAEADAdditionalData()))
 }
 
-func newTransportAEAD(sharedSecret []byte) (cipher.AEAD, error) {
-	subKeys, err := deriveSubKeys(sharedSecret)
-	if err != nil {
-		return nil, err
+func newTransportAEAD(sharedSecret []byte) core.Result {
+	subKeysResult := deriveSubKeys(sharedSecret)
+	if !subKeysResult.OK {
+		return subKeysResult
 	}
-	return chacha20poly1305.New(subKeys.encKey)
+	subKeys := subKeysResult.Value.(transportSubKeys)
+	return core.ResultOf(chacha20poly1305.New(subKeys.encKey))
 }
 
 func transportAEADAdditionalData() []byte {
@@ -1061,9 +1093,6 @@ func (t *Transport) dropConnection(pc *PeerConnection) {
 }
 
 func isTimeoutError(err error) bool {
-	if errors.Is(err, os.ErrDeadlineExceeded) {
-		return true
-	}
 	var netErr net.Error
-	return errors.As(err, &netErr) && netErr.Timeout()
+	return core.As(err, &netErr) && netErr.Timeout()
 }

@@ -3,7 +3,8 @@ package node
 import (
 	"crypto/hkdf"
 	"crypto/sha256"
-	"fmt"
+
+	core "dappco.re/go"
 )
 
 const (
@@ -21,35 +22,35 @@ type transportSubKeys struct {
 	chlKey []byte
 }
 
-func deriveSubKeys(sharedSecret []byte) (transportSubKeys, error) {
+func deriveSubKeys(sharedSecret []byte) core.Result {
 	if len(sharedSecret) != sharedSecretSize {
-		return transportSubKeys{}, fmt.Errorf("shared secret length %d, want %d", len(sharedSecret), sharedSecretSize)
+		return core.Fail(core.Errorf("shared secret length %d, want %d", len(sharedSecret), sharedSecretSize))
 	}
 
-	encKey, err := deriveSubKey(sharedSecret, keyInfoEncryptV1)
-	if err != nil {
-		return transportSubKeys{}, err
+	encKeyResult := deriveSubKey(sharedSecret, keyInfoEncryptV1)
+	if !encKeyResult.OK {
+		return encKeyResult
 	}
-	macKey, err := deriveSubKey(sharedSecret, keyInfoMACV1)
-	if err != nil {
-		return transportSubKeys{}, err
+	macKeyResult := deriveSubKey(sharedSecret, keyInfoMACV1)
+	if !macKeyResult.OK {
+		return macKeyResult
 	}
-	chlKey, err := deriveSubKey(sharedSecret, keyInfoChallengeV1)
-	if err != nil {
-		return transportSubKeys{}, err
+	chlKeyResult := deriveSubKey(sharedSecret, keyInfoChallengeV1)
+	if !chlKeyResult.OK {
+		return chlKeyResult
 	}
 
-	return transportSubKeys{
-		encKey: encKey,
-		macKey: macKey,
-		chlKey: chlKey,
-	}, nil
+	return core.Ok(transportSubKeys{
+		encKey: encKeyResult.Value.([]byte),
+		macKey: macKeyResult.Value.([]byte),
+		chlKey: chlKeyResult.Value.([]byte),
+	})
 }
 
-func deriveSubKey(sharedSecret []byte, info string) ([]byte, error) {
+func deriveSubKey(sharedSecret []byte, info string) core.Result {
 	key, err := hkdf.Expand(sha256.New, sharedSecret, info, subKeySize)
 	if err != nil {
-		return nil, fmt.Errorf("derive %s key: %w", info, err)
+		return core.Fail(core.Errorf("derive %s key: %w", info, err))
 	}
-	return key, nil
+	return core.Ok(key)
 }

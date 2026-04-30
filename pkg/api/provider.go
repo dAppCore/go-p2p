@@ -4,8 +4,6 @@
 package api
 
 import (
-	"net/http"
-
 	"dappco.re/go/api"
 	p2pnode "dappco.re/go/p2p/node"
 	"github.com/gin-gonic/gin"
@@ -55,7 +53,6 @@ func (p *P2PProvider) Describe() []api.RouteDescription {
 			Summary:     "Upload an encrypted blob to the swarm",
 			Description: "Accepts an encrypted blob upload request. The route currently returns 501 until the go-p2p encrypted swarm upload primitive lands.",
 			Tags:        []string{"p2p"},
-			StatusCode:  http.StatusNotImplemented,
 			RequestBody: map[string]any{
 				"type":     "object",
 				"required": []string{"encryptedBlob"},
@@ -72,7 +69,6 @@ func (p *P2PProvider) Describe() []api.RouteDescription {
 			Summary:     "Sync topic events",
 			Description: "Returns 501 until the go-p2p library exposes an HTTP-friendly topic event sync primitive.",
 			Tags:        []string{"p2p"},
-			StatusCode:  http.StatusNotImplemented,
 			Response:    notImplementedSchema(),
 		},
 		{
@@ -81,7 +77,6 @@ func (p *P2PProvider) Describe() []api.RouteDescription {
 			Summary:     "Announce a peer",
 			Description: "Adds or updates a peer in the local peer registry.",
 			Tags:        []string{"p2p"},
-			StatusCode:  http.StatusOK,
 			RequestBody: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -107,7 +102,6 @@ func (p *P2PProvider) Describe() []api.RouteDescription {
 			Summary:     "Get P2P health",
 			Description: "Reports peer count, connected peer count, and swarm state.",
 			Tags:        []string{"p2p"},
-			StatusCode:  http.StatusOK,
 			Response: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -126,7 +120,6 @@ func (p *P2PProvider) Describe() []api.RouteDescription {
 			Summary:     "List peers",
 			Description: "Returns the local peer roster from the go-p2p peer registry.",
 			Tags:        []string{"p2p"},
-			StatusCode:  http.StatusOK,
 			Response: map[string]any{
 				"type": "object",
 				"properties": map[string]any{

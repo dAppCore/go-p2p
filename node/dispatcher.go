@@ -1,10 +1,10 @@
 package node
 
 import (
-	"fmt"
 	"iter"
 	"sync"
 
+	core "dappco.re/go"
 	coreerr "dappco.re/go/log"
 
 	"dappco.re/go/p2p/logging"
@@ -29,7 +29,7 @@ const (
 
 // IntentHandler processes a UEPS packet that has been routed by intent.
 // Implementations receive the fully parsed and HMAC-verified packet.
-type IntentHandler func(pkt *ueps.ParsedPacket) error
+type IntentHandler func(pkt *ueps.ParsedPacket) core.Result
 
 // Dispatcher routes verified UEPS packets to registered intent handlers.
 // It enforces a threat circuit breaker before routing: any packet whose
@@ -69,7 +69,7 @@ func (d *Dispatcher) RegisterHandler(intentID byte, handler IntentHandler) {
 	defer d.mu.Unlock()
 	d.handlers[intentID] = handler
 	d.log.Debug("handler registered", logging.Fields{
-		"intent_id": fmt.Sprintf("0x%02X", intentID),
+		"intent_id": core.Sprintf("0x%02X", intentID),
 	})
 }
 
@@ -98,9 +98,9 @@ func (d *Dispatcher) Handlers() iter.Seq2[byte, IntentHandler] {
 //   - Returns nil on successful delivery to a handler, or any error the
 //     handler itself returns.
 //   - A nil packet returns ErrNilPacket immediately.
-func (d *Dispatcher) Dispatch(pkt *ueps.ParsedPacket) error {
+func (d *Dispatcher) Dispatch(pkt *ueps.ParsedPacket) core.Result {
 	if pkt == nil {
-		return ErrNilPacket
+		return core.Fail(ErrNilPacket)
 	}
 
 	// 1. Threat circuit breaker (L5 guard)
@@ -108,10 +108,10 @@ func (d *Dispatcher) Dispatch(pkt *ueps.ParsedPacket) error {
 		d.log.Warn("packet dropped: threat score exceeds safety threshold", logging.Fields{
 			"threat_score": pkt.Header.ThreatScore,
 			"threshold":    ThreatScoreThreshold,
-			"intent_id":    fmt.Sprintf("0x%02X", pkt.Header.IntentID),
+			"intent_id":    core.Sprintf("0x%02X", pkt.Header.IntentID),
 			"version":      pkt.Header.Version,
 		})
-		return ErrThreatScoreExceeded
+		return core.Fail(ErrThreatScoreExceeded)
 	}
 
 	// 2. Intent routing (L9 semantic)
@@ -121,10 +121,10 @@ func (d *Dispatcher) Dispatch(pkt *ueps.ParsedPacket) error {
 
 	if !exists {
 		d.log.Warn("packet dropped: unknown intent", logging.Fields{
-			"intent_id": fmt.Sprintf("0x%02X", pkt.Header.IntentID),
+			"intent_id": core.Sprintf("0x%02X", pkt.Header.IntentID),
 			"version":   pkt.Header.Version,
 		})
-		return ErrUnknownIntent
+		return core.Fail(ErrUnknownIntent)
 	}
 
 	return handler(pkt)
@@ -134,7 +134,7 @@ func (d *Dispatcher) Dispatch(pkt *ueps.ParsedPacket) error {
 var (
 	// ErrThreatScoreExceeded is returned when a packet's ThreatScore exceeds
 	// the safety threshold.
-	ErrThreatScoreExceeded = coreerr.E("Dispatcher.Dispatch", fmt.Sprintf("packet rejected: threat score exceeds safety threshold (%d)", ThreatScoreThreshold), nil)
+	ErrThreatScoreExceeded = coreerr.E("Dispatcher.Dispatch", core.Sprintf("packet rejected: threat score exceeds safety threshold (%d)", ThreatScoreThreshold), nil)
 
 	// ErrUnknownIntent is returned when no handler is registered for the
 	// packet's IntentID.

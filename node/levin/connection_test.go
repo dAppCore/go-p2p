@@ -4,11 +4,12 @@
 package levin
 
 import (
-	"errors"
 	"net"
 	"reflect"
 	"testing"
 	"time"
+
+	core "dappco.re/go"
 )
 
 func TestConnection_RoundTrip(t *testing.T) {
@@ -24,10 +25,10 @@ func TestConnection_RoundTrip(t *testing.T) {
 
 	errCh := make(chan error, 1)
 	go func() {
-		errCh <- sender.WritePacket(cmd, payload, true)
+		errCh <- levinResultErr(sender.WritePacket(cmd, payload, true))
 	}()
 
-	h, data, err := receiver.ReadPacket()
+	h, data, err := levinReadPacket(receiver.ReadPacket())
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -58,6 +59,226 @@ func TestConnection_RoundTrip(t *testing.T) {
 	}
 }
 
+func TestConnection_NewConnection_Good(t *testing.T) {
+	a, b := net.Pipe()
+	defer a.Close()
+	defer b.Close()
+	conn := NewConnection(a)
+	if conn.ReadTimeout != DefaultReadTimeout {
+		t.Fatalf("read timeout: got %v", conn.ReadTimeout)
+	}
+}
+
+func TestConnection_NewConnection_Bad(t *testing.T) {
+	conn := NewConnection(nil)
+	if conn.conn != nil {
+		t.Fatal("expected nil wrapped connection")
+	}
+	if conn.MaxPayloadSize != MaxPayloadSize {
+		t.Fatalf("max payload: got %d", conn.MaxPayloadSize)
+	}
+}
+
+func TestConnection_NewConnection_Ugly(t *testing.T) {
+	a, b := net.Pipe()
+	defer a.Close()
+	defer b.Close()
+	conn := NewConnection(a)
+	if conn.WriteTimeout != DefaultWriteTimeout {
+		t.Fatalf("write timeout: got %v", conn.WriteTimeout)
+	}
+}
+
+func TestConnection_Connection_WritePacket_Good(t *testing.T) {
+	a, b := net.Pipe()
+	defer a.Close()
+	defer b.Close()
+	conn := NewConnection(a)
+	errCh := make(chan error, 1)
+	go func() { errCh <- levinResultErr(conn.WritePacket(CommandPing, []byte("ping"), true)) }()
+	header, payload, err := levinReadPacket(NewConnection(b).ReadPacket())
+	if err != nil || <-errCh != nil {
+		t.Fatalf("round trip: header=%#v payload=%q err=%v", header, payload, err)
+	}
+}
+
+func TestConnection_Connection_WritePacket_Bad(t *testing.T) {
+	conn := NewConnection(closedPipeConn(t))
+	err := levinResultErr(conn.WritePacket(CommandPing, []byte("ping"), true))
+	if err == nil {
+		t.Fatal("expected closed connection error")
+	}
+	if conn.conn == nil {
+		t.Fatal("wrapped connection should remain set")
+	}
+}
+
+func TestConnection_Connection_WritePacket_Ugly(t *testing.T) {
+	a, b := net.Pipe()
+	defer a.Close()
+	defer b.Close()
+	conn := NewConnection(a)
+	errCh := make(chan error, 1)
+	go func() { errCh <- levinResultErr(conn.WritePacket(CommandPing, nil, false)) }()
+	header, payload, err := levinReadPacket(NewConnection(b).ReadPacket())
+	if err != nil || <-errCh != nil || header.PayloadSize != 0 || payload != nil {
+		t.Fatalf("empty payload round trip failed")
+	}
+}
+
+func TestConnection_Connection_WriteResponse_Good(t *testing.T) {
+	a, b := net.Pipe()
+	defer a.Close()
+	defer b.Close()
+	conn := NewConnection(a)
+	errCh := make(chan error, 1)
+	go func() { errCh <- levinResultErr(conn.WriteResponse(CommandPing, []byte("pong"), ReturnOK)) }()
+	header, payload, err := levinReadPacket(NewConnection(b).ReadPacket())
+	if err != nil || <-errCh != nil || header.Flags != FlagResponse || string(payload) != "pong" {
+		t.Fatalf("response round trip failed")
+	}
+}
+
+func TestConnection_Connection_WriteResponse_Bad(t *testing.T) {
+	conn := NewConnection(closedPipeConn(t))
+	err := levinResultErr(conn.WriteResponse(CommandPing, []byte("pong"), ReturnErrConnection))
+	if err == nil {
+		t.Fatal("expected closed connection error")
+	}
+	if conn.conn == nil {
+		t.Fatal("wrapped connection should remain set")
+	}
+}
+
+func TestConnection_Connection_WriteResponse_Ugly(t *testing.T) {
+	a, b := net.Pipe()
+	defer a.Close()
+	defer b.Close()
+	conn := NewConnection(a)
+	errCh := make(chan error, 1)
+	go func() { errCh <- levinResultErr(conn.WriteResponse(CommandPing, nil, ReturnErrFormat)) }()
+	header, payload, err := levinReadPacket(NewConnection(b).ReadPacket())
+	if err != nil || <-errCh != nil || header.ReturnCode != ReturnErrFormat || payload != nil {
+		t.Fatalf("empty response round trip failed")
+	}
+}
+
+func TestConnection_Connection_ReadPacket_Good(t *testing.T) {
+	a, b := net.Pipe()
+	defer a.Close()
+	defer b.Close()
+	go func() { _ = NewConnection(a).WritePacket(CommandPing, []byte("ping"), false) }()
+	header, payload, err := levinReadPacket(NewConnection(b).ReadPacket())
+	if err != nil {
+		t.Fatalf("ReadPacket: %v", err)
+	}
+	if header.Command != CommandPing || string(payload) != "ping" {
+		t.Fatalf("packet: header=%#v payload=%q", header, payload)
+	}
+}
+
+func TestConnection_Connection_ReadPacket_Bad(t *testing.T) {
+	a, b := net.Pipe()
+	defer b.Close()
+	a.Close()
+	header, payload, err := levinReadPacket(NewConnection(b).ReadPacket())
+	if err == nil {
+		t.Fatal("expected read error")
+	}
+	if header.Signature != 0 || payload != nil {
+		t.Fatalf("packet: header=%#v payload=%q", header, payload)
+	}
+}
+
+func TestConnection_Connection_ReadPacket_Ugly(t *testing.T) {
+	a, b := net.Pipe()
+	defer a.Close()
+	defer b.Close()
+	go func() {
+		encoded := EncodeHeader(&Header{Signature: Signature})
+		_, _ = a.Write(encoded[:])
+	}()
+	header, payload, err := levinReadPacket(NewConnection(b).ReadPacket())
+	if err != nil || header.PayloadSize != 0 || payload != nil {
+		t.Fatalf("empty packet failed: header=%#v payload=%q err=%v", header, payload, err)
+	}
+}
+
+func TestConnection_Connection_Close_Good(t *testing.T) {
+	a, b := net.Pipe()
+	defer b.Close()
+	conn := NewConnection(a)
+	err := levinResultErr(conn.Close())
+	if err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	if _, err := a.Write([]byte("x")); err == nil {
+		t.Fatal("expected write error after close")
+	}
+}
+
+func TestConnection_Connection_Close_Bad(t *testing.T) {
+	conn := NewConnection(closedPipeConn(t))
+	err := levinResultErr(conn.Close())
+	if err != nil {
+		t.Fatalf("Close on closed pipe: %v", err)
+	}
+	if conn.conn == nil {
+		t.Fatal("wrapped connection should remain set")
+	}
+}
+
+func TestConnection_Connection_Close_Ugly(t *testing.T) {
+	a, b := net.Pipe()
+	defer b.Close()
+	conn := NewConnection(a)
+	_ = conn.Close()
+	err := levinResultErr(conn.Close())
+	if err != nil {
+		t.Fatalf("second Close: %v", err)
+	}
+}
+
+func TestConnection_Connection_RemoteAddr_Good(t *testing.T) {
+	a, b := net.Pipe()
+	defer a.Close()
+	defer b.Close()
+	addr := NewConnection(a).RemoteAddr()
+	if addr == "" {
+		t.Fatal("expected remote address")
+	}
+}
+
+func TestConnection_Connection_RemoteAddr_Bad(t *testing.T) {
+	a, b := net.Pipe()
+	defer a.Close()
+	defer b.Close()
+	addr := NewConnection(a).RemoteAddr()
+	if addr != b.LocalAddr().String() {
+		t.Fatalf("remote address: got %q want %q", addr, b.LocalAddr().String())
+	}
+}
+
+func TestConnection_Connection_RemoteAddr_Ugly(t *testing.T) {
+	a, b := net.Pipe()
+	defer b.Close()
+	_ = a.Close()
+	addr := NewConnection(a).RemoteAddr()
+	if addr == "" {
+		t.Fatal("closed pipe should still report remote address")
+	}
+}
+
+func closedPipeConn(t *testing.T) net.Conn {
+	t.Helper()
+	a, b := net.Pipe()
+	t.Cleanup(func() { b.Close() })
+	if err := a.Close(); err != nil {
+		t.Fatalf("close pipe: %v", err)
+	}
+	return a
+}
+
 func TestConnection_EmptyPayload(t *testing.T) {
 	a, b := net.Pipe()
 	defer a.Close()
@@ -68,10 +289,10 @@ func TestConnection_EmptyPayload(t *testing.T) {
 
 	errCh := make(chan error, 1)
 	go func() {
-		errCh <- sender.WritePacket(CommandPing, nil, false)
+		errCh <- levinResultErr(sender.WritePacket(CommandPing, nil, false))
 	}()
 
-	h, data, err := receiver.ReadPacket()
+	h, data, err := levinReadPacket(receiver.ReadPacket())
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -106,10 +327,10 @@ func TestConnection_Response(t *testing.T) {
 
 	errCh := make(chan error, 1)
 	go func() {
-		errCh <- sender.WriteResponse(CommandHandshake, payload, retCode)
+		errCh <- levinResultErr(sender.WriteResponse(CommandHandshake, payload, retCode))
 	}()
 
-	h, data, err := receiver.ReadPacket()
+	h, data, err := levinReadPacket(receiver.ReadPacket())
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -161,11 +382,11 @@ func TestConnection_PayloadTooBig(t *testing.T) {
 		errCh <- err
 	}()
 
-	_, _, err := receiver.ReadPacket()
+	_, _, err := levinReadPacket(receiver.ReadPacket())
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
-	if !errors.Is(err, ErrPayloadTooBig) {
+	if !core.Is(err, ErrPayloadTooBig) {
 		t.Fatalf("expected error %v, got %v", ErrPayloadTooBig, err)
 	}
 
@@ -183,7 +404,7 @@ func TestConnection_ReadTimeout(t *testing.T) {
 	receiver.ReadTimeout = 50 * time.Millisecond
 
 	// Do not write anything — the reader should time out.
-	_, _, err := receiver.ReadPacket()
+	_, _, err := levinReadPacket(receiver.ReadPacket())
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -215,12 +436,12 @@ func TestConnection_Close(t *testing.T) {
 	defer b.Close()
 
 	conn := NewConnection(a)
-	if err := conn.Close(); err != nil {
+	if err := levinResultErr(conn.Close()); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
 	// Writing to a closed connection should fail.
-	err := conn.WritePacket(CommandPing, nil, false)
+	err := levinResultErr(conn.WritePacket(CommandPing, nil, false))
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}

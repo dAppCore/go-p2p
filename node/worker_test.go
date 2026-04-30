@@ -2,23 +2,18 @@ package node
 
 import (
 	"encoding/base64"
-	"encoding/json"
-	"fmt"
-	"os"
-	"path/filepath"
 	"testing"
 	"time"
+
+	core "dappco.re/go"
 )
 
 // setupTestEnv sets up a temporary environment for testing and returns cleanup function
 func setupTestEnv(t *testing.T) func() {
 	tmpDir := t.TempDir()
-	os.Setenv("XDG_CONFIG_HOME", filepath.Join(tmpDir, "config"))
-	os.Setenv("XDG_DATA_HOME", filepath.Join(tmpDir, "data"))
-	return func() {
-		os.Unsetenv("XDG_CONFIG_HOME")
-		os.Unsetenv("XDG_DATA_HOME")
-	}
+	t.Setenv("XDG_CONFIG_HOME", core.PathJoin(tmpDir, "config"))
+	t.Setenv("XDG_DATA_HOME", core.PathJoin(tmpDir, "data"))
+	return func() {}
 }
 
 func TestNewWorker(t *testing.T) {
@@ -26,18 +21,18 @@ func TestNewWorker(t *testing.T) {
 	defer cleanup()
 
 	dir := t.TempDir()
-	nm, err := NewNodeManagerWithPaths(
-		filepath.Join(dir, "private.key"),
-		filepath.Join(dir, "node.json"),
-	)
+	nm, err := resultValue[*NodeManager](NewNodeManagerWithPaths(
+		core.PathJoin(dir, "private.key"),
+		core.PathJoin(dir, "node.json"),
+	))
 	if err != nil {
 		t.Fatalf("failed to create node manager: %v", err)
 	}
-	if err := nm.GenerateIdentity("test-worker", RoleWorker); err != nil {
+	if err := resultErr(nm.GenerateIdentity("test-worker", RoleWorker)); err != nil {
 		t.Fatalf("failed to generate identity: %v", err)
 	}
 
-	pr, err := NewPeerRegistryWithPath(t.TempDir() + "/peers.json")
+	pr, err := resultValue[*PeerRegistry](NewPeerRegistryWithPath(t.TempDir() + "/peers.json"))
 	if err != nil {
 		t.Fatalf("failed to create peer registry: %v", err)
 	}
@@ -57,23 +52,196 @@ func TestNewWorker(t *testing.T) {
 	}
 }
 
+func newTripletWorkerParts(t *testing.T) (*NodeManager, *Transport) {
+	t.Helper()
+	dir := t.TempDir()
+	nm, err := resultValue[*NodeManager](NewNodeManagerWithPaths(core.PathJoin(dir, "private.key"), core.PathJoin(dir, "node.json")))
+	if err != nil {
+		t.Fatalf("NewNodeManagerWithPaths: %v", err)
+	}
+	if err := resultErr(nm.GenerateIdentity("worker", RoleWorker)); err != nil {
+		t.Fatalf("GenerateIdentity: %v", err)
+	}
+	registry, err := resultValue[*PeerRegistry](NewPeerRegistryWithPath(core.PathJoin(dir, "peers.json")))
+	if err != nil {
+		t.Fatalf("NewPeerRegistryWithPath: %v", err)
+	}
+	t.Cleanup(func() { _ = resultErr(registry.Close()) })
+	transport := NewTransport(nm, registry, DefaultTransportConfig())
+	return nm, transport
+}
+
+func newTripletWorker(t *testing.T) (*Worker, *Transport) {
+	t.Helper()
+	nm, transport := newTripletWorkerParts(t)
+	return NewWorker(nm, transport), transport
+}
+
+func TestWorker_NewWorker_Good(t *testing.T) {
+	nm, transport := newTripletWorkerParts(t)
+	worker := NewWorker(nm, transport)
+	if worker == nil {
+		t.Fatal("expected worker")
+	}
+	if worker.transport != transport {
+		t.Fatal("transport not retained")
+	}
+}
+
+func TestWorker_NewWorker_Bad(t *testing.T) {
+	worker := NewWorker(nil, nil)
+	if worker.node != nil || worker.transport != nil {
+		t.Fatalf("worker: %#v", worker)
+	}
+	if worker.startTime.IsZero() {
+		t.Fatal("start time should be set")
+	}
+}
+
+func TestWorker_NewWorker_Ugly(t *testing.T) {
+	nm, transport := newTripletWorkerParts(t)
+	worker := NewWorker(nm, transport)
+	worker.DataDir = ""
+	if worker.DataDir != "" {
+		t.Fatal("data dir should be mutable")
+	}
+	if worker.minerManager != nil {
+		t.Fatal("miner manager should start nil")
+	}
+}
+
+func TestWorker_Worker_SetMinerManager_Good(t *testing.T) {
+	worker, _ := newTripletWorker(t)
+	manager := &mockMinerManager{}
+	worker.SetMinerManager(manager)
+	if worker.minerManager != manager {
+		t.Fatal("miner manager not set")
+	}
+}
+
+func TestWorker_Worker_SetMinerManager_Bad(t *testing.T) {
+	worker, _ := newTripletWorker(t)
+	worker.SetMinerManager(nil)
+	if worker.minerManager != nil {
+		t.Fatal("miner manager should be nil")
+	}
+}
+
+func TestWorker_Worker_SetMinerManager_Ugly(t *testing.T) {
+	worker, _ := newTripletWorker(t)
+	first := &mockMinerManager{}
+	second := &mockMinerManagerFailing{}
+	worker.SetMinerManager(first)
+	worker.SetMinerManager(second)
+	if worker.minerManager != second {
+		t.Fatal("latest miner manager should win")
+	}
+}
+
+func TestWorker_Worker_SetProfileManager_Good(t *testing.T) {
+	worker, _ := newTripletWorker(t)
+	manager := &mockProfileManager{}
+	worker.SetProfileManager(manager)
+	if worker.profileManager != manager {
+		t.Fatal("profile manager not set")
+	}
+}
+
+func TestWorker_Worker_SetProfileManager_Bad(t *testing.T) {
+	worker, _ := newTripletWorker(t)
+	worker.SetProfileManager(nil)
+	if worker.profileManager != nil {
+		t.Fatal("profile manager should be nil")
+	}
+}
+
+func TestWorker_Worker_SetProfileManager_Ugly(t *testing.T) {
+	worker, _ := newTripletWorker(t)
+	first := &mockProfileManager{}
+	second := &mockProfileManagerFull{}
+	worker.SetProfileManager(first)
+	worker.SetProfileManager(second)
+	if worker.profileManager != second {
+		t.Fatal("latest profile manager should win")
+	}
+}
+
+func TestWorker_Worker_HandleMessage_Good(t *testing.T) {
+	worker, _ := newTripletWorker(t)
+	msg := &Message{Type: MessageType("unknown")}
+	worker.HandleMessage(nil, msg)
+	if worker.node == nil {
+		t.Fatal("worker node should remain set")
+	}
+}
+
+func TestWorker_Worker_HandleMessage_Bad(t *testing.T) {
+	worker, _ := newTripletWorker(t)
+	msg, err := resultValue[*Message](NewMessage(MsgGetStats, "from", "to", nil))
+	if err != nil {
+		t.Fatalf("NewMessage: %v", err)
+	}
+	worker.node.identity = nil
+	worker.HandleMessage(nil, msg)
+	if worker.node.HasIdentity() {
+		t.Fatal("identity should remain nil")
+	}
+}
+
+func TestWorker_Worker_HandleMessage_Ugly(t *testing.T) {
+	worker, _ := newTripletWorker(t)
+	defer func() {
+		if recover() == nil {
+			t.Fatal("expected panic for nil message")
+		}
+	}()
+	worker.HandleMessage(nil, nil)
+}
+
+func TestWorker_Worker_RegisterWithTransport_Good(t *testing.T) {
+	worker, transport := newTripletWorker(t)
+	worker.RegisterWithTransport()
+	if transport.handler == nil {
+		t.Fatal("handler not registered")
+	}
+}
+
+func TestWorker_Worker_RegisterWithTransport_Bad(t *testing.T) {
+	worker := NewWorker(nil, nil)
+	defer func() {
+		if recover() == nil {
+			t.Fatal("expected panic for nil transport")
+		}
+	}()
+	worker.RegisterWithTransport()
+}
+
+func TestWorker_Worker_RegisterWithTransport_Ugly(t *testing.T) {
+	worker, transport := newTripletWorker(t)
+	worker.RegisterWithTransport()
+	worker.RegisterWithTransport()
+	if transport.handler == nil {
+		t.Fatal("handler should remain registered")
+	}
+}
+
 func TestWorker_SetMinerManager(t *testing.T) {
 	cleanup := setupTestEnv(t)
 	defer cleanup()
 
 	dir := t.TempDir()
-	nm, err := NewNodeManagerWithPaths(
-		filepath.Join(dir, "private.key"),
-		filepath.Join(dir, "node.json"),
-	)
+	nm, err := resultValue[*NodeManager](NewNodeManagerWithPaths(
+		core.PathJoin(dir, "private.key"),
+		core.PathJoin(dir, "node.json"),
+	))
 	if err != nil {
 		t.Fatalf("failed to create node manager: %v", err)
 	}
-	if err := nm.GenerateIdentity("test-worker", RoleWorker); err != nil {
+	if err := resultErr(nm.GenerateIdentity("test-worker", RoleWorker)); err != nil {
 		t.Fatalf("failed to generate identity: %v", err)
 	}
 
-	pr, err := NewPeerRegistryWithPath(t.TempDir() + "/peers.json")
+	pr, err := resultValue[*PeerRegistry](NewPeerRegistryWithPath(t.TempDir() + "/peers.json"))
 	if err != nil {
 		t.Fatalf("failed to create peer registry: %v", err)
 	}
@@ -95,18 +263,18 @@ func TestWorker_SetProfileManager(t *testing.T) {
 	defer cleanup()
 
 	dir := t.TempDir()
-	nm, err := NewNodeManagerWithPaths(
-		filepath.Join(dir, "private.key"),
-		filepath.Join(dir, "node.json"),
-	)
+	nm, err := resultValue[*NodeManager](NewNodeManagerWithPaths(
+		core.PathJoin(dir, "private.key"),
+		core.PathJoin(dir, "node.json"),
+	))
 	if err != nil {
 		t.Fatalf("failed to create node manager: %v", err)
 	}
-	if err := nm.GenerateIdentity("test-worker", RoleWorker); err != nil {
+	if err := resultErr(nm.GenerateIdentity("test-worker", RoleWorker)); err != nil {
 		t.Fatalf("failed to generate identity: %v", err)
 	}
 
-	pr, err := NewPeerRegistryWithPath(t.TempDir() + "/peers.json")
+	pr, err := resultValue[*PeerRegistry](NewPeerRegistryWithPath(t.TempDir() + "/peers.json"))
 	if err != nil {
 		t.Fatalf("failed to create peer registry: %v", err)
 	}
@@ -128,18 +296,18 @@ func TestWorker_HandlePing(t *testing.T) {
 	defer cleanup()
 
 	dir := t.TempDir()
-	nm, err := NewNodeManagerWithPaths(
-		filepath.Join(dir, "private.key"),
-		filepath.Join(dir, "node.json"),
-	)
+	nm, err := resultValue[*NodeManager](NewNodeManagerWithPaths(
+		core.PathJoin(dir, "private.key"),
+		core.PathJoin(dir, "node.json"),
+	))
 	if err != nil {
 		t.Fatalf("failed to create node manager: %v", err)
 	}
-	if err := nm.GenerateIdentity("test-worker", RoleWorker); err != nil {
+	if err := resultErr(nm.GenerateIdentity("test-worker", RoleWorker)); err != nil {
 		t.Fatalf("failed to generate identity: %v", err)
 	}
 
-	pr, err := NewPeerRegistryWithPath(t.TempDir() + "/peers.json")
+	pr, err := resultValue[*PeerRegistry](NewPeerRegistryWithPath(t.TempDir() + "/peers.json"))
 	if err != nil {
 		t.Fatalf("failed to create peer registry: %v", err)
 	}
@@ -154,13 +322,13 @@ func TestWorker_HandlePing(t *testing.T) {
 		t.Fatal("expected identity to be generated")
 	}
 	pingPayload := PingPayload{SentAt: time.Now().UnixMilli()}
-	pingMsg, err := NewMessage(MsgPing, "sender-id", identity.ID, pingPayload)
+	pingMsg, err := resultValue[*Message](NewMessage(MsgPing, "sender-id", identity.ID, pingPayload))
 	if err != nil {
 		t.Fatalf("failed to create ping message: %v", err)
 	}
 
 	// Call handlePing directly
-	response, err := worker.handlePing(pingMsg)
+	response, err := resultValue[*Message](worker.handlePing(pingMsg))
 	if err != nil {
 		t.Fatalf("handlePing returned error: %v", err)
 	}
@@ -174,7 +342,7 @@ func TestWorker_HandlePing(t *testing.T) {
 	}
 
 	var pong PongPayload
-	if err := response.ParsePayload(&pong); err != nil {
+	if err := resultErr(response.ParsePayload(&pong)); err != nil {
 		t.Fatalf("failed to parse pong payload: %v", err)
 	}
 
@@ -192,18 +360,18 @@ func TestWorker_HandleGetStats(t *testing.T) {
 	defer cleanup()
 
 	dir := t.TempDir()
-	nm, err := NewNodeManagerWithPaths(
-		filepath.Join(dir, "private.key"),
-		filepath.Join(dir, "node.json"),
-	)
+	nm, err := resultValue[*NodeManager](NewNodeManagerWithPaths(
+		core.PathJoin(dir, "private.key"),
+		core.PathJoin(dir, "node.json"),
+	))
 	if err != nil {
 		t.Fatalf("failed to create node manager: %v", err)
 	}
-	if err := nm.GenerateIdentity("test-worker", RoleWorker); err != nil {
+	if err := resultErr(nm.GenerateIdentity("test-worker", RoleWorker)); err != nil {
 		t.Fatalf("failed to generate identity: %v", err)
 	}
 
-	pr, err := NewPeerRegistryWithPath(t.TempDir() + "/peers.json")
+	pr, err := resultValue[*PeerRegistry](NewPeerRegistryWithPath(t.TempDir() + "/peers.json"))
 	if err != nil {
 		t.Fatalf("failed to create peer registry: %v", err)
 	}
@@ -217,13 +385,13 @@ func TestWorker_HandleGetStats(t *testing.T) {
 	if identity == nil {
 		t.Fatal("expected identity to be generated")
 	}
-	msg, err := NewMessage(MsgGetStats, "sender-id", identity.ID, nil)
+	msg, err := resultValue[*Message](NewMessage(MsgGetStats, "sender-id", identity.ID, nil))
 	if err != nil {
 		t.Fatalf("failed to create get_stats message: %v", err)
 	}
 
 	// Call handleGetStats directly (without miner manager)
-	response, err := worker.handleGetStats(msg)
+	response, err := resultValue[*Message](worker.handleGetStats(msg))
 	if err != nil {
 		t.Fatalf("handleGetStats returned error: %v", err)
 	}
@@ -237,7 +405,7 @@ func TestWorker_HandleGetStats(t *testing.T) {
 	}
 
 	var stats StatsPayload
-	if err := response.ParsePayload(&stats); err != nil {
+	if err := resultErr(response.ParsePayload(&stats)); err != nil {
 		t.Fatalf("failed to parse stats payload: %v", err)
 	}
 
@@ -255,18 +423,18 @@ func TestWorker_HandleStartMiner_NoManager(t *testing.T) {
 	defer cleanup()
 
 	dir := t.TempDir()
-	nm, err := NewNodeManagerWithPaths(
-		filepath.Join(dir, "private.key"),
-		filepath.Join(dir, "node.json"),
-	)
+	nm, err := resultValue[*NodeManager](NewNodeManagerWithPaths(
+		core.PathJoin(dir, "private.key"),
+		core.PathJoin(dir, "node.json"),
+	))
 	if err != nil {
 		t.Fatalf("failed to create node manager: %v", err)
 	}
-	if err := nm.GenerateIdentity("test-worker", RoleWorker); err != nil {
+	if err := resultErr(nm.GenerateIdentity("test-worker", RoleWorker)); err != nil {
 		t.Fatalf("failed to generate identity: %v", err)
 	}
 
-	pr, err := NewPeerRegistryWithPath(t.TempDir() + "/peers.json")
+	pr, err := resultValue[*PeerRegistry](NewPeerRegistryWithPath(t.TempDir() + "/peers.json"))
 	if err != nil {
 		t.Fatalf("failed to create peer registry: %v", err)
 	}
@@ -281,13 +449,13 @@ func TestWorker_HandleStartMiner_NoManager(t *testing.T) {
 		t.Fatal("expected identity to be generated")
 	}
 	payload := StartMinerPayload{MinerType: "xmrig", ProfileID: "test-profile"}
-	msg, err := NewMessage(MsgStartMiner, "sender-id", identity.ID, payload)
+	msg, err := resultValue[*Message](NewMessage(MsgStartMiner, "sender-id", identity.ID, payload))
 	if err != nil {
 		t.Fatalf("failed to create start_miner message: %v", err)
 	}
 
 	// Without miner manager, should return error
-	_, err = worker.handleStartMiner(msg)
+	_, err = resultValue[*Message](worker.handleStartMiner(msg))
 	if err == nil {
 		t.Error("expected error when miner manager is nil")
 	}
@@ -298,18 +466,18 @@ func TestWorker_HandleStopMiner_NoManager(t *testing.T) {
 	defer cleanup()
 
 	dir := t.TempDir()
-	nm, err := NewNodeManagerWithPaths(
-		filepath.Join(dir, "private.key"),
-		filepath.Join(dir, "node.json"),
-	)
+	nm, err := resultValue[*NodeManager](NewNodeManagerWithPaths(
+		core.PathJoin(dir, "private.key"),
+		core.PathJoin(dir, "node.json"),
+	))
 	if err != nil {
 		t.Fatalf("failed to create node manager: %v", err)
 	}
-	if err := nm.GenerateIdentity("test-worker", RoleWorker); err != nil {
+	if err := resultErr(nm.GenerateIdentity("test-worker", RoleWorker)); err != nil {
 		t.Fatalf("failed to generate identity: %v", err)
 	}
 
-	pr, err := NewPeerRegistryWithPath(t.TempDir() + "/peers.json")
+	pr, err := resultValue[*PeerRegistry](NewPeerRegistryWithPath(t.TempDir() + "/peers.json"))
 	if err != nil {
 		t.Fatalf("failed to create peer registry: %v", err)
 	}
@@ -324,13 +492,13 @@ func TestWorker_HandleStopMiner_NoManager(t *testing.T) {
 		t.Fatal("expected identity to be generated")
 	}
 	payload := StopMinerPayload{MinerName: "test-miner"}
-	msg, err := NewMessage(MsgStopMiner, "sender-id", identity.ID, payload)
+	msg, err := resultValue[*Message](NewMessage(MsgStopMiner, "sender-id", identity.ID, payload))
 	if err != nil {
 		t.Fatalf("failed to create stop_miner message: %v", err)
 	}
 
 	// Without miner manager, should return error
-	_, err = worker.handleStopMiner(msg)
+	_, err = resultValue[*Message](worker.handleStopMiner(msg))
 	if err == nil {
 		t.Error("expected error when miner manager is nil")
 	}
@@ -341,18 +509,18 @@ func TestWorker_HandleGetLogs_NoManager(t *testing.T) {
 	defer cleanup()
 
 	dir := t.TempDir()
-	nm, err := NewNodeManagerWithPaths(
-		filepath.Join(dir, "private.key"),
-		filepath.Join(dir, "node.json"),
-	)
+	nm, err := resultValue[*NodeManager](NewNodeManagerWithPaths(
+		core.PathJoin(dir, "private.key"),
+		core.PathJoin(dir, "node.json"),
+	))
 	if err != nil {
 		t.Fatalf("failed to create node manager: %v", err)
 	}
-	if err := nm.GenerateIdentity("test-worker", RoleWorker); err != nil {
+	if err := resultErr(nm.GenerateIdentity("test-worker", RoleWorker)); err != nil {
 		t.Fatalf("failed to generate identity: %v", err)
 	}
 
-	pr, err := NewPeerRegistryWithPath(t.TempDir() + "/peers.json")
+	pr, err := resultValue[*PeerRegistry](NewPeerRegistryWithPath(t.TempDir() + "/peers.json"))
 	if err != nil {
 		t.Fatalf("failed to create peer registry: %v", err)
 	}
@@ -367,13 +535,13 @@ func TestWorker_HandleGetLogs_NoManager(t *testing.T) {
 		t.Fatal("expected identity to be generated")
 	}
 	payload := GetLogsPayload{MinerName: "test-miner", Lines: 100}
-	msg, err := NewMessage(MsgGetLogs, "sender-id", identity.ID, payload)
+	msg, err := resultValue[*Message](NewMessage(MsgGetLogs, "sender-id", identity.ID, payload))
 	if err != nil {
 		t.Fatalf("failed to create get_logs message: %v", err)
 	}
 
 	// Without miner manager, should return error
-	_, err = worker.handleGetLogs(msg)
+	_, err = resultValue[*Message](worker.handleGetLogs(msg))
 	if err == nil {
 		t.Error("expected error when miner manager is nil")
 	}
@@ -384,18 +552,18 @@ func TestWorker_HandleDeploy_Profile(t *testing.T) {
 	defer cleanup()
 
 	dir := t.TempDir()
-	nm, err := NewNodeManagerWithPaths(
-		filepath.Join(dir, "private.key"),
-		filepath.Join(dir, "node.json"),
-	)
+	nm, err := resultValue[*NodeManager](NewNodeManagerWithPaths(
+		core.PathJoin(dir, "private.key"),
+		core.PathJoin(dir, "node.json"),
+	))
 	if err != nil {
 		t.Fatalf("failed to create node manager: %v", err)
 	}
-	if err := nm.GenerateIdentity("test-worker", RoleWorker); err != nil {
+	if err := resultErr(nm.GenerateIdentity("test-worker", RoleWorker)); err != nil {
 		t.Fatalf("failed to generate identity: %v", err)
 	}
 
-	pr, err := NewPeerRegistryWithPath(t.TempDir() + "/peers.json")
+	pr, err := resultValue[*PeerRegistry](NewPeerRegistryWithPath(t.TempDir() + "/peers.json"))
 	if err != nil {
 		t.Fatalf("failed to create peer registry: %v", err)
 	}
@@ -414,13 +582,13 @@ func TestWorker_HandleDeploy_Profile(t *testing.T) {
 		Data:       []byte(`{"id": "test", "name": "Test Profile"}`),
 		Name:       "test-profile",
 	}
-	msg, err := NewMessage(MsgDeploy, "sender-id", identity.ID, payload)
+	msg, err := resultValue[*Message](NewMessage(MsgDeploy, "sender-id", identity.ID, payload))
 	if err != nil {
 		t.Fatalf("failed to create deploy message: %v", err)
 	}
 
 	// Without profile manager, should return error
-	_, err = worker.handleDeploy(nil, msg)
+	_, err = resultValue[*Message](worker.handleDeploy(nil, msg))
 	if err == nil {
 		t.Error("expected error when profile manager is nil")
 	}
@@ -431,18 +599,18 @@ func TestWorker_HandleDeploy_UnknownType(t *testing.T) {
 	defer cleanup()
 
 	dir := t.TempDir()
-	nm, err := NewNodeManagerWithPaths(
-		filepath.Join(dir, "private.key"),
-		filepath.Join(dir, "node.json"),
-	)
+	nm, err := resultValue[*NodeManager](NewNodeManagerWithPaths(
+		core.PathJoin(dir, "private.key"),
+		core.PathJoin(dir, "node.json"),
+	))
 	if err != nil {
 		t.Fatalf("failed to create node manager: %v", err)
 	}
-	if err := nm.GenerateIdentity("test-worker", RoleWorker); err != nil {
+	if err := resultErr(nm.GenerateIdentity("test-worker", RoleWorker)); err != nil {
 		t.Fatalf("failed to generate identity: %v", err)
 	}
 
-	pr, err := NewPeerRegistryWithPath(t.TempDir() + "/peers.json")
+	pr, err := resultValue[*PeerRegistry](NewPeerRegistryWithPath(t.TempDir() + "/peers.json"))
 	if err != nil {
 		t.Fatalf("failed to create peer registry: %v", err)
 	}
@@ -461,12 +629,12 @@ func TestWorker_HandleDeploy_UnknownType(t *testing.T) {
 		Data:       []byte(`{}`),
 		Name:       "test",
 	}
-	msg, err := NewMessage(MsgDeploy, "sender-id", identity.ID, payload)
+	msg, err := resultValue[*Message](NewMessage(MsgDeploy, "sender-id", identity.ID, payload))
 	if err != nil {
 		t.Fatalf("failed to create deploy message: %v", err)
 	}
 
-	_, err = worker.handleDeploy(nil, msg)
+	_, err = resultValue[*Message](worker.handleDeploy(nil, msg))
 	if err == nil {
 		t.Error("expected error for unknown bundle type")
 	}
@@ -580,15 +748,15 @@ type mockMinerManagerFailing struct {
 }
 
 func (m *mockMinerManagerFailing) StartMiner(minerType string, config any) (MinerInstance, error) {
-	return nil, fmt.Errorf("mining hardware not available")
+	return nil, core.Errorf("mining hardware not available")
 }
 
 func (m *mockMinerManagerFailing) StopMiner(name string) error {
-	return fmt.Errorf("miner %s not found", name)
+	return core.Errorf("miner %s not found", name)
 }
 
 func (m *mockMinerManagerFailing) GetMiner(name string) (MinerInstance, error) {
-	return nil, fmt.Errorf("miner %s not found", name)
+	return nil, core.Errorf("miner %s not found", name)
 }
 
 // mockProfileManagerFull implements ProfileManager that returns real data.
@@ -599,7 +767,7 @@ type mockProfileManagerFull struct {
 func (m *mockProfileManagerFull) GetProfile(id string) (any, error) {
 	p, ok := m.profiles[id]
 	if !ok {
-		return nil, fmt.Errorf("profile %s not found", id)
+		return nil, core.Errorf("profile %s not found", id)
 	}
 	return p, nil
 }
@@ -612,11 +780,11 @@ func (m *mockProfileManagerFull) SaveProfile(profile any) error {
 type mockProfileManagerFailing struct{}
 
 func (m *mockProfileManagerFailing) GetProfile(id string) (any, error) {
-	return nil, fmt.Errorf("profile %s not found", id)
+	return nil, core.Errorf("profile %s not found", id)
 }
 
 func (m *mockProfileManagerFailing) SaveProfile(profile any) error {
-	return fmt.Errorf("save failed")
+	return core.Errorf("save failed")
 }
 
 func TestWorker_HandleStartMiner_WithManager(t *testing.T) {
@@ -624,18 +792,18 @@ func TestWorker_HandleStartMiner_WithManager(t *testing.T) {
 	defer cleanup()
 
 	dir := t.TempDir()
-	nm, err := NewNodeManagerWithPaths(
-		filepath.Join(dir, "private.key"),
-		filepath.Join(dir, "node.json"),
-	)
+	nm, err := resultValue[*NodeManager](NewNodeManagerWithPaths(
+		core.PathJoin(dir, "private.key"),
+		core.PathJoin(dir, "node.json"),
+	))
 	if err != nil {
 		t.Fatalf("failed to create node manager: %v", err)
 	}
-	if err := nm.GenerateIdentity("test-worker", RoleWorker); err != nil {
+	if err := resultErr(nm.GenerateIdentity("test-worker", RoleWorker)); err != nil {
 		t.Fatalf("failed to generate identity: %v", err)
 	}
 
-	pr, err := NewPeerRegistryWithPath(t.TempDir() + "/peers.json")
+	pr, err := resultValue[*PeerRegistry](NewPeerRegistryWithPath(t.TempDir() + "/peers.json"))
 	if err != nil {
 		t.Fatalf("failed to create peer registry: %v", err)
 	}
@@ -656,14 +824,14 @@ func TestWorker_HandleStartMiner_WithManager(t *testing.T) {
 	t.Run("WithConfigOverride", func(t *testing.T) {
 		payload := StartMinerPayload{
 			MinerType: "xmrig",
-			Config:    json.RawMessage(`{"pool":"test:3333"}`),
+			Config:    RawMessage(`{"pool":"test:3333"}`),
 		}
-		msg, err := NewMessage(MsgStartMiner, "sender-id", identity.ID, payload)
+		msg, err := resultValue[*Message](NewMessage(MsgStartMiner, "sender-id", identity.ID, payload))
 		if err != nil {
 			t.Fatalf("failed to create message: %v", err)
 		}
 
-		response, err := worker.handleStartMiner(msg)
+		response, err := resultValue[*Message](worker.handleStartMiner(msg))
 		if err != nil {
 			t.Fatalf("handleStartMiner returned error: %v", err)
 		}
@@ -673,7 +841,7 @@ func TestWorker_HandleStartMiner_WithManager(t *testing.T) {
 		}
 
 		var ack MinerAckPayload
-		if err := response.ParsePayload(&ack); err != nil {
+		if err := resultErr(response.ParsePayload(&ack)); err != nil {
 			t.Fatalf("failed to parse ack: %v", err)
 		}
 		if !ack.Success {
@@ -687,14 +855,14 @@ func TestWorker_HandleStartMiner_WithManager(t *testing.T) {
 	t.Run("EmptyMinerType", func(t *testing.T) {
 		payload := StartMinerPayload{
 			MinerType: "",
-			Config:    json.RawMessage(`{}`),
+			Config:    RawMessage(`{}`),
 		}
-		msg, err := NewMessage(MsgStartMiner, "sender-id", identity.ID, payload)
+		msg, err := resultValue[*Message](NewMessage(MsgStartMiner, "sender-id", identity.ID, payload))
 		if err != nil {
 			t.Fatalf("failed to create message: %v", err)
 		}
 
-		_, err = worker.handleStartMiner(msg)
+		_, err = resultValue[*Message](worker.handleStartMiner(msg))
 		if err == nil {
 			t.Error("expected error for empty miner type")
 		}
@@ -712,18 +880,18 @@ func TestWorker_HandleStartMiner_WithManager(t *testing.T) {
 			MinerType: "xmrig",
 			ProfileID: "test-profile",
 		}
-		msg, err := NewMessage(MsgStartMiner, "sender-id", identity.ID, payload)
+		msg, err := resultValue[*Message](NewMessage(MsgStartMiner, "sender-id", identity.ID, payload))
 		if err != nil {
 			t.Fatalf("failed to create message: %v", err)
 		}
 
-		response, err := worker.handleStartMiner(msg)
+		response, err := resultValue[*Message](worker.handleStartMiner(msg))
 		if err != nil {
 			t.Fatalf("handleStartMiner returned error: %v", err)
 		}
 
 		var ack MinerAckPayload
-		response.ParsePayload(&ack)
+		_ = resultErr(response.ParsePayload(&ack))
 		if !ack.Success {
 			t.Errorf("expected success, got error: %s", ack.Error)
 		}
@@ -737,12 +905,12 @@ func TestWorker_HandleStartMiner_WithManager(t *testing.T) {
 			MinerType: "xmrig",
 			ProfileID: "missing-profile",
 		}
-		msg, err := NewMessage(MsgStartMiner, "sender-id", identity.ID, payload)
+		msg, err := resultValue[*Message](NewMessage(MsgStartMiner, "sender-id", identity.ID, payload))
 		if err != nil {
 			t.Fatalf("failed to create message: %v", err)
 		}
 
-		_, err = worker.handleStartMiner(msg)
+		_, err = resultValue[*Message](worker.handleStartMiner(msg))
 		if err == nil {
 			t.Error("expected error for missing profile")
 		}
@@ -754,20 +922,20 @@ func TestWorker_HandleStartMiner_WithManager(t *testing.T) {
 
 		payload := StartMinerPayload{
 			MinerType: "xmrig",
-			Config:    json.RawMessage(`{}`),
+			Config:    RawMessage(`{}`),
 		}
-		msg, err := NewMessage(MsgStartMiner, "sender-id", identity.ID, payload)
+		msg, err := resultValue[*Message](NewMessage(MsgStartMiner, "sender-id", identity.ID, payload))
 		if err != nil {
 			t.Fatalf("failed to create message: %v", err)
 		}
 
-		response, err := worker.handleStartMiner(msg)
+		response, err := resultValue[*Message](worker.handleStartMiner(msg))
 		if err != nil {
 			t.Fatalf("handleStartMiner should not return error when start fails: %v", err)
 		}
 
 		var ack MinerAckPayload
-		response.ParsePayload(&ack)
+		_ = resultErr(response.ParsePayload(&ack))
 		if ack.Success {
 			t.Error("expected failure ack")
 		}
@@ -787,7 +955,7 @@ type mockMinerManagerWithStart struct {
 
 func (m *mockMinerManagerWithStart) StartMiner(minerType string, config any) (MinerInstance, error) {
 	m.counter++
-	name := fmt.Sprintf("%s-%d", minerType, m.counter)
+	name := core.Sprintf("%s-%d", minerType, m.counter)
 	return &mockMinerInstance{name: name, minerType: minerType}, nil
 }
 
@@ -796,17 +964,17 @@ func TestWorker_HandleStopMiner_WithManager(t *testing.T) {
 	defer cleanup()
 
 	dir := t.TempDir()
-	nm, err := NewNodeManagerWithPaths(
-		filepath.Join(dir, "private.key"),
-		filepath.Join(dir, "node.json"),
-	)
+	nm, err := resultValue[*NodeManager](NewNodeManagerWithPaths(
+		core.PathJoin(dir, "private.key"),
+		core.PathJoin(dir, "node.json"),
+	))
 	if err != nil {
 		t.Fatalf("failed to create node manager: %v", err)
 	}
-	if err := nm.GenerateIdentity("test-worker", RoleWorker); err != nil {
+	if err := resultErr(nm.GenerateIdentity("test-worker", RoleWorker)); err != nil {
 		t.Fatalf("failed to generate identity: %v", err)
 	}
-	pr, err := NewPeerRegistryWithPath(t.TempDir() + "/peers.json")
+	pr, err := resultValue[*PeerRegistry](NewPeerRegistryWithPath(t.TempDir() + "/peers.json"))
 	if err != nil {
 		t.Fatalf("failed to create peer registry: %v", err)
 	}
@@ -819,15 +987,15 @@ func TestWorker_HandleStopMiner_WithManager(t *testing.T) {
 		worker.SetMinerManager(&mockMinerManager{})
 
 		payload := StopMinerPayload{MinerName: "test-miner"}
-		msg, _ := NewMessage(MsgStopMiner, "sender-id", identity.ID, payload)
+		msg, _ := resultValue[*Message](NewMessage(MsgStopMiner, "sender-id", identity.ID, payload))
 
-		response, err := worker.handleStopMiner(msg)
+		response, err := resultValue[*Message](worker.handleStopMiner(msg))
 		if err != nil {
 			t.Fatalf("handleStopMiner returned error: %v", err)
 		}
 
 		var ack MinerAckPayload
-		response.ParsePayload(&ack)
+		_ = resultErr(response.ParsePayload(&ack))
 		if !ack.Success {
 			t.Errorf("expected success, got error: %s", ack.Error)
 		}
@@ -840,15 +1008,15 @@ func TestWorker_HandleStopMiner_WithManager(t *testing.T) {
 		worker.SetMinerManager(&mockMinerManagerFailing{})
 
 		payload := StopMinerPayload{MinerName: "missing-miner"}
-		msg, _ := NewMessage(MsgStopMiner, "sender-id", identity.ID, payload)
+		msg, _ := resultValue[*Message](NewMessage(MsgStopMiner, "sender-id", identity.ID, payload))
 
-		response, err := worker.handleStopMiner(msg)
+		response, err := resultValue[*Message](worker.handleStopMiner(msg))
 		if err != nil {
 			t.Fatalf("handleStopMiner should not return error: %v", err)
 		}
 
 		var ack MinerAckPayload
-		response.ParsePayload(&ack)
+		_ = resultErr(response.ParsePayload(&ack))
 		if ack.Success {
 			t.Error("expected failure ack")
 		}
@@ -863,17 +1031,17 @@ func TestWorker_HandleGetLogs_WithManager(t *testing.T) {
 	defer cleanup()
 
 	dir := t.TempDir()
-	nm, err := NewNodeManagerWithPaths(
-		filepath.Join(dir, "private.key"),
-		filepath.Join(dir, "node.json"),
-	)
+	nm, err := resultValue[*NodeManager](NewNodeManagerWithPaths(
+		core.PathJoin(dir, "private.key"),
+		core.PathJoin(dir, "node.json"),
+	))
 	if err != nil {
 		t.Fatalf("failed to create node manager: %v", err)
 	}
-	if err := nm.GenerateIdentity("test-worker", RoleWorker); err != nil {
+	if err := resultErr(nm.GenerateIdentity("test-worker", RoleWorker)); err != nil {
 		t.Fatalf("failed to generate identity: %v", err)
 	}
-	pr, err := NewPeerRegistryWithPath(t.TempDir() + "/peers.json")
+	pr, err := resultValue[*PeerRegistry](NewPeerRegistryWithPath(t.TempDir() + "/peers.json"))
 	if err != nil {
 		t.Fatalf("failed to create peer registry: %v", err)
 	}
@@ -894,9 +1062,9 @@ func TestWorker_HandleGetLogs_WithManager(t *testing.T) {
 		worker.SetMinerManager(mm)
 
 		payload := GetLogsPayload{MinerName: "test-miner", Lines: 100}
-		msg, _ := NewMessage(MsgGetLogs, "sender-id", identity.ID, payload)
+		msg, _ := resultValue[*Message](NewMessage(MsgGetLogs, "sender-id", identity.ID, payload))
 
-		response, err := worker.handleGetLogs(msg)
+		response, err := resultValue[*Message](worker.handleGetLogs(msg))
 		if err != nil {
 			t.Fatalf("handleGetLogs returned error: %v", err)
 		}
@@ -906,7 +1074,7 @@ func TestWorker_HandleGetLogs_WithManager(t *testing.T) {
 		}
 
 		var logs LogsPayload
-		response.ParsePayload(&logs)
+		_ = resultErr(response.ParsePayload(&logs))
 		if logs.MinerName != "test-miner" {
 			t.Errorf("expected miner name 'test-miner', got '%s'", logs.MinerName)
 		}
@@ -918,9 +1086,9 @@ func TestWorker_HandleGetLogs_WithManager(t *testing.T) {
 		worker.SetMinerManager(mm)
 
 		payload := GetLogsPayload{MinerName: "non-existent", Lines: 50}
-		msg, _ := NewMessage(MsgGetLogs, "sender-id", identity.ID, payload)
+		msg, _ := resultValue[*Message](NewMessage(MsgGetLogs, "sender-id", identity.ID, payload))
 
-		_, err := worker.handleGetLogs(msg)
+		_, err := resultValue[*Message](worker.handleGetLogs(msg))
 		if err == nil {
 			t.Error("expected error for non-existent miner")
 		}
@@ -935,9 +1103,9 @@ func TestWorker_HandleGetLogs_WithManager(t *testing.T) {
 		worker.SetMinerManager(mm)
 
 		payload := GetLogsPayload{MinerName: "test-miner", Lines: -1}
-		msg, _ := NewMessage(MsgGetLogs, "sender-id", identity.ID, payload)
+		msg, _ := resultValue[*Message](NewMessage(MsgGetLogs, "sender-id", identity.ID, payload))
 
-		response, err := worker.handleGetLogs(msg)
+		response, err := resultValue[*Message](worker.handleGetLogs(msg))
 		if err != nil {
 			t.Fatalf("handleGetLogs returned error: %v", err)
 		}
@@ -956,9 +1124,9 @@ func TestWorker_HandleGetLogs_WithManager(t *testing.T) {
 		worker.SetMinerManager(mm)
 
 		payload := GetLogsPayload{MinerName: "test-miner", Lines: 999999}
-		msg, _ := NewMessage(MsgGetLogs, "sender-id", identity.ID, payload)
+		msg, _ := resultValue[*Message](NewMessage(MsgGetLogs, "sender-id", identity.ID, payload))
 
-		response, err := worker.handleGetLogs(msg)
+		response, err := resultValue[*Message](worker.handleGetLogs(msg))
 		if err != nil {
 			t.Fatalf("handleGetLogs returned error: %v", err)
 		}
@@ -973,17 +1141,17 @@ func TestWorker_HandleGetStats_WithMinerManager(t *testing.T) {
 	defer cleanup()
 
 	dir := t.TempDir()
-	nm, err := NewNodeManagerWithPaths(
-		filepath.Join(dir, "private.key"),
-		filepath.Join(dir, "node.json"),
-	)
+	nm, err := resultValue[*NodeManager](NewNodeManagerWithPaths(
+		core.PathJoin(dir, "private.key"),
+		core.PathJoin(dir, "node.json"),
+	))
 	if err != nil {
 		t.Fatalf("failed to create node manager: %v", err)
 	}
-	if err := nm.GenerateIdentity("test-worker", RoleWorker); err != nil {
+	if err := resultErr(nm.GenerateIdentity("test-worker", RoleWorker)); err != nil {
 		t.Fatalf("failed to generate identity: %v", err)
 	}
-	pr, err := NewPeerRegistryWithPath(t.TempDir() + "/peers.json")
+	pr, err := resultValue[*PeerRegistry](NewPeerRegistryWithPath(t.TempDir() + "/peers.json"))
 	if err != nil {
 		t.Fatalf("failed to create peer registry: %v", err)
 	}
@@ -1018,14 +1186,14 @@ func TestWorker_HandleGetStats_WithMinerManager(t *testing.T) {
 	}
 	worker.SetMinerManager(mm)
 
-	msg, _ := NewMessage(MsgGetStats, "sender-id", identity.ID, nil)
-	response, err := worker.handleGetStats(msg)
+	msg, _ := resultValue[*Message](NewMessage(MsgGetStats, "sender-id", identity.ID, nil))
+	response, err := resultValue[*Message](worker.handleGetStats(msg))
 	if err != nil {
 		t.Fatalf("handleGetStats returned error: %v", err)
 	}
 
 	var stats StatsPayload
-	response.ParsePayload(&stats)
+	_ = resultErr(response.ParsePayload(&stats))
 
 	if len(stats.Miners) != 2 {
 		t.Errorf("expected 2 miners in stats, got %d", len(stats.Miners))
@@ -1037,17 +1205,17 @@ func TestWorker_HandleMessage_UnknownType(t *testing.T) {
 	defer cleanup()
 
 	dir := t.TempDir()
-	nm, err := NewNodeManagerWithPaths(
-		filepath.Join(dir, "private.key"),
-		filepath.Join(dir, "node.json"),
-	)
+	nm, err := resultValue[*NodeManager](NewNodeManagerWithPaths(
+		core.PathJoin(dir, "private.key"),
+		core.PathJoin(dir, "node.json"),
+	))
 	if err != nil {
 		t.Fatalf("failed to create node manager: %v", err)
 	}
-	if err := nm.GenerateIdentity("test-worker", RoleWorker); err != nil {
+	if err := resultErr(nm.GenerateIdentity("test-worker", RoleWorker)); err != nil {
 		t.Fatalf("failed to generate identity: %v", err)
 	}
-	pr, err := NewPeerRegistryWithPath(t.TempDir() + "/peers.json")
+	pr, err := resultValue[*PeerRegistry](NewPeerRegistryWithPath(t.TempDir() + "/peers.json"))
 	if err != nil {
 		t.Fatalf("failed to create peer registry: %v", err)
 	}
@@ -1056,7 +1224,7 @@ func TestWorker_HandleMessage_UnknownType(t *testing.T) {
 	worker.DataDir = t.TempDir()
 
 	identity := nm.GetIdentity()
-	msg, _ := NewMessage("unknown_type", "sender-id", identity.ID, nil)
+	msg, _ := resultValue[*Message](NewMessage("unknown_type", "sender-id", identity.ID, nil))
 
 	// HandleMessage with unknown type should return silently (no panic)
 	worker.HandleMessage(nil, msg)
@@ -1067,17 +1235,17 @@ func TestWorker_HandleDeploy_ProfileWithManager(t *testing.T) {
 	defer cleanup()
 
 	dir := t.TempDir()
-	nm, err := NewNodeManagerWithPaths(
-		filepath.Join(dir, "private.key"),
-		filepath.Join(dir, "node.json"),
-	)
+	nm, err := resultValue[*NodeManager](NewNodeManagerWithPaths(
+		core.PathJoin(dir, "private.key"),
+		core.PathJoin(dir, "node.json"),
+	))
 	if err != nil {
 		t.Fatalf("failed to create node manager: %v", err)
 	}
-	if err := nm.GenerateIdentity("test-worker", RoleWorker); err != nil {
+	if err := resultErr(nm.GenerateIdentity("test-worker", RoleWorker)); err != nil {
 		t.Fatalf("failed to generate identity: %v", err)
 	}
-	pr, err := NewPeerRegistryWithPath(t.TempDir() + "/peers.json")
+	pr, err := resultValue[*PeerRegistry](NewPeerRegistryWithPath(t.TempDir() + "/peers.json"))
 	if err != nil {
 		t.Fatalf("failed to create peer registry: %v", err)
 	}
@@ -1092,7 +1260,7 @@ func TestWorker_HandleDeploy_ProfileWithManager(t *testing.T) {
 
 	// Create an unencrypted profile bundle for deploy
 	profileJSON := []byte(`{"id": "deploy-test", "name": "Test Profile"}`)
-	bundle, err := CreateProfileBundleUnencrypted(profileJSON, "deploy-test")
+	bundle, err := resultValue[*Bundle](CreateProfileBundleUnencrypted(profileJSON, "deploy-test"))
 	if err != nil {
 		t.Fatalf("failed to create bundle: %v", err)
 	}
@@ -1103,15 +1271,15 @@ func TestWorker_HandleDeploy_ProfileWithManager(t *testing.T) {
 		Checksum:   bundle.Checksum,
 		Name:       "deploy-test",
 	}
-	msg, _ := NewMessage(MsgDeploy, "sender-id", identity.ID, payload)
+	msg, _ := resultValue[*Message](NewMessage(MsgDeploy, "sender-id", identity.ID, payload))
 
-	response, err := worker.handleDeploy(nil, msg)
+	response, err := resultValue[*Message](worker.handleDeploy(nil, msg))
 	if err != nil {
 		t.Fatalf("handleDeploy returned error: %v", err)
 	}
 
 	var ack DeployAckPayload
-	response.ParsePayload(&ack)
+	_ = resultErr(response.ParsePayload(&ack))
 	if !ack.Success {
 		t.Errorf("expected success, got error: %s", ack.Error)
 	}
@@ -1125,17 +1293,17 @@ func TestWorker_HandleDeploy_ProfileSaveFails(t *testing.T) {
 	defer cleanup()
 
 	dir := t.TempDir()
-	nm, err := NewNodeManagerWithPaths(
-		filepath.Join(dir, "private.key"),
-		filepath.Join(dir, "node.json"),
-	)
+	nm, err := resultValue[*NodeManager](NewNodeManagerWithPaths(
+		core.PathJoin(dir, "private.key"),
+		core.PathJoin(dir, "node.json"),
+	))
 	if err != nil {
 		t.Fatalf("failed to create node manager: %v", err)
 	}
-	if err := nm.GenerateIdentity("test-worker", RoleWorker); err != nil {
+	if err := resultErr(nm.GenerateIdentity("test-worker", RoleWorker)); err != nil {
 		t.Fatalf("failed to generate identity: %v", err)
 	}
-	pr, err := NewPeerRegistryWithPath(t.TempDir() + "/peers.json")
+	pr, err := resultValue[*PeerRegistry](NewPeerRegistryWithPath(t.TempDir() + "/peers.json"))
 	if err != nil {
 		t.Fatalf("failed to create peer registry: %v", err)
 	}
@@ -1147,7 +1315,7 @@ func TestWorker_HandleDeploy_ProfileSaveFails(t *testing.T) {
 	identity := nm.GetIdentity()
 
 	profileJSON := []byte(`{"id": "fail-test"}`)
-	bundle, _ := CreateProfileBundleUnencrypted(profileJSON, "fail-test")
+	bundle, _ := resultValue[*Bundle](CreateProfileBundleUnencrypted(profileJSON, "fail-test"))
 
 	payload := DeployPayload{
 		BundleType: string(BundleProfile),
@@ -1155,15 +1323,15 @@ func TestWorker_HandleDeploy_ProfileSaveFails(t *testing.T) {
 		Checksum:   bundle.Checksum,
 		Name:       "fail-test",
 	}
-	msg, _ := NewMessage(MsgDeploy, "sender-id", identity.ID, payload)
+	msg, _ := resultValue[*Message](NewMessage(MsgDeploy, "sender-id", identity.ID, payload))
 
-	response, err := worker.handleDeploy(nil, msg)
+	response, err := resultValue[*Message](worker.handleDeploy(nil, msg))
 	if err != nil {
 		t.Fatalf("handleDeploy should return ack with error, not error: %v", err)
 	}
 
 	var ack DeployAckPayload
-	response.ParsePayload(&ack)
+	_ = resultErr(response.ParsePayload(&ack))
 	if ack.Success {
 		t.Error("expected failure ack when save fails")
 	}
@@ -1174,17 +1342,17 @@ func TestWorker_HandleDeploy_MinerBundle(t *testing.T) {
 	defer cleanup()
 
 	dir := t.TempDir()
-	nm, err := NewNodeManagerWithPaths(
-		filepath.Join(dir, "private.key"),
-		filepath.Join(dir, "node.json"),
-	)
+	nm, err := resultValue[*NodeManager](NewNodeManagerWithPaths(
+		core.PathJoin(dir, "private.key"),
+		core.PathJoin(dir, "node.json"),
+	))
 	if err != nil {
 		t.Fatalf("failed to create node manager: %v", err)
 	}
-	if err := nm.GenerateIdentity("test-worker", RoleWorker); err != nil {
+	if err := resultErr(nm.GenerateIdentity("test-worker", RoleWorker)); err != nil {
 		t.Fatalf("failed to generate identity: %v", err)
 	}
-	pr, err := NewPeerRegistryWithPath(t.TempDir() + "/peers.json")
+	pr, err := resultValue[*PeerRegistry](NewPeerRegistryWithPath(t.TempDir() + "/peers.json"))
 	if err != nil {
 		t.Fatalf("failed to create peer registry: %v", err)
 	}
@@ -1197,8 +1365,8 @@ func TestWorker_HandleDeploy_MinerBundle(t *testing.T) {
 	identity := nm.GetIdentity()
 
 	tmpDir := t.TempDir()
-	minerPath := filepath.Join(tmpDir, "test-miner")
-	os.WriteFile(minerPath, []byte("fake miner binary"), 0755)
+	minerPath := core.PathJoin(tmpDir, "test-miner")
+	testWriteFile(minerPath, []byte("fake miner binary"), 0755)
 
 	profileJSON := []byte(`{"pool":"test:3333"}`)
 
@@ -1207,7 +1375,7 @@ func TestWorker_HandleDeploy_MinerBundle(t *testing.T) {
 	sharedSecret := []byte("shared-secret-32")
 	bundlePassword := base64.StdEncoding.EncodeToString(sharedSecret)
 
-	bundle, err := CreateMinerBundle(minerPath, profileJSON, "deploy-miner", bundlePassword)
+	bundle, err := resultValue[*Bundle](CreateMinerBundle(minerPath, profileJSON, "deploy-miner", bundlePassword))
 	if err != nil {
 		t.Fatalf("failed to create miner bundle: %v", err)
 	}
@@ -1218,19 +1386,19 @@ func TestWorker_HandleDeploy_MinerBundle(t *testing.T) {
 		Checksum:   bundle.Checksum,
 		Name:       "deploy-miner",
 	}
-	msg, _ := NewMessage(MsgDeploy, "sender-id", identity.ID, payload)
+	msg, _ := resultValue[*Message](NewMessage(MsgDeploy, "sender-id", identity.ID, payload))
 
 	conn := &PeerConnection{
 		SharedSecret: sharedSecret,
 	}
 
-	response, err := worker.handleDeploy(conn, msg)
+	response, err := resultValue[*Message](worker.handleDeploy(conn, msg))
 	if err != nil {
 		t.Fatalf("handleDeploy returned error: %v", err)
 	}
 
 	var ack DeployAckPayload
-	response.ParsePayload(&ack)
+	_ = resultErr(response.ParsePayload(&ack))
 	if !ack.Success {
 		t.Errorf("expected success, got error: %s", ack.Error)
 	}
@@ -1241,17 +1409,17 @@ func TestWorker_HandleDeploy_FullBundle(t *testing.T) {
 	defer cleanup()
 
 	dir := t.TempDir()
-	nm, err := NewNodeManagerWithPaths(
-		filepath.Join(dir, "private.key"),
-		filepath.Join(dir, "node.json"),
-	)
+	nm, err := resultValue[*NodeManager](NewNodeManagerWithPaths(
+		core.PathJoin(dir, "private.key"),
+		core.PathJoin(dir, "node.json"),
+	))
 	if err != nil {
 		t.Fatalf("failed to create node manager: %v", err)
 	}
-	if err := nm.GenerateIdentity("test-worker", RoleWorker); err != nil {
+	if err := resultErr(nm.GenerateIdentity("test-worker", RoleWorker)); err != nil {
 		t.Fatalf("failed to generate identity: %v", err)
 	}
-	pr, err := NewPeerRegistryWithPath(t.TempDir() + "/peers.json")
+	pr, err := resultValue[*PeerRegistry](NewPeerRegistryWithPath(t.TempDir() + "/peers.json"))
 	if err != nil {
 		t.Fatalf("failed to create peer registry: %v", err)
 	}
@@ -1262,13 +1430,13 @@ func TestWorker_HandleDeploy_FullBundle(t *testing.T) {
 	identity := nm.GetIdentity()
 
 	tmpDir := t.TempDir()
-	minerPath := filepath.Join(tmpDir, "test-miner")
-	os.WriteFile(minerPath, []byte("miner binary"), 0755)
+	minerPath := core.PathJoin(tmpDir, "test-miner")
+	testWriteFile(minerPath, []byte("miner binary"), 0755)
 
 	sharedSecret := []byte("full-secret-key!")
 	bundlePassword := base64.StdEncoding.EncodeToString(sharedSecret)
 
-	bundle, err := CreateMinerBundle(minerPath, nil, "full-deploy", bundlePassword)
+	bundle, err := resultValue[*Bundle](CreateMinerBundle(minerPath, nil, "full-deploy", bundlePassword))
 	if err != nil {
 		t.Fatalf("failed to create miner bundle: %v", err)
 	}
@@ -1279,17 +1447,17 @@ func TestWorker_HandleDeploy_FullBundle(t *testing.T) {
 		Checksum:   bundle.Checksum,
 		Name:       "full-deploy",
 	}
-	msg, _ := NewMessage(MsgDeploy, "sender-id", identity.ID, payload)
+	msg, _ := resultValue[*Message](NewMessage(MsgDeploy, "sender-id", identity.ID, payload))
 
 	conn := &PeerConnection{SharedSecret: sharedSecret}
 
-	response, err := worker.handleDeploy(conn, msg)
+	response, err := resultValue[*Message](worker.handleDeploy(conn, msg))
 	if err != nil {
 		t.Fatalf("handleDeploy for full bundle returned error: %v", err)
 	}
 
 	var ack DeployAckPayload
-	response.ParsePayload(&ack)
+	_ = resultErr(response.ParsePayload(&ack))
 	if !ack.Success {
 		t.Errorf("expected success, got error: %s", ack.Error)
 	}
@@ -1300,17 +1468,17 @@ func TestWorker_HandleDeploy_MinerBundle_WithProfileManager(t *testing.T) {
 	defer cleanup()
 
 	dir := t.TempDir()
-	nm, err := NewNodeManagerWithPaths(
-		filepath.Join(dir, "private.key"),
-		filepath.Join(dir, "node.json"),
-	)
+	nm, err := resultValue[*NodeManager](NewNodeManagerWithPaths(
+		core.PathJoin(dir, "private.key"),
+		core.PathJoin(dir, "node.json"),
+	))
 	if err != nil {
 		t.Fatalf("failed to create node manager: %v", err)
 	}
-	if err := nm.GenerateIdentity("test-worker", RoleWorker); err != nil {
+	if err := resultErr(nm.GenerateIdentity("test-worker", RoleWorker)); err != nil {
 		t.Fatalf("failed to generate identity: %v", err)
 	}
-	pr, err := NewPeerRegistryWithPath(t.TempDir() + "/peers.json")
+	pr, err := resultValue[*PeerRegistry](NewPeerRegistryWithPath(t.TempDir() + "/peers.json"))
 	if err != nil {
 		t.Fatalf("failed to create peer registry: %v", err)
 	}
@@ -1324,14 +1492,14 @@ func TestWorker_HandleDeploy_MinerBundle_WithProfileManager(t *testing.T) {
 	identity := nm.GetIdentity()
 
 	tmpDir := t.TempDir()
-	minerPath := filepath.Join(tmpDir, "test-miner")
-	os.WriteFile(minerPath, []byte("miner binary"), 0755)
+	minerPath := core.PathJoin(tmpDir, "test-miner")
+	testWriteFile(minerPath, []byte("miner binary"), 0755)
 
 	profileJSON := []byte(`{"pool":"test:3333"}`)
 	sharedSecret := []byte("profile-secret!!")
 	bundlePassword := base64.StdEncoding.EncodeToString(sharedSecret)
 
-	bundle, err := CreateMinerBundle(minerPath, profileJSON, "deploy-with-profile", bundlePassword)
+	bundle, err := resultValue[*Bundle](CreateMinerBundle(minerPath, profileJSON, "deploy-with-profile", bundlePassword))
 	if err != nil {
 		t.Fatalf("failed to create miner bundle: %v", err)
 	}
@@ -1342,17 +1510,17 @@ func TestWorker_HandleDeploy_MinerBundle_WithProfileManager(t *testing.T) {
 		Checksum:   bundle.Checksum,
 		Name:       "deploy-with-profile",
 	}
-	msg, _ := NewMessage(MsgDeploy, "sender-id", identity.ID, payload)
+	msg, _ := resultValue[*Message](NewMessage(MsgDeploy, "sender-id", identity.ID, payload))
 
 	conn := &PeerConnection{SharedSecret: sharedSecret}
 
-	response, err := worker.handleDeploy(conn, msg)
+	response, err := resultValue[*Message](worker.handleDeploy(conn, msg))
 	if err != nil {
 		t.Fatalf("handleDeploy returned error: %v", err)
 	}
 
 	var ack DeployAckPayload
-	response.ParsePayload(&ack)
+	_ = resultErr(response.ParsePayload(&ack))
 	// Deploy should still succeed even if profile save fails
 	if !ack.Success {
 		t.Errorf("expected success despite profile save failure, got: %s", ack.Error)
@@ -1364,21 +1532,21 @@ func TestWorker_HandleDeploy_InvalidPayload(t *testing.T) {
 	defer cleanup()
 
 	dir := t.TempDir()
-	nm, _ := NewNodeManagerWithPaths(
-		filepath.Join(dir, "private.key"),
-		filepath.Join(dir, "node.json"),
-	)
-	nm.GenerateIdentity("test", RoleWorker)
-	pr, _ := NewPeerRegistryWithPath(t.TempDir() + "/peers.json")
+	nm, _ := resultValue[*NodeManager](NewNodeManagerWithPaths(
+		core.PathJoin(dir, "private.key"),
+		core.PathJoin(dir, "node.json"),
+	))
+	_ = resultErr(nm.GenerateIdentity("test", RoleWorker))
+	pr, _ := resultValue[*PeerRegistry](NewPeerRegistryWithPath(t.TempDir() + "/peers.json"))
 	transport := NewTransport(nm, pr, DefaultTransportConfig())
 	worker := NewWorker(nm, transport)
 	worker.DataDir = t.TempDir()
 	identity := nm.GetIdentity()
 
 	// Create a message with invalid payload
-	msg, _ := NewMessage(MsgDeploy, "sender-id", identity.ID, "invalid-payload-not-struct")
+	msg, _ := resultValue[*Message](NewMessage(MsgDeploy, "sender-id", identity.ID, "invalid-payload-not-struct"))
 
-	_, err := worker.handleDeploy(nil, msg)
+	_, err := resultValue[*Message](worker.handleDeploy(nil, msg))
 	if err == nil {
 		t.Error("expected error for invalid deploy payload")
 	}
@@ -1388,18 +1556,18 @@ func TestWorker_HandleGetStats_NoIdentity(t *testing.T) {
 	cleanup := setupTestEnv(t)
 	defer cleanup()
 
-	nm, _ := NewNodeManagerWithPaths(
-		filepath.Join(t.TempDir(), "priv.key"),
-		filepath.Join(t.TempDir(), "node.json"),
-	)
+	nm, _ := resultValue[*NodeManager](NewNodeManagerWithPaths(
+		core.PathJoin(t.TempDir(), "priv.key"),
+		core.PathJoin(t.TempDir(), "node.json"),
+	))
 	// Don't generate identity
-	pr, _ := NewPeerRegistryWithPath(t.TempDir() + "/peers.json")
+	pr, _ := resultValue[*PeerRegistry](NewPeerRegistryWithPath(t.TempDir() + "/peers.json"))
 	transport := NewTransport(nm, pr, DefaultTransportConfig())
 	worker := NewWorker(nm, transport)
 	worker.DataDir = t.TempDir()
 
-	msg, _ := NewMessage(MsgGetStats, "sender-id", "target-id", nil)
-	_, err := worker.handleGetStats(msg)
+	msg, _ := resultValue[*Message](NewMessage(MsgGetStats, "sender-id", "target-id", nil))
+	_, err := resultValue[*Message](worker.handleGetStats(msg))
 	if err == nil {
 		t.Error("expected error when identity is not initialized")
 	}
@@ -1421,7 +1589,7 @@ func TestWorker_HandleMessage_IntegrationViaWebSocket(t *testing.T) {
 
 	// Send start_miner which will fail because no manager is set.
 	// The worker should send an error response via the connection.
-	err := controller.StartRemoteMiner(serverID, "xmrig", "", json.RawMessage(`{}`))
+	err := resultErr(controller.StartRemoteMiner(serverID, "xmrig", "", RawMessage(`{}`)))
 	// Should get an error back (either protocol error or operation failed)
 	if err == nil {
 		t.Error("expected error when worker has no miner manager")
@@ -1458,7 +1626,7 @@ func TestWorker_HandleMessage_GetStats_IntegrationViaWebSocket(t *testing.T) {
 
 	serverID := tp.ServerNode.GetIdentity().ID
 
-	stats, err := controller.GetRemoteStats(serverID)
+	stats, err := resultValue[*StatsPayload](controller.GetRemoteStats(serverID))
 	if err != nil {
 		t.Fatalf("GetRemoteStats failed: %v", err)
 	}

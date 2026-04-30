@@ -5,9 +5,10 @@ package levin
 
 import (
 	"encoding/binary"
-	"errors"
 	"reflect"
 	"testing"
+
+	core "dappco.re/go"
 )
 
 func TestHeaderSizeIs33(t *testing.T) {
@@ -71,6 +72,72 @@ func TestEncodeHeader_KnownValues(t *testing.T) {
 	}
 }
 
+func TestHeader_EncodeHeader_Good(t *testing.T) {
+	header := &Header{Signature: Signature, PayloadSize: 5, ExpectResponse: true, Command: CommandPing}
+	encoded := EncodeHeader(header)
+	if binary.LittleEndian.Uint64(encoded[0:8]) != Signature {
+		t.Fatal("signature not encoded")
+	}
+	if encoded[16] != 1 {
+		t.Fatalf("expect-response byte: got %d", encoded[16])
+	}
+}
+
+func TestHeader_EncodeHeader_Bad(t *testing.T) {
+	header := &Header{Signature: 0, PayloadSize: 0, ExpectResponse: false}
+	encoded := EncodeHeader(header)
+	if binary.LittleEndian.Uint64(encoded[0:8]) != 0 {
+		t.Fatal("signature should encode as zero")
+	}
+	if encoded[16] != 0 {
+		t.Fatalf("expect-response byte: got %d", encoded[16])
+	}
+}
+
+func TestHeader_EncodeHeader_Ugly(t *testing.T) {
+	header := &Header{Signature: Signature, PayloadSize: MaxPayloadSize, ReturnCode: -1}
+	encoded := EncodeHeader(header)
+	if len(encoded) != HeaderSize {
+		t.Fatalf("header length: got %d", len(encoded))
+	}
+	if int32(binary.LittleEndian.Uint32(encoded[21:25])) != -1 {
+		t.Fatal("return code not encoded")
+	}
+}
+
+func TestHeader_DecodeHeader_Good(t *testing.T) {
+	encoded := EncodeHeader(&Header{Signature: Signature, PayloadSize: 7, Command: CommandPing})
+	header, err := levinResultValue[Header](DecodeHeader(encoded))
+	if err != nil {
+		t.Fatalf("DecodeHeader: %v", err)
+	}
+	if header.PayloadSize != 7 || header.Command != CommandPing {
+		t.Fatalf("header: got %#v", header)
+	}
+}
+
+func TestHeader_DecodeHeader_Bad(t *testing.T) {
+	encoded := EncodeHeader(&Header{Signature: 0})
+	header, err := levinResultValue[Header](DecodeHeader(encoded))
+	if !core.Is(err, ErrBadSignature) {
+		t.Fatalf("error: got %v", err)
+	}
+	if header.Signature != 0 {
+		t.Fatalf("header: got %#v", header)
+	}
+}
+
+func TestHeader_DecodeHeader_Ugly(t *testing.T) {
+	encoded := EncodeHeader(&Header{Signature: Signature, PayloadSize: MaxPayloadSize + 1})
+	header, err := levinResultValue[Header](DecodeHeader(encoded))
+	if !core.Is(err, ErrPayloadTooBig) {
+		t.Fatalf("error: got %v", err)
+	}
+	if header.PayloadSize != 0 {
+		t.Fatalf("header: got %#v", header)
+	}
+}
+
 func TestEncodeHeader_ExpectResponseFalse(t *testing.T) {
 	h := &Header{
 		Signature:      Signature,
@@ -112,7 +179,7 @@ func TestDecodeHeader_RoundTrip(t *testing.T) {
 	}
 
 	buf := EncodeHeader(original)
-	decoded, err := DecodeHeader(buf)
+	decoded, err := levinResultValue[Header](DecodeHeader(buf))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -160,7 +227,7 @@ func TestDecodeHeader_AllCommands(t *testing.T) {
 			ReturnCode: ReturnOK,
 		}
 		buf := EncodeHeader(h)
-		decoded, err := DecodeHeader(buf)
+		decoded, err := levinResultValue[Header](DecodeHeader(buf))
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -177,11 +244,11 @@ func TestDecodeHeader_BadSignature(t *testing.T) {
 		Command:     CommandPing,
 	}
 	buf := EncodeHeader(h)
-	_, err := DecodeHeader(buf)
+	_, err := levinResultValue[Header](DecodeHeader(buf))
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
-	if !errors.Is(err, ErrBadSignature) {
+	if !core.Is(err, ErrBadSignature) {
 		t.Fatalf("expected error %v, got %v", ErrBadSignature, err)
 	}
 }
@@ -193,11 +260,11 @@ func TestDecodeHeader_PayloadTooBig(t *testing.T) {
 		Command:     CommandHandshake,
 	}
 	buf := EncodeHeader(h)
-	_, err := DecodeHeader(buf)
+	_, err := levinResultValue[Header](DecodeHeader(buf))
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
-	if !errors.Is(err, ErrPayloadTooBig) {
+	if !core.Is(err, ErrPayloadTooBig) {
 		t.Fatalf("expected error %v, got %v", ErrPayloadTooBig, err)
 	}
 }
@@ -209,7 +276,7 @@ func TestDecodeHeader_MaxPayloadExact(t *testing.T) {
 		Command:     CommandHandshake,
 	}
 	buf := EncodeHeader(h)
-	decoded, err := DecodeHeader(buf)
+	decoded, err := levinResultValue[Header](DecodeHeader(buf))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

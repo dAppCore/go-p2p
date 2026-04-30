@@ -2,10 +2,9 @@ package node
 
 import (
 	"encoding/base64"
-	"encoding/json"
-	"path/filepath"
 	"time"
 
+	core "dappco.re/go"
 	coreerr "dappco.re/go/log"
 
 	"dappco.re/go/p2p/logging"
@@ -72,46 +71,51 @@ func (w *Worker) SetProfileManager(manager ProfileManager) {
 // HandleMessage processes incoming messages and returns a response.
 func (w *Worker) HandleMessage(conn *PeerConnection, msg *Message) {
 	var response *Message
-	var err error
+	var result core.Result
 
 	switch msg.Type {
 	case MsgPing:
-		response, err = w.handlePing(msg)
+		result = w.handlePing(msg)
 	case MsgGetStats:
-		response, err = w.handleGetStats(msg)
+		result = w.handleGetStats(msg)
 	case MsgStartMiner:
-		response, err = w.handleStartMiner(msg)
+		result = w.handleStartMiner(msg)
 	case MsgStopMiner:
-		response, err = w.handleStopMiner(msg)
+		result = w.handleStopMiner(msg)
 	case MsgGetLogs:
-		response, err = w.handleGetLogs(msg)
+		result = w.handleGetLogs(msg)
 	case MsgDeploy:
-		response, err = w.handleDeploy(conn, msg)
+		result = w.handleDeploy(conn, msg)
 	default:
 		// Unknown message type - ignore or send error
 		return
 	}
 
-	if err != nil {
+	if !result.OK {
 		// Send error response
 		identity := w.node.GetIdentity()
 		if identity != nil {
-			errMsg, _ := NewErrorMessage(
+			errMsg := NewErrorMessage(
 				identity.ID,
 				msg.From,
 				ErrCodeOperationFailed,
-				err.Error(),
+				result.Error(),
 				msg.ID,
 			)
-			conn.Send(errMsg)
+			if errMsg.OK {
+				conn.Send(errMsg.Value.(*Message))
+			}
 		}
 		return
 	}
 
+	if result.Value != nil {
+		response, _ = result.Value.(*Message)
+	}
 	if response != nil {
 		logging.Debug("sending response", logging.Fields{"type": response.Type, "to": msg.From})
-		if err := conn.Send(response); err != nil {
-			logging.Error("failed to send response", logging.Fields{"error": err})
+		if r := conn.Send(response); !r.OK {
+			logging.Error("failed to send response", logging.Fields{"error": r.Error()})
 		} else {
 			logging.Debug("response sent successfully")
 		}
@@ -119,10 +123,11 @@ func (w *Worker) HandleMessage(conn *PeerConnection, msg *Message) {
 }
 
 // handlePing responds to ping requests.
-func (w *Worker) handlePing(msg *Message) (*Message, error) {
+func (w *Worker) handlePing(msg *Message) core.Result {
 	var ping PingPayload
-	if err := msg.ParsePayload(&ping); err != nil {
-		return nil, coreerr.E("Worker.handlePing", "invalid ping payload", err)
+	if r := msg.ParsePayload(&ping); !r.OK {
+		err, _ := r.Value.(error)
+		return core.Fail(coreerr.E("Worker.handlePing", "invalid ping payload", err))
 	}
 
 	pong := PongPayload{
@@ -134,10 +139,10 @@ func (w *Worker) handlePing(msg *Message) (*Message, error) {
 }
 
 // handleGetStats responds with current miner statistics.
-func (w *Worker) handleGetStats(msg *Message) (*Message, error) {
+func (w *Worker) handleGetStats(msg *Message) core.Result {
 	identity := w.node.GetIdentity()
 	if identity == nil {
-		return nil, ErrIdentityNotInitialized
+		return core.Fail(ErrIdentityNotInitialized)
 	}
 
 	stats := StatsPayload{
@@ -223,19 +228,20 @@ func convertMinerStats(miner MinerInstance, rawStats any) MinerStatsItem {
 }
 
 // handleStartMiner starts a miner with the given profile.
-func (w *Worker) handleStartMiner(msg *Message) (*Message, error) {
+func (w *Worker) handleStartMiner(msg *Message) core.Result {
 	if w.minerManager == nil {
-		return nil, ErrMinerManagerNotConfigured
+		return core.Fail(ErrMinerManagerNotConfigured)
 	}
 
 	var payload StartMinerPayload
-	if err := msg.ParsePayload(&payload); err != nil {
-		return nil, coreerr.E("Worker.handleStartMiner", "invalid start miner payload", err)
+	if r := msg.ParsePayload(&payload); !r.OK {
+		err, _ := r.Value.(error)
+		return core.Fail(coreerr.E("Worker.handleStartMiner", "invalid start miner payload", err))
 	}
 
 	// Validate miner type is provided
 	if payload.MinerType == "" {
-		return nil, coreerr.E("Worker.handleStartMiner", "miner type is required", nil)
+		return core.Fail(coreerr.E("Worker.handleStartMiner", "miner type is required", nil))
 	}
 
 	// Get the config from the profile or use the override
@@ -245,11 +251,11 @@ func (w *Worker) handleStartMiner(msg *Message) (*Message, error) {
 	} else if w.profileManager != nil {
 		profile, err := w.profileManager.GetProfile(payload.ProfileID)
 		if err != nil {
-			return nil, coreerr.E("Worker.handleStartMiner", "profile not found: "+payload.ProfileID, nil)
+			return core.Fail(coreerr.E("Worker.handleStartMiner", "profile not found: "+payload.ProfileID, nil))
 		}
 		config = profile
 	} else {
-		return nil, coreerr.E("Worker.handleStartMiner", "no config provided and no profile manager configured", nil)
+		return core.Fail(coreerr.E("Worker.handleStartMiner", "no config provided and no profile manager configured", nil))
 	}
 
 	// Start the miner
@@ -271,14 +277,15 @@ func (w *Worker) handleStartMiner(msg *Message) (*Message, error) {
 }
 
 // handleStopMiner stops a running miner.
-func (w *Worker) handleStopMiner(msg *Message) (*Message, error) {
+func (w *Worker) handleStopMiner(msg *Message) core.Result {
 	if w.minerManager == nil {
-		return nil, ErrMinerManagerNotConfigured
+		return core.Fail(ErrMinerManagerNotConfigured)
 	}
 
 	var payload StopMinerPayload
-	if err := msg.ParsePayload(&payload); err != nil {
-		return nil, coreerr.E("Worker.handleStopMiner", "invalid stop miner payload", err)
+	if r := msg.ParsePayload(&payload); !r.OK {
+		err, _ := r.Value.(error)
+		return core.Fail(coreerr.E("Worker.handleStopMiner", "invalid stop miner payload", err))
 	}
 
 	err := w.minerManager.StopMiner(payload.MinerName)
@@ -295,14 +302,15 @@ func (w *Worker) handleStopMiner(msg *Message) (*Message, error) {
 }
 
 // handleGetLogs returns console logs from a miner.
-func (w *Worker) handleGetLogs(msg *Message) (*Message, error) {
+func (w *Worker) handleGetLogs(msg *Message) core.Result {
 	if w.minerManager == nil {
-		return nil, ErrMinerManagerNotConfigured
+		return core.Fail(ErrMinerManagerNotConfigured)
 	}
 
 	var payload GetLogsPayload
-	if err := msg.ParsePayload(&payload); err != nil {
-		return nil, coreerr.E("Worker.handleGetLogs", "invalid get logs payload", err)
+	if r := msg.ParsePayload(&payload); !r.OK {
+		err, _ := r.Value.(error)
+		return core.Fail(coreerr.E("Worker.handleGetLogs", "invalid get logs payload", err))
 	}
 
 	// Validate and limit the Lines parameter to prevent resource exhaustion
@@ -313,7 +321,7 @@ func (w *Worker) handleGetLogs(msg *Message) (*Message, error) {
 
 	miner, err := w.minerManager.GetMiner(payload.MinerName)
 	if err != nil {
-		return nil, coreerr.E("Worker.handleGetLogs", "miner not found: "+payload.MinerName, nil)
+		return core.Fail(coreerr.E("Worker.handleGetLogs", "miner not found: "+payload.MinerName, nil))
 	}
 
 	var since time.Time
@@ -345,10 +353,11 @@ func getMinerConsoleHistory(miner MinerInstance, lines int, since time.Time) []s
 }
 
 // handleDeploy handles deployment of profiles or miner bundles.
-func (w *Worker) handleDeploy(conn *PeerConnection, msg *Message) (*Message, error) {
+func (w *Worker) handleDeploy(conn *PeerConnection, msg *Message) core.Result {
 	var payload DeployPayload
-	if err := msg.ParsePayload(&payload); err != nil {
-		return nil, coreerr.E("Worker.handleDeploy", "invalid deploy payload", err)
+	if r := msg.ParsePayload(&payload); !r.OK {
+		err, _ := r.Value.(error)
+		return core.Fail(coreerr.E("Worker.handleDeploy", "invalid deploy payload", err))
 	}
 
 	// Reconstruct Bundle object from payload, preferring the structured bundle
@@ -379,19 +388,22 @@ func (w *Worker) handleDeploy(conn *PeerConnection, msg *Message) (*Message, err
 	switch bundle.Type {
 	case BundleProfile:
 		if w.profileManager == nil {
-			return nil, coreerr.E("Worker.handleDeploy", "profile manager not configured", nil)
+			return core.Fail(coreerr.E("Worker.handleDeploy", "profile manager not configured", nil))
 		}
 
 		// Decrypt and extract profile data
-		profileData, err := ExtractProfileBundle(bundle, password)
-		if err != nil {
-			return nil, coreerr.E("Worker.handleDeploy", "failed to extract profile bundle", err)
+		profileDataResult := ExtractProfileBundle(bundle, password)
+		if !profileDataResult.OK {
+			err, _ := profileDataResult.Value.(error)
+			return core.Fail(coreerr.E("Worker.handleDeploy", "failed to extract profile bundle", err))
 		}
+		profileData := profileDataResult.Value.([]byte)
 
 		// Unmarshal into interface{} to pass to ProfileManager
 		var profile any
-		if err := json.Unmarshal(profileData, &profile); err != nil {
-			return nil, coreerr.E("Worker.handleDeploy", "invalid profile data JSON", err)
+		if r := core.JSONUnmarshal(profileData, &profile); !r.OK {
+			err, _ := r.Value.(error)
+			return core.Fail(coreerr.E("Worker.handleDeploy", "invalid profile data JSON", err))
 		}
 
 		if err := w.profileManager.SaveProfile(profile); err != nil {
@@ -412,25 +424,30 @@ func (w *Worker) handleDeploy(conn *PeerConnection, msg *Message) (*Message, err
 	case BundleMiner, BundleFull:
 		// Determine installation directory
 		// We use w.DataDir/lethean-desktop/miners/<bundle_name>
-		minersDir := filepath.Join(w.DataDir, "lethean-desktop", "miners")
-		installDir := filepath.Join(minersDir, payload.Name)
+		minersDir := core.PathJoin(w.DataDir, "lethean-desktop", "miners")
+		installDir := core.PathJoin(minersDir, payload.Name)
 
 		logging.Info("deploying miner bundle", logging.Fields{
-			"name": payload.Name,
-			"path": installDir,
-			"type": payload.BundleType,
+			"name":         payload.Name,
+			"install_path": installDir,
+			"type":         payload.BundleType,
 		})
 
 		// Extract miner bundle
-		minerPath, profileData, err := ExtractMinerBundle(bundle, password, installDir)
-		if err != nil {
-			return nil, coreerr.E("Worker.handleDeploy", "failed to extract miner bundle", err)
+		extractedResult := ExtractMinerBundle(bundle, password, installDir)
+		if !extractedResult.OK {
+			err, _ := extractedResult.Value.(error)
+			return core.Fail(coreerr.E("Worker.handleDeploy", "failed to extract miner bundle", err))
 		}
+		extracted := extractedResult.Value.(extractedMinerBundleResult)
+		minerPath := extracted.Path
+		profileData := extracted.Profile
 
 		// If the bundle contained a profile config, save it
 		if len(profileData) > 0 && w.profileManager != nil {
 			var profile any
-			if err := json.Unmarshal(profileData, &profile); err != nil {
+			if r := core.JSONUnmarshal(profileData, &profile); !r.OK {
+				err, _ := r.Value.(error)
 				logging.Warn("failed to parse profile from miner bundle", logging.Fields{"error": err})
 			} else {
 				if err := w.profileManager.SaveProfile(profile); err != nil {
@@ -454,7 +471,7 @@ func (w *Worker) handleDeploy(conn *PeerConnection, msg *Message) (*Message, err
 		return msg.Reply(MsgDeployAck, ack)
 
 	default:
-		return nil, coreerr.E("Worker.handleDeploy", "unknown bundle type: "+payload.BundleType, nil)
+		return core.Fail(coreerr.E("Worker.handleDeploy", "unknown bundle type: "+payload.BundleType, nil))
 	}
 }
 

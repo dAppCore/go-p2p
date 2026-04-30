@@ -4,9 +4,10 @@
 package levin
 
 import (
-	"errors"
 	"reflect"
 	"testing"
+
+	core "dappco.re/go"
 )
 
 func TestPackVarint_Value5(t *testing.T) {
@@ -30,6 +31,66 @@ func TestPackVarint_Value65536(t *testing.T) {
 	got := PackVarint(65536)
 	if !reflect.DeepEqual([]byte{0x02, 0x00, 0x04, 0x00}, got) {
 		t.Fatalf("want %v, got %v", []byte{0x02, 0x00, 0x04, 0x00}, got)
+	}
+}
+
+func TestVarint_PackVarint_Good(t *testing.T) {
+	got := PackVarint(63)
+	if !reflect.DeepEqual([]byte{0xfc}, got) {
+		t.Fatalf("packed: got %#v", got)
+	}
+	if len(got) != 1 {
+		t.Fatalf("length: got %d", len(got))
+	}
+}
+
+func TestVarint_PackVarint_Bad(t *testing.T) {
+	got := PackVarint(64)
+	if len(got) != 2 {
+		t.Fatalf("length: got %d, want 2", len(got))
+	}
+	if got[0]&varintMask != varintMark2 {
+		t.Fatalf("mark: got %d", got[0]&varintMask)
+	}
+}
+
+func TestVarint_PackVarint_Ugly(t *testing.T) {
+	got := PackVarint(^uint64(0) >> 2)
+	if len(got) != 8 {
+		t.Fatalf("length: got %d, want 8", len(got))
+	}
+	if got[0]&varintMask != varintMark8 {
+		t.Fatalf("mark: got %d", got[0]&varintMask)
+	}
+}
+
+func TestVarint_UnpackVarint_Good(t *testing.T) {
+	value, consumed, err := levinUnpackVarint(UnpackVarint(PackVarint(100)))
+	if err != nil {
+		t.Fatalf("UnpackVarint: %v", err)
+	}
+	if value != 100 || consumed != 2 {
+		t.Fatalf("decoded: got value=%d consumed=%d", value, consumed)
+	}
+}
+
+func TestVarint_UnpackVarint_Bad(t *testing.T) {
+	value, consumed, err := levinUnpackVarint(UnpackVarint(nil))
+	if !core.Is(err, ErrVarintTruncated) {
+		t.Fatalf("error: got %v", err)
+	}
+	if value != 0 || consumed != 0 {
+		t.Fatalf("decoded: got value=%d consumed=%d", value, consumed)
+	}
+}
+
+func TestVarint_UnpackVarint_Ugly(t *testing.T) {
+	value, consumed, err := levinUnpackVarint(UnpackVarint([]byte{varintMark8}))
+	if !core.Is(err, ErrVarintTruncated) {
+		t.Fatalf("error: got %v", err)
+	}
+	if value != 0 || consumed != 0 {
+		t.Fatalf("decoded: got value=%d consumed=%d", value, consumed)
 	}
 }
 
@@ -85,7 +146,7 @@ func TestVarint_RoundTrip(t *testing.T) {
 
 	for _, v := range values {
 		buf := PackVarint(v)
-		decoded, consumed, err := UnpackVarint(buf)
+		decoded, consumed, err := levinUnpackVarint(UnpackVarint(buf))
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -99,11 +160,11 @@ func TestVarint_RoundTrip(t *testing.T) {
 }
 
 func TestUnpackVarint_EmptyInput(t *testing.T) {
-	_, _, err := UnpackVarint([]byte{})
+	_, _, err := levinUnpackVarint(UnpackVarint([]byte{}))
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
-	if !errors.Is(err, ErrVarintTruncated) {
+	if !core.Is(err, ErrVarintTruncated) {
 		t.Fatalf("expected error %v, got %v", ErrVarintTruncated, err)
 	}
 }
@@ -114,11 +175,11 @@ func TestUnpackVarint_Truncated2Byte(t *testing.T) {
 	if len(buf) != 2 {
 		t.Fatalf("want len %v, got %v", 2, len(buf))
 	}
-	_, _, err := UnpackVarint(buf[:1])
+	_, _, err := levinUnpackVarint(UnpackVarint(buf[:1]))
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
-	if !errors.Is(err, ErrVarintTruncated) {
+	if !core.Is(err, ErrVarintTruncated) {
 		t.Fatalf("expected error %v, got %v", ErrVarintTruncated, err)
 	}
 }
@@ -128,11 +189,11 @@ func TestUnpackVarint_Truncated4Byte(t *testing.T) {
 	if len(buf) != 4 {
 		t.Fatalf("want len %v, got %v", 4, len(buf))
 	}
-	_, _, err := UnpackVarint(buf[:2])
+	_, _, err := levinUnpackVarint(UnpackVarint(buf[:2]))
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
-	if !errors.Is(err, ErrVarintTruncated) {
+	if !core.Is(err, ErrVarintTruncated) {
 		t.Fatalf("expected error %v, got %v", ErrVarintTruncated, err)
 	}
 }
@@ -142,11 +203,11 @@ func TestUnpackVarint_Truncated8Byte(t *testing.T) {
 	if len(buf) != 8 {
 		t.Fatalf("want len %v, got %v", 8, len(buf))
 	}
-	_, _, err := UnpackVarint(buf[:4])
+	_, _, err := levinUnpackVarint(UnpackVarint(buf[:4]))
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
-	if !errors.Is(err, ErrVarintTruncated) {
+	if !core.Is(err, ErrVarintTruncated) {
 		t.Fatalf("expected error %v, got %v", ErrVarintTruncated, err)
 	}
 }
@@ -154,7 +215,7 @@ func TestUnpackVarint_Truncated8Byte(t *testing.T) {
 func TestUnpackVarint_ExtraBytes(t *testing.T) {
 	// Ensure that extra trailing bytes are not consumed.
 	buf := append(PackVarint(42), 0xFF, 0xFF)
-	decoded, consumed, err := UnpackVarint(buf)
+	decoded, consumed, err := levinUnpackVarint(UnpackVarint(buf))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
