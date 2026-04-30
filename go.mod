@@ -110,10 +110,3 @@ require (
 	golang.org/x/sys v0.43.0
 )
 
-replace dappco.re/go => ../go
-
-replace dappco.re/go/api => ../go-api
-
-replace dappco.re/go/io => ../go-io
-
-replace dappco.re/go/log => ../go-log
