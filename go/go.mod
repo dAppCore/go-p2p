@@ -1,11 +1,11 @@
 module dappco.re/go/p2p
 
-go 1.26.0
+go 1.26.2
 
 require (
-	dappco.re/go/api v0.8.0-alpha.1
-	dappco.re/go/io v0.8.0-alpha.1
-	dappco.re/go/log v0.8.0-alpha.1
+	dappco.re/go/api v0.9.0
+	dappco.re/go/io v0.9.0
+	dappco.re/go/log v0.9.0
 	forge.lthn.ai/Snider/Borg v0.3.1
 	forge.lthn.ai/Snider/Poindexter v0.0.3
 	github.com/adrg/xdg v0.5.3
@@ -15,6 +15,8 @@ require (
 )
 
 require (
+	dappco.re/go/inference v0.9.0 // indirect
+	dappco.re/go/process v0.10.0 // indirect
 	github.com/99designs/gqlgen v0.17.88 // indirect
 	github.com/KyleBanks/depth v1.2.1 // indirect
 	github.com/agnivade/levenshtein v1.2.1 // indirect
@@ -109,4 +111,3 @@ require (
 	golang.org/x/crypto v0.50.0
 	golang.org/x/sys v0.43.0
 )
-

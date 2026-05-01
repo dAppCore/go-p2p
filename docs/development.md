@@ -2,7 +2,7 @@
 
 ## Prerequisites
 
-- Go 1.25 or later (the module declares `go 1.25.5`)
+- Go 1.26.2 or later (the module declares `go 1.26.2`)
 - Network access to `forge.lthn.ai` for private dependencies (Borg, Poindexter, Enchantrix)
 - SSH key configured for `git@forge.lthn.ai:2223` (HTTPS auth is not supported on Forge)
 
@@ -11,6 +11,8 @@ Private modules are hosted at `forge.lthn.ai`. Ensure your `GONOSUMCHECK` or `GO
 ## Build and Test
 
 ```bash
+cd go
+
 # Run all tests
 go test ./...
 
@@ -253,7 +255,9 @@ Push to `forge` remote only. GitHub remotes are disabled for push.
 After adding or removing a dependency:
 
 ```bash
+cd go
 go mod tidy
+cd ..
 go work sync   # if working within the go-p2p workspace
 ```
 
