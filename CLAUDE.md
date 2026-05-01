@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-`go-p2p` is the P2P networking layer for the Lethean network. Module path: `forge.lthn.ai/core/go-p2p`
+`go-p2p` is the P2P networking layer for the Lethean network. Module path: `dappco.re/go/p2p`
 
 ## Prerequisites
 
@@ -17,6 +17,7 @@ SSH key must be configured for `git@forge.lthn.ai:2223`. Push to `forge` remote 
 ## Commands
 
 ```bash
+cd go
 go test ./...                    # Run all tests
 go test -run TestName ./...      # Single test
 go test -race ./...              # Race detector (required before any PR)

@@ -9,18 +9,18 @@ tasks:
 
   build:
     desc: Compile every package in go-p2p.
-    dir: ../../..
+    dir: ../../../go
     cmds:
       - GOWORK=off go build ./...
 
   vet:
     desc: Run go vet across the module.
-    dir: ../../..
+    dir: ../../../go
     cmds:
       - GOWORK=off go vet ./...
 
   test:
     desc: Run unit tests.
-    dir: ../../..
+    dir: ../../../go
     cmds:
       - GOWORK=off go test -count=1 ./...
