@@ -64,6 +64,54 @@ func TestBufpool_MarshalJSON_Ugly(t *testing.T) {
 	}
 }
 
+// TestMarshalJSON_RawMessage routes a RawMessage value through MarshalRawJSON.
+func TestMarshalJSON_RawMessage(t *testing.T) {
+	raw := RawMessage(`{"k":"v"}`)
+	data, err := resultValue[[]byte](MarshalJSON(raw))
+	if err != nil {
+		t.Fatalf("MarshalJSON(RawMessage): %v", err)
+	}
+	if !core.Contains(string(data), `"k":"v"`) {
+		t.Fatalf("json: %s", data)
+	}
+}
+
+// TestMarshalJSON_RawMessagePointer routes a *RawMessage through MarshalRawJSON.
+func TestMarshalJSON_RawMessagePointer(t *testing.T) {
+	raw := RawMessage(`{"k":"v"}`)
+	data, err := resultValue[[]byte](MarshalJSON(&raw))
+	if err != nil {
+		t.Fatalf("MarshalJSON(*RawMessage): %v", err)
+	}
+	if !core.Contains(string(data), `"k":"v"`) {
+		t.Fatalf("json: %s", data)
+	}
+}
+
+// TestMarshalJSON_NilRawMessagePointer rejects a nil *RawMessage.
+func TestMarshalJSON_NilRawMessagePointer(t *testing.T) {
+	var raw *RawMessage
+	if _, err := resultValue[[]byte](MarshalJSON(raw)); err == nil {
+		t.Fatal("expected error for nil *RawMessage")
+	}
+}
+
+// TestMarshalJSON_MessageValue routes a Message value (not pointer) through
+// marshalMessageJSON.
+func TestMarshalJSON_MessageValue(t *testing.T) {
+	msg, err := resultValue[*Message](NewMessage(MsgPing, "from", "to", nil))
+	if err != nil {
+		t.Fatalf("new message: %v", err)
+	}
+	data, err := resultValue[[]byte](MarshalJSON(*msg))
+	if err != nil {
+		t.Fatalf("MarshalJSON(Message): %v", err)
+	}
+	if !core.Contains(string(data), `"type":"ping"`) {
+		t.Fatalf("json: %s", data)
+	}
+}
+
 func TestPutBuffer_DiscardsOversizedBuffers(t *testing.T) {
 	t.Run("buffer at 64KB limit is pooled", func(t *testing.T) {
 		buf := getBuffer()

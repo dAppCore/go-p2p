@@ -146,6 +146,22 @@ func TestProtocol_ResponseHandler_ParseResponse_Ugly(t *testing.T) {
 	}
 }
 
+// TestProtocol_ResponseHandler_ParseResponse_PayloadParseFail covers the
+// branch where the response type matches but its payload cannot unmarshal into
+// the target.
+func TestProtocol_ResponseHandler_ParseResponse_PayloadParseFail(t *testing.T) {
+	handler := &ResponseHandler{}
+	// Correct type, but payload is a JSON string that cannot decode into a struct.
+	msg := &Message{Type: MsgStats, From: "from", To: "to", Payload: RawMessage(`"not-a-stats-object"`)}
+	err := resultErr(handler.ParseResponse(msg, MsgStats, &StatsPayload{}))
+	if err == nil {
+		t.Fatal("expected payload-parse failure")
+	}
+	if IsProtocolError(err) {
+		t.Fatal("payload parse failure should not be a protocol error")
+	}
+}
+
 func TestProtocol_ValidateResponse_Good(t *testing.T) {
 	msg, err := resultValue[*Message](NewMessage(MsgPong, "from", "to", PongPayload{}))
 	if err != nil {
