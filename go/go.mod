@@ -103,7 +103,7 @@ require (
 )
 
 require (
-	dappco.re/go v0.10.3
+	dappco.re/go v0.10.4
 	forge.lthn.ai/Snider/Enchantrix v0.0.4 // indirect
 	github.com/ProtonMail/go-crypto v1.4.0 // indirect
 	github.com/cloudflare/circl v1.6.3 // indirect
