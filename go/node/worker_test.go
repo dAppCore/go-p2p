@@ -355,6 +355,42 @@ func TestWorker_HandlePing(t *testing.T) {
 	}
 }
 
+// TestWorker_HandlePing_BadPayload covers the invalid-ping-payload branch:
+// a ping message whose payload cannot unmarshal into PingPayload must yield an
+// error, not a pong.
+func TestWorker_HandlePing_BadPayload(t *testing.T) {
+	cleanup := setupTestEnv(t)
+	defer cleanup()
+
+	dir := t.TempDir()
+	nm, err := resultValue[*NodeManager](NewNodeManagerWithPaths(
+		core.PathJoin(dir, "private.key"),
+		core.PathJoin(dir, "node.json"),
+	))
+	if err != nil {
+		t.Fatalf("create node manager: %v", err)
+	}
+	if err := resultErr(nm.GenerateIdentity("test-worker", RoleWorker)); err != nil {
+		t.Fatalf("generate identity: %v", err)
+	}
+	pr, err := resultValue[*PeerRegistry](NewPeerRegistryWithPath(core.PathJoin(t.TempDir(), "peers.json")))
+	if err != nil {
+		t.Fatalf("create peer registry: %v", err)
+	}
+	worker := NewWorker(nm, NewTransport(nm, pr, DefaultTransportConfig()))
+
+	// A ping message whose payload is a JSON string, not a PingPayload object.
+	badMsg := &Message{
+		Type:    MsgPing,
+		From:    "sender-id",
+		Payload: RawMessage(`"not-a-ping-object"`),
+	}
+
+	if r := worker.handlePing(badMsg); r.OK {
+		t.Fatalf("expected invalid-payload failure, got %#v", r.Value)
+	}
+}
+
 func TestWorker_HandleGetStats(t *testing.T) {
 	cleanup := setupTestEnv(t)
 	defer cleanup()

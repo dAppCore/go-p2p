@@ -263,3 +263,15 @@ func TestReadAndVerify_ManualPacket_PayloadReadError(t *testing.T) {
 		t.Fatalf("want %v, got %v", io.ErrUnexpectedEOF, err)
 	}
 }
+
+// TestMarshalAndSign_OversizedPayload verifies MarshalAndSign propagates the
+// writeTLV "value too large" error when the payload exceeds the 2-byte TLV
+// length limit (65535 bytes).
+func TestMarshalAndSign_OversizedPayload(t *testing.T) {
+	oversized := make([]byte, 65536) // one byte over the limit
+	builder := NewBuilder(0x20, oversized)
+
+	if r := builder.MarshalAndSign(testSecret); r.OK {
+		t.Fatal("expected MarshalAndSign to reject an oversized payload")
+	}
+}
