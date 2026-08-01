@@ -6,7 +6,7 @@ import (
 	"time"
 
 	core "dappco.re/go"
-	"forge.lthn.ai/Snider/Borg/pkg/smsg"
+	"github.com/Snider/Borg/pkg/smsg"
 )
 
 // BenchmarkIdentityGenerate measures Ed25519/X25519 keypair generation and

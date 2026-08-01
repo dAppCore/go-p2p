@@ -13,7 +13,7 @@ import (
 	coreerr "dappco.re/go/log"
 	"dappco.re/go/p2p/logging"
 
-	poindexter "forge.lthn.ai/Snider/Poindexter"
+	poindexter "github.com/Snider/Poindexter"
 	"github.com/adrg/xdg" // Note: intrinsic - XDG data directory resolution; c.Fs() does not expose XDG paths.
 )
 

@@ -13,7 +13,7 @@ import (
 	coreio "dappco.re/go/io"
 	coreerr "dappco.re/go/log"
 
-	"forge.lthn.ai/Snider/Borg/pkg/stmf"
+	"github.com/Snider/Borg/pkg/stmf"
 	"github.com/adrg/xdg" // Note: intrinsic - XDG data directory resolution; c.Fs() does not expose XDG paths.
 	"golang.org/x/sys/unix"
 )

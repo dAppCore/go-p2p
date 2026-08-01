@@ -10,8 +10,8 @@ import (
 	coreio "dappco.re/go/io"
 	coreerr "dappco.re/go/log"
 
-	"forge.lthn.ai/Snider/Borg/pkg/datanode"
-	"forge.lthn.ai/Snider/Borg/pkg/tim"
+	"github.com/Snider/Borg/pkg/datanode"
+	"github.com/Snider/Borg/pkg/tim"
 )
 
 // BundleType defines the type of deployment bundle.
