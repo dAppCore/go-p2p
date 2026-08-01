@@ -399,7 +399,7 @@ func (w *Worker) handleDeploy(conn *PeerConnection, msg *Message) core.Result {
 		}
 		profileData := profileDataResult.Value.([]byte)
 
-		// Unmarshal into interface{} to pass to ProfileManager
+		// Unmarshal into any to pass to ProfileManager
 		var profile any
 		if r := core.JSONUnmarshal(profileData, &profile); !r.OK {
 			err, _ := r.Value.(error)

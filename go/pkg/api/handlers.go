@@ -3,6 +3,7 @@
 package api
 
 import (
+	"maps"
 	"net/http"
 	"time"
 
@@ -210,9 +211,7 @@ func writeNotImplemented(c *gin.Context, operation string, todo string, fields .
 		"todo":      todo,
 	}
 	for _, fieldSet := range fields {
-		for key, value := range fieldSet {
-			body[key] = value
-		}
+		maps.Copy(body, fieldSet)
 	}
 	c.JSON(http.StatusNotImplemented, body)
 }

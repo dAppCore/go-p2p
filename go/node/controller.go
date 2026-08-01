@@ -268,23 +268,21 @@ func (c *Controller) GetAllStats() map[string]*StatsPayload {
 	var wg sync.WaitGroup
 
 	for peer := range c.peers.ConnectedPeers() {
-		wg.Add(1)
-		go func(p *Peer) {
-			defer wg.Done()
-			statsResult := c.GetRemoteStats(p.ID)
+		wg.Go(func() {
+			statsResult := c.GetRemoteStats(peer.ID)
 			if !statsResult.OK {
 				logging.Debug("failed to get stats from peer", logging.Fields{
-					"peer_id": p.ID,
-					"peer":    p.Name,
+					"peer_id": peer.ID,
+					"peer":    peer.Name,
 					"error":   statsResult.Error(),
 				})
 				return // Skip failed peers
 			}
 			stats := statsResult.Value.(*StatsPayload)
 			mu.Lock()
-			results[p.ID] = stats
+			results[peer.ID] = stats
 			mu.Unlock()
-		}(peer)
+		})
 	}
 
 	wg.Wait()

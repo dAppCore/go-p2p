@@ -662,7 +662,7 @@ func (r *PeerRegistry) FindNearby(latitude, longitude float64, hopCount, maxResu
 
 	limit := min(maxResults, len(scored))
 	out := make([]*Peer, 0, limit)
-	for i := 0; i < limit; i++ {
+	for i := range limit {
 		peerCopy := *scored[i].peer
 		out = append(out, &peerCopy)
 	}
