@@ -23,8 +23,8 @@
 package node
 
 import (
-	core "dappco.re/go"
-	coreerr "dappco.re/go/log"
+	core "github.com/dappcore/go"
+	coreerr "github.com/dappcore/go-log/go"
 )
 
 // ServiceOptions configures the node service. Empty paths fall back

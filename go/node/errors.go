@@ -1,6 +1,6 @@
 package node
 
-import coreerr "dappco.re/go/log"
+import coreerr "github.com/dappcore/go-log/go"
 
 // Sentinel errors shared across the node package.
 var (

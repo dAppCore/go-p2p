@@ -8,10 +8,10 @@ import (
 	"sync"
 	"time"
 
-	core "dappco.re/go"
-	coreio "dappco.re/go/io"
-	coreerr "dappco.re/go/log"
-	"dappco.re/go/p2p/logging"
+	core "github.com/dappcore/go"
+	coreio "github.com/dappcore/go-io/go"
+	coreerr "github.com/dappcore/go-log/go"
+	"github.com/dappcore/go-p2p/go/logging"
 
 	poindexter "github.com/Snider/Poindexter"
 	"github.com/adrg/xdg" // Note: intrinsic - XDG data directory resolution; c.Fs() does not expose XDG paths.

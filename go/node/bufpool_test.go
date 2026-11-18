@@ -5,7 +5,7 @@ import (
 	"sync"
 	"testing"
 
-	core "dappco.re/go"
+	core "github.com/dappcore/go"
 )
 
 // --- bufpool.go tests ---

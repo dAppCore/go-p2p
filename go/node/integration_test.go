@@ -2,7 +2,7 @@ package node
 
 import (
 	"bufio"
-	core "dappco.re/go"
+	core "github.com/dappcore/go"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"dappco.re/go/p2p/ueps"
+	"github.com/dappcore/go-p2p/go/ueps"
 )
 
 // ============================================================================

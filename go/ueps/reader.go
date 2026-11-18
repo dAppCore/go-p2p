@@ -7,8 +7,8 @@ import (
 	"encoding/binary"
 	goio "io" // Note: AX-6 intrinsic — io.ReadFull for fixed-length TLV framing; no core wrapper for ReadFull semantics.
 
-	core "dappco.re/go"
-	coreerr "dappco.re/go/log"
+	core "github.com/dappcore/go"
+	coreerr "github.com/dappcore/go-log/go"
 )
 
 // ParsedPacket holds the verified data

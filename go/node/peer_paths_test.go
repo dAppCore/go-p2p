@@ -3,7 +3,7 @@ package node
 import (
 	"testing"
 
-	core "dappco.re/go"
+	core "github.com/dappcore/go"
 )
 
 // TestPeerRegistry_AllowlistRoundTrip persists allowlist entries and reloads

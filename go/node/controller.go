@@ -5,10 +5,10 @@ import (
 	"sync"
 	"time"
 
-	core "dappco.re/go"
-	coreerr "dappco.re/go/log"
+	core "github.com/dappcore/go"
+	coreerr "github.com/dappcore/go-log/go"
 
-	"dappco.re/go/p2p/logging"
+	"github.com/dappcore/go-p2p/go/logging"
 )
 
 // Controller manages remote peer operations from a controller node.

@@ -3,7 +3,7 @@ package logging
 import (
 	"testing"
 
-	core "dappco.re/go"
+	core "github.com/dappcore/go"
 )
 
 type loggerTestBuffer interface {

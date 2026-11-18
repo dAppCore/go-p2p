@@ -4,7 +4,7 @@ import (
 	"crypto/ed25519"
 	"testing"
 
-	core "dappco.re/go"
+	core "github.com/dappcore/go"
 )
 
 // TestEnvelope_DecodeEnvelope_Good decodes a fully-populated signed envelope.

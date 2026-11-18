@@ -4,10 +4,10 @@ import (
 	"encoding/base64"
 	"time"
 
-	core "dappco.re/go"
-	coreerr "dappco.re/go/log"
+	core "github.com/dappcore/go"
+	coreerr "github.com/dappcore/go-log/go"
 
-	"dappco.re/go/p2p/logging"
+	"github.com/dappcore/go-p2p/go/logging"
 	"github.com/adrg/xdg" // Note: intrinsic - XDG data directory resolution; c.Fs() does not expose XDG paths.
 )
 

@@ -8,8 +8,8 @@ package levin
 import (
 	"encoding/binary"
 
-	core "dappco.re/go"
-	coreerr "dappco.re/go/log"
+	core "github.com/dappcore/go"
+	coreerr "github.com/dappcore/go-log/go"
 )
 
 // HeaderSize is the exact byte length of a serialised Levin header.

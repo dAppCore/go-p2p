@@ -3,7 +3,7 @@ package node
 import (
 	"sync"
 
-	core "dappco.re/go"
+	core "github.com/dappcore/go"
 )
 
 type pooledBuffer interface {

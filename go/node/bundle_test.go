@@ -2,7 +2,7 @@ package node
 
 import (
 	"archive/tar"
-	core "dappco.re/go"
+	core "github.com/dappcore/go"
 	"testing"
 )
 

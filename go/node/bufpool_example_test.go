@@ -1,6 +1,6 @@
 package node
 
-import core "dappco.re/go"
+import core "github.com/dappcore/go"
 
 func ExampleMarshalJSON() {
 

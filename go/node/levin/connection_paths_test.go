@@ -7,7 +7,7 @@ import (
 	"net"
 	"testing"
 
-	core "dappco.re/go"
+	core "github.com/dappcore/go"
 )
 
 // TestConnection_ReadPacket_BadSignature rejects a 33-byte header whose

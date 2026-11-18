@@ -1,8 +1,8 @@
 package node
 
 import (
-	core "dappco.re/go"
-	coreerr "dappco.re/go/log"
+	core "github.com/dappcore/go"
+	coreerr "github.com/dappcore/go-log/go"
 )
 
 // ProtocolError represents an error from the remote peer.

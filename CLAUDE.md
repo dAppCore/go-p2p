@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-`go-p2p` is the P2P networking layer for the Lethean network. Module path: `dappco.re/go/p2p`
+`go-p2p` is the P2P networking layer for the Lethean network. Module path: `github.com/dappcore/go-p2p/go`
 
 ## Prerequisites
 

@@ -6,7 +6,7 @@ package levin
 import (
 	"testing"
 
-	core "dappco.re/go"
+	core "github.com/dappcore/go"
 )
 
 // encodeForDecode is a small helper that encodes a section and fails the test

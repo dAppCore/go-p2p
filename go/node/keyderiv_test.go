@@ -3,7 +3,7 @@ package node
 import (
 	"testing"
 
-	core "dappco.re/go"
+	core "github.com/dappcore/go"
 )
 
 // TestKeyderiv_deriveSubKeys_Good derives three distinct sub-keys from a valid

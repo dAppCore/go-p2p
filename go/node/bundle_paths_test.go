@@ -4,7 +4,7 @@ import (
 	"archive/tar"
 	"testing"
 
-	core "dappco.re/go"
+	core "github.com/dappcore/go"
 )
 
 // TestExtractTarball_CorruptArchive rejects bytes that are not a valid tar

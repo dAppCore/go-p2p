@@ -4,8 +4,8 @@
 package api
 
 import (
-	"dappco.re/go/api"
-	p2pnode "dappco.re/go/p2p/node"
+	"github.com/dappcore/api/go"
+	p2pnode "github.com/dappcore/go-p2p/go/node"
 	"github.com/gin-gonic/gin"
 )
 
@@ -149,5 +149,5 @@ func notImplementedSchema() map[string]any {
 	}
 }
 
-// Registration note: core/api consumers should import dappco.re/go/p2p/pkg/api
+// Registration note: core/api consumers should import github.com/dappcore/go-p2p/go/pkg/api
 // and mount api.NewProvider(registry, transport) from the core/api Engine.

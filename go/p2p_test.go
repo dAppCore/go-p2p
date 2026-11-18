@@ -5,7 +5,7 @@ package p2p
 import (
 	"testing"
 
-	core "dappco.re/go"
+	core "github.com/dappcore/go"
 )
 
 // TestNewService_DelegatesToNode verifies the root p2p.NewService

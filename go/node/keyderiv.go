@@ -4,7 +4,7 @@ import (
 	"crypto/hkdf"
 	"crypto/sha256"
 
-	core "dappco.re/go"
+	core "github.com/dappcore/go"
 )
 
 const (
