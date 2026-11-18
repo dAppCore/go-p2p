@@ -6,8 +6,8 @@ import (
 	"sync/atomic"
 	"testing"
 
-	core "dappco.re/go"
-	"dappco.re/go/p2p/ueps"
+	core "github.com/dappcore/go"
+	"github.com/dappcore/go-p2p/go/ueps"
 )
 
 // makePacket builds a minimal ParsedPacket for testing. ThreatScore defaults

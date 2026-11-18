@@ -9,8 +9,8 @@ import (
 	"math"
 	"slices"
 
-	core "dappco.re/go"
-	coreerr "dappco.re/go/log"
+	core "github.com/dappcore/go"
+	coreerr "github.com/dappcore/go-log/go"
 )
 
 // Portable storage signatures and version (9-byte header).

@@ -9,7 +9,7 @@ import (
 	"reflect"
 	"testing"
 
-	core "dappco.re/go"
+	core "github.com/dappcore/go"
 )
 
 // failWriter returns an error after n successful Write calls.

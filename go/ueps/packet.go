@@ -6,8 +6,8 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 
-	core "dappco.re/go"
-	coreerr "dappco.re/go/log"
+	core "github.com/dappcore/go"
+	coreerr "github.com/dappcore/go-log/go"
 )
 
 const uepsMACKeyInfoV1 = "lthn-p2p-mac-v1"

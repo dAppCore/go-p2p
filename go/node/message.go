@@ -4,7 +4,7 @@ import (
 	"slices"
 	"time"
 
-	core "dappco.re/go"
+	core "github.com/dappcore/go"
 
 	"github.com/google/uuid"
 )

@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	core "dappco.re/go"
+	core "github.com/dappcore/go"
 )
 
 // TestNewService_CustomPaths_ConstructsAllComponents verifies the four

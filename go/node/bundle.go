@@ -6,9 +6,9 @@ import (
 	"encoding/hex"
 	"io"
 
-	core "dappco.re/go"
-	coreio "dappco.re/go/io"
-	coreerr "dappco.re/go/log"
+	core "github.com/dappcore/go"
+	coreio "github.com/dappcore/go-io/go"
+	coreerr "github.com/dappcore/go-log/go"
 
 	"github.com/Snider/Borg/pkg/datanode"
 	"github.com/Snider/Borg/pkg/tim"

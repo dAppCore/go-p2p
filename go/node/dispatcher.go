@@ -4,11 +4,11 @@ import (
 	"iter"
 	"sync"
 
-	core "dappco.re/go"
-	coreerr "dappco.re/go/log"
+	core "github.com/dappcore/go"
+	coreerr "github.com/dappcore/go-log/go"
 
-	"dappco.re/go/p2p/logging"
-	"dappco.re/go/p2p/ueps"
+	"github.com/dappcore/go-p2p/go/logging"
+	"github.com/dappcore/go-p2p/go/ueps"
 )
 
 // ThreatScoreThreshold is the maximum allowable threat score. Packets exceeding

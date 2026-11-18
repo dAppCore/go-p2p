@@ -7,7 +7,7 @@ import (
 	"reflect"
 	"testing"
 
-	core "dappco.re/go"
+	core "github.com/dappcore/go"
 )
 
 func TestPackVarint_Value5(t *testing.T) {

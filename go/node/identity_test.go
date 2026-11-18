@@ -3,7 +3,7 @@ package node
 import (
 	"testing"
 
-	core "dappco.re/go"
+	core "github.com/dappcore/go"
 )
 
 // setupTestNodeManager creates a NodeManager with paths in a temp directory.

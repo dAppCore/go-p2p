@@ -6,8 +6,8 @@ package levin
 import (
 	"encoding/binary"
 
-	core "dappco.re/go"
-	coreerr "dappco.re/go/log"
+	core "github.com/dappcore/go"
+	coreerr "github.com/dappcore/go-log/go"
 )
 
 // Size-mark bits occupying the two lowest bits of the first byte.

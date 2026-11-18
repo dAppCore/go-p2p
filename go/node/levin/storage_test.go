@@ -7,7 +7,7 @@ import (
 	"reflect"
 	"testing"
 
-	core "dappco.re/go"
+	core "github.com/dappcore/go"
 )
 
 func requireStorageNoError(t *testing.T, err error) {

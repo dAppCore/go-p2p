@@ -4,7 +4,7 @@ import (
 	"bufio"
 	"crypto/hmac"
 	"crypto/sha256"
-	core "dappco.re/go"
+	core "github.com/dappcore/go"
 	"encoding/binary"
 	"io"
 	"testing"

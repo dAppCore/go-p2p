@@ -4,7 +4,7 @@ import (
 	"bufio"
 	"testing"
 
-	core "dappco.re/go"
+	core "github.com/dappcore/go"
 )
 
 // benchSecret is a deterministic shared secret for reproducible benchmarks.

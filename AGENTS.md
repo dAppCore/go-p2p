@@ -1,7 +1,7 @@
 # go-p2p Agent Guide
 
 This repository contains the P2P transport, identity, and control surface used
-by Lethean services.  The module is `dappco.re/go/p2p`; local development is
+by Lethean services.  The module is `github.com/dappcore/go-p2p/go`; local development is
 expected to run with `GOWORK=off` so the module replacements in `go.mod` point
 at the sibling core repositories consistently.
 
@@ -12,9 +12,9 @@ handling, deployment bundles, and the Levin portable-storage helpers under
 dispatcher.  `logging/` is the package-local logger used by the transport and
 node components.  `pkg/contentbus/` exposes a publish/subscribe API on top of
 the node transport, and `pkg/api/` adapts the P2P controller into the
-`dappco.re/go/api` provider shape.
+`github.com/dappcore/api/go` provider shape.
 
-Use `dappco.re/go` core wrappers for formatting, JSON, paths, filesystem, and
+Use `github.com/dappcore/go` core wrappers for formatting, JSON, paths, filesystem, and
 error helpers in both production code and tests.  Direct imports of the banned
 stdlib packages are intentionally avoided so this repo stays aligned with the
 core/go v0.9 compliance shape.  Tests belong beside their source file:

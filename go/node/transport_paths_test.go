@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	core "dappco.re/go"
+	core "github.com/dappcore/go"
 )
 
 // transportTestSecret is a valid 32-byte shared secret for the transport AEAD.

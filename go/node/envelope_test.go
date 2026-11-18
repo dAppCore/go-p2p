@@ -4,7 +4,7 @@ import (
 	"crypto/ed25519"
 	"testing"
 
-	core "dappco.re/go"
+	core "github.com/dappcore/go"
 )
 
 func TestEnvelope_Envelope_VerifySignature_Good(t *testing.T) {

@@ -19,9 +19,9 @@
 package p2p
 
 import (
-	core "dappco.re/go"
+	core "github.com/dappcore/go"
 
-	"dappco.re/go/p2p/node"
+	"github.com/dappcore/go-p2p/go/node"
 )
 
 // ServiceOptions is the typed input shape for the p2p service —

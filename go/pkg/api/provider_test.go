@@ -3,14 +3,14 @@
 package api
 
 import (
-	core "dappco.re/go"
+	core "github.com/dappcore/go"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
-	coreapi "dappco.re/go/api"
-	coreprovider "dappco.re/go/api/pkg/provider"
-	p2pnode "dappco.re/go/p2p/node"
+	coreapi "github.com/dappcore/api/go"
+	coreprovider "github.com/dappcore/api/go/pkg/provider"
+	p2pnode "github.com/dappcore/go-p2p/go/node"
 	"github.com/gin-gonic/gin"
 )
 

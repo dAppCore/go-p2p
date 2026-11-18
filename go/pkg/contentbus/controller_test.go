@@ -3,11 +3,11 @@
 package contentbus
 
 import (
-	core "dappco.re/go"
+	core "github.com/dappcore/go"
 	"testing"
 	"time"
 
-	p2pnode "dappco.re/go/p2p/node"
+	p2pnode "github.com/dappcore/go-p2p/go/node"
 )
 
 func contentbusResultErr(r core.Result) error {

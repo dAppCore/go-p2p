@@ -15,9 +15,9 @@ import (
 	"sync/atomic"
 	"time"
 
-	core "dappco.re/go"
-	coreerr "dappco.re/go/log"
-	"dappco.re/go/p2p/logging"
+	core "github.com/dappcore/go"
+	coreerr "github.com/dappcore/go-log/go"
+	"github.com/dappcore/go-p2p/go/logging"
 
 	"github.com/gorilla/websocket"
 	"golang.org/x/crypto/chacha20poly1305"

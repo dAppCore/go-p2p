@@ -8,7 +8,7 @@ import (
 	"reflect"
 	"testing"
 
-	core "dappco.re/go"
+	core "github.com/dappcore/go"
 )
 
 func TestHeaderSizeIs33(t *testing.T) {

@@ -5,7 +5,7 @@ import (
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
-	core "dappco.re/go"
+	core "github.com/dappcore/go"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	"dappco.re/go/p2p/logging"
+	"github.com/dappcore/go-p2p/go/logging"
 	"github.com/gorilla/websocket"
 )
 

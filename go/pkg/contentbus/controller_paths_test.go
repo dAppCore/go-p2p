@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	core "dappco.re/go"
-	p2pnode "dappco.re/go/p2p/node"
+	core "github.com/dappcore/go"
+	p2pnode "github.com/dappcore/go-p2p/go/node"
 )
 
 // newRawContentbusController returns the concrete *controller for direct

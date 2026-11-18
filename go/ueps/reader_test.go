@@ -2,7 +2,7 @@ package ueps
 
 import (
 	"bufio"
-	core "dappco.re/go"
+	core "github.com/dappcore/go"
 	"io"
 	"testing"
 )
